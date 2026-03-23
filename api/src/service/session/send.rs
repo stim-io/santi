@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_stream::try_stream;
-use futures::Stream;
+use futures::{Stream, StreamExt};
 use uuid::Uuid;
 
 use crate::{
@@ -13,16 +13,18 @@ use crate::{
     },
     runtime::tools::ToolExecutor,
     service::{
-        openai_compatible::OpenAiCompatibleProvider,
+        openai_compatible::{OpenAiCompatibleProvider, ProviderEvent},
         session::kernel::{
             runtime_prompt::{build_runtime_prompt, RuntimePromptSource},
             transcript,
         },
+        turn::ProviderRequest,
     },
 };
 
 #[derive(Clone)]
 pub struct SessionSendService {
+    model: String,
     session_repo: Arc<SessionRepo>,
     soul_repo: Arc<SoulRepo>,
     message_repo: Arc<MessageRepo>,
@@ -43,6 +45,7 @@ pub enum SendSessionEvent {
 
 impl SessionSendService {
     pub fn new(
+        model: String,
         session_repo: Arc<SessionRepo>,
         soul_repo: Arc<SoulRepo>,
         message_repo: Arc<MessageRepo>,
@@ -51,6 +54,7 @@ impl SessionSendService {
         tools: Arc<ToolExecutor>,
     ) -> Self {
         Self {
+            model,
             session_repo,
             soul_repo,
             message_repo,
@@ -64,6 +68,7 @@ impl SessionSendService {
         &self,
         cmd: SendSessionCommand,
     ) -> impl Stream<Item = Result<SendSessionEvent, String>> {
+        let model = self.model.clone();
         let session_repo = self.session_repo.clone();
         let soul_repo = self.soul_repo.clone();
         let message_repo = self.message_repo.clone();
@@ -72,8 +77,7 @@ impl SessionSendService {
         let tools = self.tools.clone();
 
         try_stream! {
-            let _ = provider;
-            let _ = tools;
+            tracing::info!(session_id = %cmd.session_id, "session send started");
 
             if !session_repo
                 .exists(&cmd.session_id)
@@ -128,6 +132,8 @@ impl SessionSendService {
                 .await
                 .map_err(|err| format!("transaction commit failed: {err}"))?;
 
+            tracing::info!(session_id = %cmd.session_id, message_id = %message.id, session_seq, "user message persisted");
+
             let history = message_repo
                 .list_for_session(&cmd.session_id)
                 .await
@@ -149,8 +155,74 @@ impl SessionSendService {
                 .filter_map(transcript::to_input_message)
                 .collect::<Vec<_>>();
 
-            let _instructions = prompt.render();
-            let _provider_input = provider_input;
+            let instructions = prompt.render();
+
+            tracing::info!(session_id = %cmd.session_id, input_messages = provider_input.len(), model = %model, "provider request dispatched");
+
+            let mut assistant_text = String::new();
+            let mut saw_completed = false;
+            let stream = provider.stream_response(ProviderRequest {
+                model,
+                instructions,
+                input: provider_input,
+                tools: None,
+                previous_response_id: None,
+                function_call_output: None,
+            });
+            futures::pin_mut!(stream);
+
+            while let Some(event) = stream.next().await {
+                match event.map_err(|err| format!("provider stream failed: {err}"))? {
+                    ProviderEvent::OutputTextDelta(delta) => {
+                        assistant_text.push_str(&delta);
+                        yield SendSessionEvent::OutputTextDelta(delta);
+                    }
+                    ProviderEvent::Completed { .. } => {
+                        saw_completed = true;
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+
+            if !saw_completed {
+                Err("provider stream ended before completion".to_string())?;
+            }
+
+            let mut tx = session_repo
+                .begin_tx()
+                .await
+                .map_err(|err| format!("assistant transaction begin failed: {err}"))?;
+
+            let assistant_seq = session_repo
+                .allocate_next_session_seq(&mut tx, &cmd.session_id)
+                .await
+                .map_err(|err| format!("assistant session seq allocation failed: {err}"))?;
+
+            let assistant_message_id = format!("msg_{}", Uuid::new_v4().simple());
+            let assistant_message = message_repo
+                .insert(
+                    &mut tx,
+                    NewMessage {
+                        id: &assistant_message_id,
+                        r#type: "assistant",
+                        role: Some("assistant"),
+                        content: &assistant_text,
+                    },
+                )
+                .await
+                .map_err(|err| format!("assistant message insert failed: {err}"))?;
+
+            relation_repo
+                .attach_message_to_session(&mut tx, &cmd.session_id, &assistant_message.id, assistant_seq)
+                .await
+                .map_err(|err| format!("assistant relation insert failed: {err}"))?;
+
+            tx.commit()
+                .await
+                .map_err(|err| format!("assistant transaction commit failed: {err}"))?;
+
+            tracing::info!(session_id = %cmd.session_id, message_id = %assistant_message.id, session_seq = assistant_seq, output_chars = assistant_text.len(), "session send completed");
 
             yield SendSessionEvent::Completed;
         }

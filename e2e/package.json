@@ -1,0 +1,19 @@
+{
+  "name": "santi-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "devDependencies": {
+    "dotenv": "17.2.3",
+    "typescript": "5.9.3",
+    "vitest": "4.1.0"
+  }
+}

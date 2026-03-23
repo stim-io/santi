@@ -48,6 +48,7 @@ impl AppState {
             config.execution_root.clone(),
         ));
         let session_send = Arc::new(SessionSendService::new(
+            config.openai_model.clone(),
             session_repo.clone(),
             soul_repo.clone(),
             message_repo.clone(),

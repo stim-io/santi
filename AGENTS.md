@@ -19,6 +19,7 @@ Detailed system thinking belongs in `docs/`, not here.
 - `session` is currently a work unit, not a security boundary.
 - HTTP capabilities are currently open; `scope` / `tenant` comes later.
 - `soul_dir` and `session_dir` are normal directories used as unified agent resource spaces.
+- Testing follows an e2e-first strategy: use black-box end-to-end cases to validate the main path, add focused `api/tests` only where e2e reveals weak spots, and keep tracing strong enough to diagnose known classes of failure.
 
 ## Reference Project Index
 
@@ -38,6 +39,8 @@ Detailed system thinking belongs in `docs/`, not here.
 - `docs/system-model.md`: top-level runtime model overview and design principles
 - `docs/runtime-primitives.md`: current core object model and primitive definitions
 - `docs/lifecycle.md`: soul/session lifecycle and fork hook model
+- `docs/dev-environment.md`: local development and e2e environment baseline
+- `docs/dev-faq.md`: local troubleshooting notes for common development and e2e issues
 
 ## Update Rules
 

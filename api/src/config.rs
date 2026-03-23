@@ -5,6 +5,7 @@ pub struct Config {
     pub bind_addr: SocketAddr,
     pub openai_api_key: String,
     pub openai_base_url: String,
+    pub openai_model: String,
     pub database_url: String,
     pub execution_root: String,
     pub runtime_root: String,
@@ -23,6 +24,8 @@ impl Config {
         let openai_base_url =
             env::var("OPENAI_BASE_URL").unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
 
+        let openai_model = env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-5.4".to_string());
+
         let database_url = env::var("DATABASE_URL")
             .unwrap_or_else(|_| "postgres://santi:santi@postgres:5432/santi".to_string());
 
@@ -35,6 +38,7 @@ impl Config {
             bind_addr,
             openai_api_key,
             openai_base_url,
+            openai_model,
             database_url,
             execution_root,
             runtime_root,

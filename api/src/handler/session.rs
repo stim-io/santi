@@ -1,0 +1,247 @@
+use axum::{extract::{Path, State}, http::StatusCode, response::{IntoResponse, Response, Sse}, Json};
+use futures::StreamExt;
+use std::convert::Infallible;
+
+use crate::{handler::session_events::{done_event, encode_session_sse_event}, schema::{common::ErrorResponse, session::{SessionMemoryRequest, SessionMemoryResponse, SessionMessagesResponse, SessionResponse, SessionSendContentPart, SessionSendRequest, SoulMemoryRequest, SoulMemoryResponse, SoulResponse}, session_events::SessionStreamEvent}, service::session::send::{SendSessionCommand, SendSessionEvent}, state::AppState};
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/sessions",
+    tag = "session",
+    responses(
+        (status = 201, description = "Session created", body = SessionResponse)
+    )
+)]
+pub async fn create_session(State(state): State<AppState>) -> impl IntoResponse {
+    match state.session_query().create_session().await {
+        Ok(session) => (StatusCode::CREATED, Json(SessionResponse::from(session))).into_response(),
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new(err)),
+        )
+            .into_response(),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/sessions/{id}",
+    tag = "session",
+    params(
+        ("id" = String, Path, description = "Session id")
+    ),
+    responses(
+        (status = 200, description = "Session found", body = SessionResponse),
+        (status = 404, description = "Session not found", body = ErrorResponse)
+    )
+)]
+pub async fn get_session(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match state.session_query().get_session(&id).await {
+        Ok(Some(session)) => (StatusCode::OK, Json(SessionResponse::from(session))).into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("session not found")),
+        )
+            .into_response(),
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new(err)),
+        )
+            .into_response(),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/sessions/{id}/messages",
+    tag = "session",
+    params(
+        ("id" = String, Path, description = "Session id")
+    ),
+    responses(
+        (status = 200, description = "Session messages", body = SessionMessagesResponse),
+        (status = 404, description = "Session not found", body = ErrorResponse)
+    )
+)]
+pub async fn list_session_messages(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match state.session_query().get_session(&id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("session not found")),
+            )
+                .into_response();
+        }
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new(err)),
+            )
+                .into_response();
+        }
+    }
+
+    match state.session_query().list_session_messages(&id).await {
+        Ok(messages) => (
+            StatusCode::OK,
+            Json(SessionMessagesResponse::from_messages(messages)),
+        )
+            .into_response(),
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new(err)),
+        )
+            .into_response(),
+    }
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/sessions/{id}/memory",
+    tag = "session",
+    params(
+        ("id" = String, Path, description = "Session id")
+    ),
+    request_body(content = SessionMemoryRequest),
+    responses(
+        (status = 200, description = "Session memory updated", body = SessionMemoryResponse),
+        (status = 404, description = "Session not found", body = ErrorResponse)
+    )
+)]
+pub async fn set_session_memory(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(request): Json<SessionMemoryRequest>,
+) -> impl IntoResponse {
+    match state.session_memory().write_session_memory(&id, &request.text).await {
+        Ok(Some(session)) => (
+            StatusCode::OK,
+            Json(SessionMemoryResponse::from(session)),
+        )
+            .into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("session not found")),
+        )
+            .into_response(),
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new(err)),
+        )
+            .into_response(),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/soul",
+    tag = "soul",
+    responses(
+        (status = 200, description = "Default soul", body = SoulResponse),
+        (status = 404, description = "Soul not found", body = ErrorResponse)
+    )
+)]
+pub async fn get_default_soul(State(state): State<AppState>) -> impl IntoResponse {
+    match state.session_query().get_default_soul().await {
+        Ok(Some(soul)) => (StatusCode::OK, Json(SoulResponse::from(soul))).into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("soul not found")),
+        )
+            .into_response(),
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new(err)),
+        )
+            .into_response(),
+    }
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/soul/memory",
+    tag = "soul",
+    request_body(content = SoulMemoryRequest),
+    responses(
+        (status = 200, description = "Soul memory updated", body = SoulMemoryResponse),
+        (status = 404, description = "Soul not found", body = ErrorResponse)
+    )
+)]
+pub async fn set_default_soul_memory(
+    State(state): State<AppState>,
+    Json(request): Json<SoulMemoryRequest>,
+) -> impl IntoResponse {
+    match state.session_memory().write_soul_memory("soul_default", &request.text).await {
+        Ok(Some(soul)) => (
+            StatusCode::OK,
+            Json(SoulMemoryResponse::from(soul)),
+        )
+            .into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("soul not found")),
+        )
+            .into_response(),
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new(err)),
+        )
+            .into_response(),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/sessions/{id}/send",
+    tag = "session",
+    params(
+        ("id" = String, Path, description = "Session id")
+    ),
+    request_body(content = SessionSendRequest),
+    responses(
+        (status = 200, description = "Session send response"),
+        (status = 404, description = "Session not found", body = ErrorResponse)
+    )
+)]
+pub async fn send_session(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(request): Json<SessionSendRequest>,
+) -> Response {
+    let user_content = request
+        .content
+        .into_iter()
+        .map(|part| match part {
+            SessionSendContentPart::Text { text } => text,
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    let stream = state.session_send().run(SendSessionCommand {
+        session_id: id,
+        user_content,
+    })
+        .map(move |result| match result {
+            Ok(event) => Ok::<_, Infallible>(match event {
+                SendSessionEvent::OutputTextDelta(text) => {
+                    encode_session_sse_event(SessionStreamEvent::OutputTextDelta(text))
+                }
+                SendSessionEvent::Completed => encode_session_sse_event(SessionStreamEvent::Completed),
+            }),
+            Err(err) => Ok::<_, Infallible>(axum::response::sse::Event::default().data(
+                serde_json::to_string(&ErrorResponse::new(&err)).unwrap_or_else(|_| {
+                    "{\"error\":{\"message\":\"internal error\"}}".to_string()
+                }),
+            )),
+        })
+        .chain(futures::stream::once(async { Ok::<_, Infallible>(done_event()) }));
+
+    Sse::new(stream).into_response()
+}

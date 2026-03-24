@@ -1,3 +1,15 @@
-api/target
-api/santi.sqlite3
+.git
+target
+**/target
+api/.sqlx
+**/*.sqlite3
+**/.env
+**/.env.*
+.docker-data
+.idea
+.vscode
+runtime
+tmp
+e2e/node_modules
+e2e/tmp
 .DS_Store

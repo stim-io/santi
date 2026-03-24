@@ -21,3 +21,28 @@ Recommended checks:
 Practical rule:
 
 - treat immediate connection failures after restart as service-readiness issues first, not as e2e assertion failures
+
+## Why can `santi/docker-compose.yml up` fail with `port is already allocated`?
+
+This usually means an older local stack is still holding the same host ports.
+
+Common conflicts:
+
+- `15432` for PostgreSQL
+- `18081` for `santi`
+- `18082` for `openai-codex-server`
+- `16379` for Redis
+
+Typical cause:
+
+- an older compose project is still running from another compose file or project root
+
+Recommended checks:
+
+1. run `docker ps --format '{{.Names}} {{.Ports}}'`
+2. identify the container already binding the conflicting port
+3. stop the older stack before starting `santi/docker-compose.yml`
+
+Practical rule:
+
+- treat host-port conflicts as local process/environment issues, not as application bugs

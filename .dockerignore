@@ -1,7 +1,7 @@
 .git
 target
 **/target
-crates/api/.sqlx
+crates/santi-api/.sqlx
 **/*.sqlite3
 **/.env
 **/.env.*

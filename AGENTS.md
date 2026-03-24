@@ -19,7 +19,7 @@ Detailed system thinking belongs in `docs/`, not here.
 - `session` is currently a work unit, not a security boundary.
 - HTTP capabilities are currently open; `scope` / `tenant` comes later.
 - `soul_dir` and `session_dir` are normal directories used as unified agent resource spaces.
-- Testing follows an e2e-first strategy: use black-box end-to-end cases to validate the main path, add focused `crates/api/tests` only where e2e reveals weak spots, and keep tracing strong enough to diagnose known classes of failure.
+- Testing follows an e2e-first strategy: use black-box end-to-end cases to validate the main path, add focused `crates/santi-api/tests` only where e2e reveals weak spots, and keep tracing strong enough to diagnose known classes of failure.
 - `scripts/dev/send.mjs` is the canonical local send helper: create sessions explicitly when needed and always issue session turns strictly sequentially, never concurrently against the same session.
 - concurrent `session/send` on the same session is a fail-fast conflict: return `409`, do not queue, silently serialize, or retry implicitly.
 

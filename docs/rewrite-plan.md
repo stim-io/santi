@@ -28,7 +28,7 @@ This file records the current rewrite baseline so implementation can proceed wit
 ## Backend Layout
 
 ```text
-crates/api/src
+crates/santi-api/src
 ├── main.rs
 ├── lib.rs
 ├── app.rs

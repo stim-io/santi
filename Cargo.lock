@@ -1661,7 +1661,7 @@ dependencies = [
  "axum",
  "futures",
  "reqwest",
- "santi-redis-lock",
+ "santi-lock",
  "serde",
  "serde_json",
  "sqlx",
@@ -1675,7 +1675,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "santi-redis-lock"
+name = "santi-lock"
 version = "0.1.0"
 dependencies = [
  "redis",

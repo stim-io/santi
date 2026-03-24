@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_stream::try_stream;
 use futures::{Stream, StreamExt};
-use santi_redis_lock::{RedisLockClient, RedisLockError};
+use santi_lock::{RedisLockClient, RedisLockError};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 

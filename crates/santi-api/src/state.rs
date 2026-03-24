@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use santi_redis_lock::{RedisLockClient, RedisLockConfig};
+use santi_lock::{RedisLockClient, RedisLockConfig};
 
 use crate::{
     db,

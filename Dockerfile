@@ -10,7 +10,7 @@ RUN apt-get update \
 
 RUN mkdir -p /var/lib/santi/runtime /var/lib/santi /root/.cargo /root/target
 
-WORKDIR /app/crates/api
+WORKDIR /app/crates/santi-api
 
 ENV HOME=/root \
     CARGO_HOME=/root/.cargo \
@@ -24,19 +24,19 @@ ENV HOME=/root \
 
 COPY Cargo.toml /app/Cargo.toml
 COPY Cargo.lock /app/Cargo.lock
-COPY crates/api/Cargo.toml /app/crates/api/Cargo.toml
-COPY crates/redis-lock/Cargo.toml /app/crates/redis-lock/Cargo.toml
-COPY crates/api/src/lib.rs /app/crates/api/src/lib.rs
-COPY crates/api/src/main.rs /app/crates/api/src/main.rs
-COPY crates/redis-lock/src/lib.rs /app/crates/redis-lock/src/lib.rs
+COPY crates/santi-api/Cargo.toml /app/crates/santi-api/Cargo.toml
+COPY crates/santi-lock/Cargo.toml /app/crates/santi-lock/Cargo.toml
+COPY crates/santi-api/src/lib.rs /app/crates/santi-api/src/lib.rs
+COPY crates/santi-api/src/main.rs /app/crates/santi-api/src/main.rs
+COPY crates/santi-lock/src/lib.rs /app/crates/santi-lock/src/lib.rs
 
 RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/root/.cargo/git \
-    cargo fetch --manifest-path /app/crates/api/Cargo.toml --locked
+    cargo fetch --manifest-path /app/crates/santi-api/Cargo.toml --locked
 
-COPY crates/api /app/crates/api
-COPY crates/redis-lock /app/crates/redis-lock
+COPY crates/santi-api /app/crates/santi-api
+COPY crates/santi-lock /app/crates/santi-lock
 
 EXPOSE 8080
 
-CMD ["cargo", "run", "--manifest-path", "/app/crates/api/Cargo.toml"]
+CMD ["cargo", "run", "--manifest-path", "/app/crates/santi-api/Cargo.toml"]

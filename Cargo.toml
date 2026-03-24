@@ -1,7 +1,7 @@
 [workspace]
 members = [
-  "crates/api",
-  "crates/redis-lock",
+  "crates/santi-api",
+  "crates/santi-lock",
 ]
 
 resolver = "2"

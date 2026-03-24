@@ -1,0 +1,11 @@
+[workspace]
+members = [
+  "crates/santi-core",
+  "crates/santi-api",
+  "crates/santi-db",
+  "crates/santi-lock",
+  "crates/santi-provider",
+  "crates/santi-runtime",
+]
+
+resolver = "2"

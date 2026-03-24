@@ -14,9 +14,10 @@ Guarantee that the same session cannot run multiple concurrent send turns.
 
 ## Placement
 
-- put the lock in `service/session/send.rs`
+- keep lock logic at the session-send application layer
+- in the current structure, that means `santi-runtime` owns the session-send integration point
 - do not put lock logic in `handler/`
-- do not hide lock logic inside `runtime/`
+- do not bury lock policy inside low-level runtime helpers
 
 ## Redis Key
 
@@ -62,7 +63,7 @@ Required fields:
 
 ## Local Development
 
-The local root `docker-compose.yml` should eventually add:
+The local `santi/docker-compose.yml` should eventually add:
 
 - `redis` service
 - `REDIS_URL=redis://redis:6379/0` for `santi`

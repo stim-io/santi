@@ -10,8 +10,8 @@
 **/.env
 **/.env.*
 
-/api/.sqlx/
-/api/*.sqlite3
+/crates/santi-api/.sqlx/
+/crates/santi-api/*.sqlite3
 **/*.sqlite3
 
 /soul_default/

@@ -1,6 +1,6 @@
 use sqlx::{PgPool, Postgres, Row, Transaction};
 
-use crate::model::session::Session;
+use santi_core::model::session::Session;
 
 #[derive(Clone)]
 pub struct SessionRepo {

@@ -1,6 +1,6 @@
 use sqlx::{PgPool, Postgres, Row, Transaction};
 
-use crate::model::soul::Soul;
+use santi_core::model::soul::Soul;
 
 #[derive(Clone)]
 pub struct SoulRepo {

@@ -2,8 +2,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use santi_lock::{RedisLockClient, RedisLockConfig};
+use santi_runtime::{
+    runtime::tools::ToolExecutor,
+    session::{memory::SessionMemoryService, query::SessionQueryService, send::SessionSendService},
+};
 
 use crate::{
+    adapter::turn_store::RepoBackedTurnStore,
     db,
     repo::{
         message_repo::MessageRepo,
@@ -11,11 +16,7 @@ use crate::{
         session_repo::SessionRepo,
         soul_repo::SoulRepo,
     },
-    runtime::tools::ToolExecutor,
-    service::{
-        openai_compatible::OpenAiCompatibleProvider,
-        session::{memory::SessionMemoryService, query::SessionQueryService, send::SessionSendService},
-    },
+    service::openai_compatible::OpenAiCompatibleProvider,
 };
 
 #[derive(Clone)]
@@ -57,6 +58,12 @@ impl AppState {
         let soul_repo = Arc::new(SoulRepo::new(pool.clone()));
         let message_repo = Arc::new(MessageRepo::new(pool.clone()));
         let relation_repo = Arc::new(RelationRepo::new());
+        let turn_store = Arc::new(RepoBackedTurnStore::new(
+            session_repo.clone(),
+            soul_repo.clone(),
+            message_repo.clone(),
+            relation_repo.clone(),
+        ));
         let provider = Arc::new(provider);
         let session_memory = Arc::new(SessionMemoryService::new(session_repo.clone(), soul_repo.clone()));
         let session_query = Arc::new(SessionQueryService::new(
@@ -72,10 +79,7 @@ impl AppState {
         let session_send = Arc::new(SessionSendService::new(
             config.openai_model.clone(),
             lock_client,
-            session_repo.clone(),
-            soul_repo.clone(),
-            message_repo.clone(),
-            relation_repo.clone(),
+            turn_store,
             provider.clone(),
             tools.clone(),
         ));

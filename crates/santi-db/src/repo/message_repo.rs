@@ -1,6 +1,6 @@
 use sqlx::{PgPool, Postgres, Row, Transaction};
 
-use crate::model::message::Message;
+use santi_core::model::message::Message;
 
 #[derive(Clone)]
 pub struct MessageRepo {

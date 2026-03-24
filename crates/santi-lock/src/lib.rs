@@ -1,6 +1,7 @@
 use std::{future::Future, sync::{atomic::{AtomicBool, Ordering}, Arc}, time::Duration};
 
 use redis::{aio::MultiplexedConnection, Client, Script};
+use santi_core::{error::LockError, port::lock::{Lock, LockGuard}};
 use tokio::{sync::oneshot, time::{sleep, timeout}};
 use tracing::{debug, warn};
 use uuid::Uuid;
@@ -44,6 +45,15 @@ pub struct RedisLockClient {
     config: RedisLockConfig,
 }
 
+pub struct RedisLockGuard {
+    client: Client,
+    key: String,
+    token: String,
+    lost: Arc<AtomicBool>,
+    shutdown_tx: Option<oneshot::Sender<()>>,
+    renew_task: Option<tokio::task::JoinHandle<()>>,
+}
+
 impl RedisLockClient {
     pub async fn new(redis_url: &str, config: RedisLockConfig) -> Result<Self, RedisLockError> {
         validate_config(&config)?;
@@ -76,9 +86,27 @@ impl RedisLockClient {
         F: FnOnce(LockContext) -> Fut,
         Fut: Future<Output = Result<T, RedisLockError>>,
     {
+        let mut guard = self.acquire_guard(key.into()).await?;
+
+        let context = LockContext {
+            key: guard.key.clone(),
+            token: guard.token.clone(),
+            ttl: self.config.ttl,
+        };
+
+        let result = f(context).await;
+
+        guard.release_inner().await?;
+
+        result
+    }
+
+    pub async fn acquire_guard(
+        &self,
+        key: impl Into<String>,
+    ) -> Result<RedisLockGuard, RedisLockError> {
         let key = self.lock_key(key.into());
         let token = format!("lock_{}", Uuid::new_v4().simple());
-        let token_for_release = token.clone();
         let ttl_ms = self.config.ttl.as_millis().min(u64::MAX as u128) as u64;
 
         debug!(lock_key = %key, ttl_ms, "lock acquire start");
@@ -117,27 +145,14 @@ impl RedisLockClient {
             .await;
         });
 
-        let context = LockContext {
-            key: key.clone(),
+        Ok(RedisLockGuard {
+            client: self.client.clone(),
+            key,
             token,
-            ttl: self.config.ttl,
-        };
-
-        let result = f(context).await;
-
-        let _ = shutdown_tx.send(());
-        let _ = renew_task.await;
-
-        if lost.load(Ordering::SeqCst) {
-            return Err(RedisLockError::Lost { key });
-        }
-
-        match self.release(&key, &token_for_release).await {
-            Ok(()) => debug!(lock_key = %key, "lock release success"),
-            Err(err) => return Err(err),
-        }
-
-        result
+            lost,
+            shutdown_tx: Some(shutdown_tx),
+            renew_task: Some(renew_task),
+        })
     }
 
     fn lock_key(&self, key: String) -> String {
@@ -168,28 +183,6 @@ impl RedisLockClient {
             })
     }
 
-    async fn release(&self, key: &str, token: &str) -> Result<(), RedisLockError> {
-        let mut conn = self.connection().await?;
-        let removed: i32 = release_script()
-            .key(key)
-            .arg(token)
-            .invoke_async(&mut conn)
-            .await
-            .map_err(|err| RedisLockError::Release {
-                key: key.to_string(),
-                message: err.to_string(),
-            })?;
-
-        if removed == 0 {
-            return Err(RedisLockError::Release {
-                key: key.to_string(),
-                message: "lock not owned by current holder".to_string(),
-            });
-        }
-
-        Ok(())
-    }
-
     async fn connection(&self) -> Result<MultiplexedConnection, RedisLockError> {
         self.client
             .get_multiplexed_async_connection()
@@ -197,6 +190,68 @@ impl RedisLockClient {
             .map_err(|err| RedisLockError::Redis {
                 message: err.to_string(),
             })
+    }
+}
+
+impl RedisLockGuard {
+    async fn release_inner(&mut self) -> Result<(), RedisLockError> {
+        if let Some(shutdown_tx) = self.shutdown_tx.take() {
+            let _ = shutdown_tx.send(());
+        }
+        if let Some(renew_task) = self.renew_task.take() {
+            let _ = renew_task.await;
+        }
+
+        if self.lost.load(Ordering::SeqCst) {
+            return Err(RedisLockError::Lost {
+                key: self.key.clone(),
+            });
+        }
+
+        let mut conn = self
+            .client
+            .get_multiplexed_async_connection()
+            .await
+            .map_err(|err| RedisLockError::Redis {
+                message: err.to_string(),
+            })?;
+        let removed: i32 = release_script()
+            .key(&self.key)
+            .arg(&self.token)
+            .invoke_async(&mut conn)
+            .await
+            .map_err(|err| RedisLockError::Release {
+                key: self.key.clone(),
+                message: err.to_string(),
+            })?;
+
+        if removed == 0 {
+            return Err(RedisLockError::Release {
+                key: self.key.clone(),
+                message: "lock not owned by current holder".to_string(),
+            });
+        }
+
+        debug!(lock_key = %self.key, "lock release success");
+        Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl Lock for RedisLockClient {
+    type Guard = RedisLockGuard;
+
+    async fn acquire(&self, key: &str) -> std::result::Result<Self::Guard, LockError> {
+        self.acquire_guard(key.to_string())
+            .await
+            .map_err(map_lock_error)
+    }
+}
+
+#[async_trait::async_trait]
+impl LockGuard for RedisLockGuard {
+    async fn release(mut self) -> std::result::Result<(), LockError> {
+        self.release_inner().await.map_err(map_lock_error)
     }
 }
 
@@ -297,4 +352,14 @@ fn renew_script() -> Script {
         end
         "#,
     )
+}
+
+fn map_lock_error(err: RedisLockError) -> LockError {
+    match err {
+        RedisLockError::Busy { .. } => LockError::Busy,
+        RedisLockError::Lost { .. } => LockError::Lost,
+        RedisLockError::Redis { message }
+        | RedisLockError::Release { message, .. }
+        | RedisLockError::InvalidConfig { message } => LockError::Backend { message },
+    }
 }

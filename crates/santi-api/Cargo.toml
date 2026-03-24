@@ -17,7 +17,11 @@ sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "macro
 uuid = { version = "1", features = ["v4"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+santi-core = { path = "../santi-core" }
+santi-db = { path = "../santi-db" }
+santi-runtime = { path = "../santi-runtime" }
 santi-lock = { path = "../santi-lock" }
+santi-provider = { path = "../santi-provider" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "io-util"] }

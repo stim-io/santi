@@ -44,6 +44,7 @@ Detailed system thinking belongs in `docs/`, not here.
 - `docs/dev-environment.md`: local development and e2e environment baseline
 - `docs/dev-faq.md`: local troubleshooting notes for common development and e2e issues
 - `docs/redis-lock-plan.md`: minimal Redis-based concurrency lock plan for `session/send`
+- `docs/crate-architecture.md`: stable crate layering and refactor guidance
 
 ## Update Rules
 

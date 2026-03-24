@@ -2,6 +2,8 @@
 
 This file records the current rewrite baseline so implementation can proceed without re-deriving the model.
 
+For the stable crate-layering direction, see `docs/crate-architecture.md`.
+
 ## Baseline
 
 - keep the existing top-level directory convention
@@ -27,33 +29,14 @@ This file records the current rewrite baseline so implementation can proceed wit
 
 ## Backend Layout
 
-```text
-crates/santi-api/src
-├── main.rs
-├── lib.rs
-├── app.rs
-├── openapi.rs
-├── telemetry.rs
-├── config.rs
-├── state.rs
-├── db/
-├── repo/
-├── handler/
-├── schema/
-├── model/
-├── service/
-└── runtime/
-```
+Current crate layering is described in `docs/crate-architecture.md`.
 
-Module intent:
+At a high level:
 
-- `handler`: HTTP and SSE surface only
-- `schema`: request/response contracts only
-- `model`: domain objects and invariants
-- `repo`: PostgreSQL + `sqlx` persistence access only
-- `service`: usecase orchestration, organized by domain first and then by usecase
-- `runtime`: system message, session view, provider input, tool runtime
-- `db`: `sqlx` pool, migrations, seed, and DB infrastructure only
+- `santi-core`: models, kernel, ports
+- `santi-db` / `santi-lock` / `santi-provider`: infrastructure adapters
+- `santi-runtime`: application/usecase orchestration
+- `santi-api`: HTTP/SSE transport, schema, config, and AppState composition
 
 ## Phase 1 Scope
 
@@ -97,7 +80,7 @@ Important constraints:
 - render provider input as raw or summary blocks with `<santi-meta>`
 - stream output through SSE
 - persist tool-call facts and final assistant facts in separate short transactions
-- stage the rewrite through `service/session/send.rs` rather than extending the old flat `responses` path
+- stage the rewrite through the runtime session-send path rather than extending the old flat `responses` path
 
 ## Layering Notes
 
@@ -105,11 +88,11 @@ Important constraints:
 - keep `service/` free of direct SQL details
 - keep `db/` focused on pool, migrate, seed, and transaction helpers
 - short-term dual wiring is acceptable, but new persistence work should land in `repo/` first
-- prefer `service/session/send.rs` over flat names like `response_turn.rs` when the usecase clearly belongs to a domain
+- prefer domain-oriented usecase modules in `santi-runtime` over flat transport-local service files
 - avoid process-internal HTTP callbacks; tool-side memory writes should call service/repo paths directly
 - give `session/send` its own SSE/event encoding path instead of reusing `handler/responses.rs`
 - the legacy `/api/v1/responses` path has been removed from the main runtime surface; continue extracting reusable turn kernel pieces into neutral modules
-- move provider request/response loop types toward `service/turn` so provider adapters no longer depend on legacy `responses` naming
+- keep provider request/response loop types in lower adapter crates rather than in `santi-api`
 
 ## Notes
 

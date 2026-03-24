@@ -14,9 +14,10 @@ Guarantee that the same session cannot run multiple concurrent send turns.
 
 ## Placement
 
-- put the lock in `service/session/send.rs`
+- keep lock logic at the session-send application layer
+- in the current structure, that means `santi-runtime` owns the session-send integration point
 - do not put lock logic in `handler/`
-- do not hide lock logic inside `runtime/`
+- do not bury lock policy inside low-level runtime helpers
 
 ## Redis Key
 

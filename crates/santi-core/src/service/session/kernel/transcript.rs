@@ -1,6 +1,6 @@
 use uuid::Uuid;
 
-use crate::{model::message::Message, schema::provider::ProviderInputMessage};
+use crate::{model::message::Message, provider::ProviderInputMessage};
 
 pub fn to_input_message(message: &Message) -> Option<ProviderInputMessage> {
     match message.r#type.as_str() {

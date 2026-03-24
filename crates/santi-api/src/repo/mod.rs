@@ -1,4 +1,1 @@
-pub mod message_repo;
-pub mod relation_repo;
-pub mod session_repo;
-pub mod soul_repo;
+pub use santi_db::repo::{message_repo, relation_repo, session_repo, soul_repo};

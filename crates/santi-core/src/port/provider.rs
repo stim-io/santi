@@ -1,6 +1,7 @@
+use futures::Stream;
 use serde_json::Value;
 
-use crate::schema::provider::ProviderInputMessage;
+use crate::{error::Result, provider::ProviderInputMessage};
 
 #[derive(Clone, Debug)]
 pub struct ProviderRequest {
@@ -16,4 +17,16 @@ pub struct ProviderRequest {
 pub struct FunctionCallOutput {
     pub call_id: String,
     pub output: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ProviderEvent {
+    OutputTextDelta(String),
+    Completed { response_id: Option<String> },
+}
+
+pub trait Provider {
+    type EventStream: Stream<Item = Result<ProviderEvent>> + Send;
+
+    fn stream(&self, request: ProviderRequest) -> Self::EventStream;
 }

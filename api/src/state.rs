@@ -1,4 +1,7 @@
 use std::sync::Arc;
+use std::time::Duration;
+
+use santi_redis_lock::{RedisLockClient, RedisLockConfig};
 
 use crate::{
     db,
@@ -23,14 +26,33 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub async fn new(config: crate::config::Config) -> Self {
+    pub async fn new(
+        config: crate::config::Config,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let provider = OpenAiCompatibleProvider::new(
             config.openai_api_key.clone(),
             config.openai_base_url.clone(),
         );
         let pool = db::init_postgres(&config.database_url)
             .await
-            .expect("postgres init failed");
+            .inspect_err(|err| {
+                tracing::error!(component = "postgres", error = %err, "app state init failed");
+            })?;
+        let lock_client = Arc::new(
+            RedisLockClient::new(
+                &config.redis_url,
+                RedisLockConfig {
+                    ttl: Duration::from_secs(120),
+                    renew_interval: Duration::from_secs(40),
+                    acquire_timeout: Duration::from_millis(500),
+                    key_prefix: None,
+                },
+            )
+            .await
+            .inspect_err(|err| {
+                tracing::error!(component = "redis_lock", error = %err, "app state init failed");
+            })?,
+        );
         let session_repo = Arc::new(SessionRepo::new(pool.clone()));
         let soul_repo = Arc::new(SoulRepo::new(pool.clone()));
         let message_repo = Arc::new(MessageRepo::new(pool.clone()));
@@ -49,6 +71,7 @@ impl AppState {
         ));
         let session_send = Arc::new(SessionSendService::new(
             config.openai_model.clone(),
+            lock_client,
             session_repo.clone(),
             soul_repo.clone(),
             message_repo.clone(),
@@ -57,11 +80,11 @@ impl AppState {
             tools.clone(),
         ));
 
-        Self {
+        Ok(Self {
             session_memory,
             session_query,
             session_send,
-        }
+        })
     }
 
     pub fn session_send(&self) -> Arc<SessionSendService> {

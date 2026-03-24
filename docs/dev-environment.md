@@ -11,12 +11,12 @@ This file records the local development baseline required to run `santi` and its
 ## Required Local Files
 
 - `openai-codex-server/auth.json`
-  - required by the local `openai-codex-server` service in the root `docker-compose.yml`
+  - required by the local `openai-codex-server` service in `santi/docker-compose.yml`
   - should stay local and private
 
 ## Local Stack Baseline
 
-The default local workflow assumes the root `docker-compose.yml` is the source of truth.
+The default local workflow assumes `santi/docker-compose.yml` is the source of truth.
 
 Exposed ports:
 
@@ -28,7 +28,8 @@ Exposed ports:
 
 Typical values for local development:
 
-- `DATABASE_URL=postgres://santi:santi@127.0.0.1:15432/santi`
+- `DATABASE_URL=postgres://santi:santi@127.0.0.1:15432/santi?sslmode=disable`
+- `REDIS_URL=redis://127.0.0.1:16379/0`
 - `OPENAI_BASE_URL=http://127.0.0.1:18082/api/v1`
 - `OPENAI_API_KEY=codex-local-dev`
 - `SANTI_BASE_URL=http://127.0.0.1:18081`

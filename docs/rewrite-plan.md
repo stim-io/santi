@@ -6,7 +6,7 @@ This file records the current rewrite baseline so implementation can proceed wit
 
 - keep the existing top-level directory convention
 - rewrite the backend internals around PostgreSQL + `sqlx`
-- use the root `docker-compose.yml` for local development
+- use `santi/docker-compose.yml` for local development
 - treat the current docs as the source of truth, not the old SQLite implementation
 
 ## Core Model
@@ -22,13 +22,13 @@ This file records the current rewrite baseline so implementation can proceed wit
 ## Local Runtime
 
 - PostgreSQL is the persistence baseline
-- local development runs through the root `docker-compose.yml`
+- local development runs through `santi/docker-compose.yml`
 - streaming responses continue to use SSE
 
 ## Backend Layout
 
 ```text
-api/src
+crates/api/src
 ├── main.rs
 ├── lib.rs
 ├── app.rs

@@ -2,7 +2,7 @@
 
 ## Why can e2e fail with `ECONNREFUSED` or `ECONNRESET` right after restarting `santi`?
 
-When `santi` runs through the local root `docker-compose.yml`, the container starts with `cargo run`.
+When `santi` runs through `santi/docker-compose.yml`, the container starts with `cargo run`.
 After a rebuild or restart, the service may spend noticeable time recompiling before the HTTP server is ready.
 
 During that window, black-box e2e may fail with:

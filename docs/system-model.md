@@ -129,7 +129,7 @@ Reference projects help us choose principles, not implementations.
 - Current runtime snapshot includes `soul.memory` + `session.memory` + request instructions, plus runtime facts rendered through a `<santi-meta>` block.
 - Tool execution remains narrow on purpose; current implementation proves the runtime path before a broader tool system is introduced.
 - Current Codex backend support depends on a local continuation-shim patch in `openai-codex-server` so `santi` can complete its first real tool loop; treat Codex continuation handling as an integration constraint until upstream support lands.
-- Local development should use the root `docker-compose.yml` to bring up PostgreSQL and the supporting services together.
+- Local development should use `santi/docker-compose.yml` to bring up PostgreSQL and the supporting services together.
 - Current bash execution semantics are now real: `bash` runs as a normal child process of `santi` inside the runtime boundary, while `SANTI_RUNTIME_*` paths are exposed separately from the process cwd.
 - `/api/v1/sessions/{id}/send` is now the runtime-facing canonical path for submitting a user turn.
 - `session/send` is the main runtime interface; legacy low-level provider-shaped APIs should not be treated as part of the primary surface.

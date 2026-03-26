@@ -1693,6 +1693,7 @@ dependencies = [
 name = "santi-db"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "santi-core",
  "sqlx",
  "tracing",
@@ -1722,6 +1723,7 @@ dependencies = [
  "santi-core",
  "serde",
  "serde_json",
+ "sha2",
  "tracing",
 ]
 
@@ -1732,10 +1734,8 @@ dependencies = [
  "async-stream",
  "futures",
  "santi-core",
- "santi-db",
- "santi-lock",
- "santi-provider",
  "serde",
+ "serde_json",
  "tokio",
  "tracing",
  "uuid",

@@ -65,7 +65,11 @@ Default stance:
 
 ## `turn`
 
-`turn` means a complete agent response cycle ending in the final finished `assistant` message.
+`turn` means one execution attempt for one `soul_session`.
+
+A successful turn ends in the final finished `assistant` message for that attempt.
+
+A failed turn ends without that final assistant message; the failure is recorded on the `turn` itself.
 
 It may include the full tool-calling cycle inside it, for example:
 
@@ -136,7 +140,7 @@ Why these are enough:
 - `session.created` supports light session initialization
 - `session.forked` records completed fork facts as a derived event
 - `message.committed` is the main durable fact stream and leaves room for message-level hooks when needed later
-- `tool.completed` supports follow-up reactions without exposing too many tool phases
+- `tool.completed` fires when a terminal `tool_result` is persisted, whether success or tool-level failure
 - `turn.completed` is the natural place for threshold-based suggestions such as `memory` or `compact`
 
 At the current stage, `turn.completed` is expected to carry most of the practical hook value.

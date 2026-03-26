@@ -1,3 +1,57 @@
+# Session Message Schema Draft
+
+This file translates `docs/session-message-model-spec.md` into a from-scratch PostgreSQL schema draft.
+
+Assumptions:
+
+- no backward compatibility
+- no transition tables
+- no legacy field preservation
+- preserve existing directory layout and migration style preferences
+
+## Migration Style To Preserve
+
+Observed from `crates/santi-db/src/db/migrations/0001_init.sql`:
+
+- one numbered SQL migration file under `crates/santi-db/src/db/migrations/`
+- wrap the migration in `BEGIN; ... COMMIT;`
+- use explicit named constraints
+- prefer `TEXT` ids over database-generated surrogate ids
+- use `TIMESTAMPTZ NOT NULL DEFAULT NOW()` for timestamps
+- add explicit indexes after table creation
+- keep foreign-key ownership in the business layer rather than the database
+
+## Target Replacement
+
+Replace the current init migration with a new clean-slate init migration, for example:
+
+- `crates/santi-db/src/db/migrations/0001_init.sql`
+
+No compatibility layer is needed.
+
+## Schema Outline
+
+### Public Ledger
+
+- `accounts`
+- `souls`
+- `sessions`
+- `messages`
+- `r_session_messages`
+- `message_events`
+
+### Soul Runtime
+
+- `soul_sessions`
+- `turns`
+- `tool_calls`
+- `tool_results`
+- `compacts`
+- `r_soul_session_messages`
+
+## Draft SQL
+
+```sql
 BEGIN;
 
 CREATE TABLE accounts (
@@ -138,7 +192,8 @@ CREATE TABLE r_soul_session_messages (
     CONSTRAINT r_soul_session_messages_target_type_check CHECK (
         target_type IN ('message', 'compact', 'tool_call', 'tool_result')
     ),
-    CONSTRAINT r_soul_session_messages_soul_session_seq_positive CHECK (soul_session_seq > 0)
+    CONSTRAINT r_soul_session_messages_soul_session_seq_positive CHECK (soul_session_seq > 0),
+    CONSTRAINT r_soul_session_messages_target_id_non_empty CHECK (char_length(target_id) > 0)
 );
 
 CREATE INDEX idx_messages_actor_created_at ON messages (actor_type, actor_id, created_at);
@@ -157,3 +212,35 @@ CREATE INDEX idx_r_soul_session_messages_target_lookup ON r_soul_session_message
 CREATE INDEX idx_r_soul_session_messages_seq ON r_soul_session_messages (soul_session_id, soul_session_seq);
 
 COMMIT;
+```
+
+## Notes To Lock Before Implementation
+
+- `messages.actor_id` stays `TEXT NOT NULL`; exact `system.actor_id` persistence remains a runtime/model decision
+- `sessions` has no participant list and no `soul_id`
+- `soul_sessions` is the only durable `(soul_id, session_id)` runtime container
+- `tool_call`, `tool_result`, and `compact` ownership is derived through `turn_id`
+- `r_soul_session_messages` stays as the only provider-assembly ordering table
+- all cross-table ownership and existence checks live in runtime/repo logic, not SQL foreign keys or triggers
+- target-specific same-`soul_session` validation for `r_soul_session_messages` lives in runtime/repo logic
+- validation of `messages.content.parts[]` item shape should live in runtime/repo logic first rather than SQL
+- turn lifecycle shape stays in runtime logic first rather than SQL state-shape checks
+
+## Business-Layer Integrity Rules
+
+- every referenced `_id` must be existence-checked before write
+- `r_session_messages` writes must verify both `session_id` and `message_id`
+- `message_events` writes must verify `message_id` plus actor legitimacy
+- `soul_sessions` writes must verify both `soul_id` and `session_id`
+- `turns`, `tool_calls`, `tool_results`, and `compacts` must verify their owner chain before write
+- `r_soul_session_messages` must verify that targets resolve into the same `soul_session`
+- `message` targets in `r_soul_session_messages` must already belong to the matching public `session`
+- hard deletes, if ever allowed, must be ordered explicitly in the business layer; do not rely on cascade behavior
+
+## Recommended Build Order
+
+1. Replace `0001_init.sql` with the clean-slate schema above
+2. Update `santi-core` models to match the canonical names exactly
+3. Rebuild `santi-db` stores around the new table ownership rules
+4. Rebuild `session/send` around `turns`, runtime artifacts, and `r_soul_session_messages`
+5. Reconnect e2e specs only after the new schema is the single truth

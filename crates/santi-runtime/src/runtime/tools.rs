@@ -1,8 +1,18 @@
-use serde::{Serialize, Serializer};
+use santi_core::port::provider::{
+    FunctionCallOutput, ProviderFunctionCall, ProviderFunctionTool, ProviderTool,
+};
+use serde::{Deserialize, Serialize, Serializer};
+use serde_json::Value;
 use std::{path::PathBuf, process::Stdio, time::Instant};
 use tokio::{io::AsyncReadExt, process::Command, time::{timeout, Duration}};
 
 use crate::{runtime::context::ToolRuntimeContext, session::memory::SessionMemoryService};
+
+#[derive(Clone, Debug)]
+pub struct ToolExecutorConfig {
+    pub runtime_root: String,
+    pub execution_root: String,
+}
 
 #[derive(Clone)]
 pub struct ToolExecutor {
@@ -11,12 +21,25 @@ pub struct ToolExecutor {
     execution_root: PathBuf,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ToolCallOk {
     pub ok: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
+pub struct ToolDispatchResult {
+    pub tool_name: String,
+    pub ok: bool,
+    pub tool_output: Value,
+    pub function_call_output: FunctionCallOutput,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct WriteSessionMemoryArgs {
+    text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct BashToolInput {
     pub command: String,
     pub cwd: Option<String>,
@@ -55,11 +78,144 @@ pub struct BashToolResult {
 }
 
 impl ToolExecutor {
-    pub fn new(memory_service: SessionMemoryService, runtime_root: String, execution_root: String) -> Self {
+    pub fn new(memory_service: SessionMemoryService, config: ToolExecutorConfig) -> Self {
         Self {
             memory_service,
-            runtime_root: PathBuf::from(runtime_root),
-            execution_root: PathBuf::from(execution_root),
+            runtime_root: PathBuf::from(config.runtime_root),
+            execution_root: PathBuf::from(config.execution_root),
+        }
+    }
+
+    pub fn render_tooling_instructions(&self) -> Option<String> {
+        Some(
+            [
+                "<santi-tools>",
+                "Available tool:",
+                "- write_session_memory(text: string): write a durable memory note for the current session.",
+                "- bash(command: string, cwd?: string): run a local bash command inside the current runtime workspace.",
+                "Rules:",
+                "- When the user explicitly asks you to remember or save something in session memory, you must call write_session_memory before claiming it is saved.",
+                "- When the user asks to save multiple distinct notes, call write_session_memory once per note and do not merge them into one tool call.",
+                "- When multiple distinct notes must be saved in the current turn, emit all required write_session_memory calls in the same response/provider pass before giving the final assistant reply.",
+                "- Preserve user order when emitting multiple write_session_memory calls in the same pass.",
+                "- Use bash when the user asks you to inspect or run something in the local runtime workspace.",
+                "- Prefer a single bash call that contains the exact command sequence needed for the current task.",
+                "- Do not claim memory has been saved unless the tool call has completed.",
+                "- After a successful save, reply briefly and do not repeat the saved content unless the user asks.",
+                "</santi-tools>",
+            ]
+            .join("\n"),
+        )
+    }
+
+    pub fn provider_tools(&self) -> Vec<ProviderTool> {
+        vec![
+            ProviderTool::Function(ProviderFunctionTool {
+                name: "write_session_memory".to_string(),
+                description: "Write a durable memory note for the current session.".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "text": {
+                            "type": "string",
+                            "description": "Memory text to save into the current session."
+                        }
+                    },
+                    "required": ["text"],
+                    "additionalProperties": false
+                }),
+            }),
+            ProviderTool::Function(ProviderFunctionTool {
+                name: "bash".to_string(),
+                description: "Run a local bash command inside the current runtime workspace.".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "command": {
+                            "type": "string",
+                            "description": "The bash command to execute."
+                        },
+                        "cwd": {
+                            "type": "string",
+                            "description": "Optional working directory. Relative paths resolve from the session fallback cwd."
+                        }
+                    },
+                    "required": ["command"],
+                    "additionalProperties": false
+                }),
+            }),
+        ]
+    }
+
+    pub async fn dispatch(
+        &self,
+        ctx: &ToolRuntimeContext,
+        call: &ProviderFunctionCall,
+    ) -> Result<ToolDispatchResult, String> {
+        match call.name.as_str() {
+            "write_session_memory" => {
+                let args: WriteSessionMemoryArgs = match serde_json::from_value(call.arguments.clone()) {
+                    Ok(args) => args,
+                    Err(err) => {
+                        return Ok(build_failed_dispatch_result(
+                            &call.name,
+                            &call.call_id,
+                            format!("invalid write_session_memory arguments: {err}"),
+                        ))
+                    }
+                };
+                let result = match self.write_session_memory(ctx, args.text).await {
+                    Ok(result) => result,
+                    Err(err) => {
+                        return Ok(build_failed_dispatch_result(&call.name, &call.call_id, err))
+                    }
+                };
+                let tool_output = serde_json::to_value(&result)
+                    .map_err(|err| format!("serialize tool output failed: {err}"))?;
+
+                Ok(ToolDispatchResult {
+                    tool_name: call.name.clone(),
+                    ok: true,
+                    function_call_output: FunctionCallOutput {
+                        call_id: call.call_id.clone(),
+                        output: tool_output.to_string(),
+                    },
+                    tool_output,
+                })
+            }
+            "bash" => {
+                let args: BashToolInput = match serde_json::from_value(call.arguments.clone()) {
+                    Ok(args) => args,
+                    Err(err) => {
+                        return Ok(build_failed_dispatch_result(
+                            &call.name,
+                            &call.call_id,
+                            format!("invalid bash arguments: {err}"),
+                        ))
+                    }
+                };
+                let result = match self.bash(ctx, args).await {
+                    Ok(result) => result,
+                    Err(err) => return Ok(build_failed_dispatch_result(&call.name, &call.call_id, err)),
+                };
+                let tool_output = serde_json::to_value(&result)
+                    .map_err(|err| format!("serialize tool output failed: {err}"))?;
+
+                Ok(ToolDispatchResult {
+                    tool_name: call.name.clone(),
+                    ok: true,
+                    function_call_output: FunctionCallOutput {
+                        call_id: call.call_id.clone(),
+                        output: tool_output.to_string(),
+                    },
+                    tool_output,
+                })
+            }
+            name => Ok(build_failed_dispatch_result(
+                name,
+                &call.call_id,
+                format!("unsupported tool: {name}"),
+            )),
         }
     }
 
@@ -173,6 +329,26 @@ impl ToolExecutor {
                 stderr,
             },
         })
+    }
+}
+
+fn build_failed_dispatch_result(tool_name: &str, call_id: &str, message: String) -> ToolDispatchResult {
+    let tool_output = serde_json::json!({
+        "ok": false,
+        "error": {
+            "type": "tool_error",
+            "message": message,
+        }
+    });
+
+    ToolDispatchResult {
+        tool_name: tool_name.to_string(),
+        ok: false,
+        function_call_output: FunctionCallOutput {
+            call_id: call_id.to_string(),
+            output: tool_output.to_string(),
+        },
+        tool_output,
     }
 }
 

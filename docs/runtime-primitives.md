@@ -14,21 +14,28 @@ Non-goal at this layer:
 
 Relationship:
 
-- `<soul> 1:N <session>`
+- `soul` participates in shared `session` ledgers through `soul_sessions`
 
 Design intent:
 
 - keep a stable subject above individual sessions
-- let multiple sessions belong to the same continuing personal agent
+- let the same continuing personal agent participate in multiple sessions
 - avoid treating sessions as the highest-level identity object
 
 ## `message`
 
 `message` is the full-fidelity fact record.
 
-It stores the complete message-layer information for user, assistant, compact, tool, and tool-call events.
+In the new direction, the public session-ledger message should be treated as an actor-authored shared fact rather than a provider transcript row.
 
-`messages` keeps `compact` as a normal message type.
+Current structural direction:
+
+- public message content should be represented directly as `parts[]`
+- first-pass public parts should stay minimal: `text` and `image(base64)`
+- `role` is not a public message primitive
+- `tool_call`, `tool_result`, and `compact` should not be modeled as normal public session-message facts
+- those runtime-facing concepts belong to soul-internal runtime assembly instead
+- public message mutation should be expressed through event actions over `parts[]`, not through provider-facing transcript semantics
 
 ## `session-message pair`
 
@@ -40,20 +47,19 @@ Design intent:
 
 - keep `messages` as the full source of message truth
 - reduce conceptual load on `session`
-- let one message be associated with one or more sessions
-- support compact and fork without forcing a 1:1 session-message model
+- keep public ordering in `r_session_messages` rather than on the message row
+- keep public message facts separate from soul-runtime assembly
 
 ## `snapshot`
 
-`snapshot` is a message-row field aggregation used as a model-facing runtime view.
+`snapshot` is a model-facing runtime projection.
 
 - `system prompt = snapshot([santi one-line identity] + [soul memory] + [session memory], <meta>)`
-- `message = snapshot([raw:(user / assistant / compact / tool / tool_call)], <meta>)`
-- `compact message = snapshot([summary], <meta>)`
+- `message block = snapshot([public message or runtime artifact], <meta>)`
 
 This means the system prompt is not a hard-coded string. It is a generated runtime artifact.
 
-`snapshot` is not a separate top-level persistence object. It is an aggregation view over stored data, centered on message-row fields.
+`snapshot` is not a separate top-level persistence object. It is an aggregation view over public ledger facts, `r_soul_session_messages`, runtime artifacts, and memory.
 
 `meta` is a loose model-facing block, similar to a tagged section such as `<santi-meta>...</santi-meta>`.
 
@@ -67,7 +73,7 @@ Current implementation state:
 - it currently renders identity text, memory text, request instructions, and a small `<santi-meta>` block
 - current meta facts include runtime-discovery fields such as `session_id`, `soul_id`, memory presence flags, `SANTI_RUNTIME_SOUL_DIR`, `SANTI_RUNTIME_SESSION_DIR`, and `fallback_cwd`
 
-Compact introduces non-1:1 mapping between sessions and messages. That complexity remains, but it is isolated in the session-message relation layer rather than being pushed into `session` itself.
+The assembled provider-facing view may mix raw public messages and runtime artifacts, but that complexity belongs in soul-runtime assembly rather than in the public ledger.
 
 ## Memory Model
 
@@ -75,6 +81,11 @@ Two memory layers are exposed as simple native tools.
 
 - `memory.soul(text)`: write long-lived memory
 - `memory.session(text)`: write current-session memory
+
+Current canonical mapping:
+
+- `memory.soul(...)` writes `souls.memory`
+- `memory.session(...)` writes `soul_sessions.session_memory` for the current `soul x session`, not shared public session memory
 
 At the concept level, these primitives stay minimal and stable.
 
@@ -109,143 +120,29 @@ Design intent:
 
 ## Tool Artifacts
 
-`tool_call` and `tool_result` are now persisted as normal message facts.
+`tool_call` and `tool_result` are soul-internal runtime artifacts.
 
-Current implementation stance:
-
-- tool artifacts live in `messages` alongside other message facts
-- tool artifacts are persisted for audit and runtime continuity
-- tool artifacts are not replayed into provider conversational `input`; only normal `user` and `assistant` messages are replayed
-- bash tool results are layered: tool-call metadata such as `feedback_msg` and `duration_ms` wrap a `bash_result` object with `exit_code`, `stdout`, and `stderr`
+- `tool_call` records one immutable tool request
+- `tool_result` records the terminal outcome of that call
+- tool-level failure should be stored directly on `tool_result`
+- turn-level failure should stay on `turn`
+- do not add status wrappers, recovery objects, or metadata envelopes in the first pass
 
 ## Compact Model
 
 - `tools:compact.aggregate(Array<{summary, start_session_seq, end_session_seq}>)`
 - `tools:compact.query(Array<[start_session_seq, end_session_seq]>)`
 
-Compact-specific details live in a separate `compact` table, while the corresponding message still lives in `messages` with `type = compact`.
+`compact` is a soul-internal runtime artifact, not a public message.
 
-Working interpretation:
+`aggregate(...)` creates one immutable compact record.
 
-- `messages` are the raw durable fact stream
-- `query` is the read path over those facts
-- `aggregate(Array<{summary, start_session_seq, end_session_seq}>)` is the compact-generation action
-- `compact` is the persisted single-layer working-state artifact produced by that action
-- `r_compact_messages` is the relation snapshot that records which message facts were folded into a given compact
-
-Core conclusion:
-
-- `compact` is immutable after creation
-- `session` may change which compact segments it currently adopts through relations
-- `compact` interval semantics use `start_session_seq` and `end_session_seq`; a separate `frontier` object is not required in the core model
-- runtime session assembly may legally produce mixed views such as `compact_a + raw_messages + compact_b`
-- when compact reaches the provider boundary, its special semantics should be reinforced through `meta` tags rather than a heavy provider-specific object model
-
-Provider-facing shape:
-
-- raw `user` and `assistant` messages should render as `{raw content} + <santi-meta>...</santi-meta>`
-- `compact` should render as `{summary} + <santi-meta>...</santi-meta>`
-- `compact` should remain a summary block rather than pretending to be a normal conversational turn
-- provider input should preserve session-view order even when the assembled view mixes compact segments and raw message gaps
-- provider-facing role selection for `compact` should remain an evaluation choice; the current working hypothesis is `user` first, then `assistant`, with `system` treated as the strongest and most cautious fallback
-
-Example session view:
-
-- `compact_a(1..4) + raw_messages(5..6) + compact_b(7..9)`
-
-Example provider-facing assembly:
-
-```text
-{summary for compact_a}
-<santi-meta>
-type: compact
-start_session_seq: 1
-end_session_seq: 4
-</santi-meta>
-
-{raw user or assistant message content}
-<santi-meta>
-type: message
-session_seq: 5
-ts: ...
-</santi-meta>
-
-{raw user or assistant message content}
-<santi-meta>
-type: message
-session_seq: 6
-ts: ...
-</santi-meta>
-
-{summary for compact_b}
-<santi-meta>
-type: compact
-start_session_seq: 7
-end_session_seq: 9
-</santi-meta>
-```
-
-Memory and compact priority:
-
-- `memory` belongs to the top-level system message rather than the compact layer
-- the final system message should keep a stable structure such as:
-
-```text
-<one-line santi identity>
-
-<soul_memory/>
-
-<session_memory/>
-
-<santi_meta/>
-```
-
-- `compact` should not replace or absorb this top-level memory structure
-- `compact` is responsible for session-history compression, while `memory` remains the higher-priority runtime context
-
-Sequence semantics:
-
-- `session_seq` is immutable
-- `session_seq` is session-local, not a global message order
-- `compact` is still a normal `message`, and `compact.message.session_seq == compact.start_session_seq`
-- `compact` covers the inclusive session-local interval `[start_session_seq, end_session_seq]`
-- current session assembly may legally interleave compact segments and raw message gaps, for example `compact_a + raw_messages + compact_b`
-
-This means compact should not try to replace raw history, retrieval, and state transition all at once.
-
-Current implementation direction:
-
-- `query` should first behave like a SQL-like `messages` table variant for precise retrieval rather than a semantic-search product
-- `aggregate` should be understood as the act of producing the next compact from selected summary segments, not as a second independent layer beside compact
-- `compact` should be treated as current working-state, not as a prose-first transcript summary
-
-Rules:
-
-- `aggregate` takes `Array<{summary, start_session_seq, end_session_seq}>`
-- if an aggregate input contains existing compact segments, they must be expanded and re-aggregated
-- compacting must remain single-layer; do not keep compact-on-compact chains because that turns working-state continuity into recursive retelling
-- a compact result is still a message object, not a side cache
-- compact creation is immutable; replacing a summary means creating a new compact rather than mutating an old one
-- old compact records are not deleted when newer compact state becomes active
-- active compact state should be derived from current session relations rather than mutable `deprecated` fields on shared objects
-- runtime assembly should prefer the compact state implied by current relations
-- a new compact interval may only be either fully disjoint from an existing compact interval or fully contain it; all partial overlaps are invalid and should fail fast
-- if a new compact fully contains existing child compact segments, keep the child compact objects but remove their current session relations
-- cold-start behavior should stay strict: do not auto-split, auto-trim, auto-merge, or silently reinterpret invalid compact intervals
-
-Quality direction:
-
-- good compact output should separate confirmed facts from open hypotheses
-- good compact output should preserve next actions and current constraints
-- good compact output should keep anchors back to raw messages or session-local ranges for later verification
-- compact should stay inspectable and replaceable, not silently assume perfect truth
-
-Current relation direction:
-
-- use explicit relation names with `r_` prefixes and fully expanded nouns
-- treat `r_session_messages` as the session-local message view
-- treat `r_compact_messages` as the compact source snapshot view
-- avoid introducing separate active-state tables if current compact state can be derived cleanly from relations
+- a compact stores plain summary text plus the inclusive interval `[start_session_seq, end_session_seq]`
+- a compact belongs to the turn that created it
+- a `soul_session` adopts compacts through `r_soul_session_messages`
+- memory stays separate from compact
+- replacing active compact state means creating new compacts and updating relations
+- invalid compact intervals fail
 
 ## Directory Model
 
@@ -272,6 +169,11 @@ Current implementation state:
 
 Product-specific conversation mappings such as chatbot sessions, Feishu conversations, or Slack conversations belong above `santi` and can be adapted by upper layers as needed.
 
+Current model direction:
+
+- `session` is the shared public ledger container
+- `soul_session` is the per-actor runtime container for provider continuity and assembly
+
 ## Runtime Boundary
 
 `santi` should prefer real runtime and operating-system boundaries wherever possible.
@@ -284,3 +186,21 @@ Current stance:
 - if container isolation is used, treat the container as the host boundary for `santi` itself rather than wrapping each tool call in a second container by default
 - `bash` should be modeled as a real subprocess inside the `santi` runtime environment, not as a fake or over-sanitized execution path
 - in the local `docker-compose` baseline, `santi` itself runs as a non-root Unix user and `bash` inherits that runtime identity
+
+## Model-Facing Contract
+
+`santi` should treat the model as the primary user of runtime-facing tool contracts.
+
+Current stance:
+
+- prefer tool shapes, defaults, and return structures that fit the model's stable natural calling habits
+- do not assume prompt tuning can permanently retrain strong model muscle memory
+- if a behavior keeps appearing under plain, reasonable prompting, first treat it as a real usage pattern rather than a model mistake
+- when that stable usage pattern does not violate safety, core semantics, or long-term maintainability, adjust the runtime contract to fit it
+- only push back on model habits when they create a real boundary problem, safety problem, or meaning drift
+
+Example implication for `bash`:
+
+- if the model repeatedly treats `cwd` as a first-class part of shell execution, `santi` should treat that as a real contract expectation
+- evaluation should focus on whether `cwd` resolves safely and predictably, not on whether the model omitted it
+- similarly, shell-style habits like explicit path anchoring or `cd && ...` should be judged first by safety and runtime clarity, not by whether they match an idealized calling style

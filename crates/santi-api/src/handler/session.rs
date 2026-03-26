@@ -1,8 +1,9 @@
 use axum::{extract::{Path, State}, http::StatusCode, response::{IntoResponse, Response, Sse}, Json};
 use futures::StreamExt;
+use santi_runtime::session::send::{SendSessionCommand, SendSessionError, SendSessionEvent};
 use std::convert::Infallible;
 
-use crate::{handler::session_events::{done_event, encode_session_sse_event}, schema::{common::ErrorResponse, session::{SessionMemoryRequest, SessionMemoryResponse, SessionMessagesResponse, SessionResponse, SessionSendContentPart, SessionSendRequest, SoulMemoryRequest, SoulMemoryResponse, SoulResponse}, session_events::SessionStreamEvent}, service::session::send::{SendSessionCommand, SendSessionError, SendSessionEvent}, state::AppState};
+use crate::{handler::session_events::{done_event, encode_session_sse_event}, schema::{common::ErrorResponse, session::{SessionMemoryRequest, SessionMemoryResponse, SessionMessagesResponse, SessionResponse, SessionSendContentPart, SessionSendRequest, SoulMemoryRequest, SoulMemoryResponse, SoulResponse}, session_events::SessionStreamEvent}, state::AppState};
 
 #[utoipa::path(
     post,
@@ -224,54 +225,37 @@ pub async fn send_session(
         .collect::<Vec<_>>()
         .join("\n\n");
 
-    let mut stream = Box::pin(state.session_send().run(SendSessionCommand {
+    let stream = match state.session_send().start(SendSessionCommand {
         session_id: id,
         user_content,
-    }));
-
-    match stream.next().await {
-        Some(Err(SendSessionError::Busy)) => {
+    }).await {
+        Ok(stream) => stream,
+        Err(SendSessionError::Busy) => {
             return (
                 StatusCode::CONFLICT,
                 Json(ErrorResponse::new("session send already in progress")),
             )
                 .into_response();
         }
-        Some(Err(SendSessionError::NotFound)) => {
+        Err(SendSessionError::NotFound) => {
             return (
                 StatusCode::NOT_FOUND,
                 Json(ErrorResponse::new("session not found")),
             )
                 .into_response();
         }
-        Some(Err(SendSessionError::Internal(err))) => {
+        Err(SendSessionError::Internal(err)) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse::new(err)),
             )
                 .into_response();
         }
-        Some(Ok(SendSessionEvent::Started)) => {}
-        Some(Ok(_)) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("invalid session send startup state")),
-            )
-                .into_response();
-        }
-        None => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("session send ended before startup")),
-            )
-                .into_response();
-        }
-    }
+    };
 
     let stream = stream
         .map(move |result| match result {
             Ok(event) => Ok::<_, Infallible>(match event {
-                SendSessionEvent::Started => axum::response::sse::Event::default(),
                 SendSessionEvent::OutputTextDelta(text) => {
                     encode_session_sse_event(SessionStreamEvent::OutputTextDelta(text))
                 }

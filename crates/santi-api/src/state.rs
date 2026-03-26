@@ -1,22 +1,26 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use santi_lock::{RedisLockClient, RedisLockConfig};
-use santi_runtime::{
-    runtime::tools::ToolExecutor,
-    session::{memory::SessionMemoryService, query::SessionQueryService, send::SessionSendService},
+use santi_core::{port::{lock::Lock, provider::Provider, turn_store::TurnStore}};
+use santi_db::adapter::{
+    memory_store::RepoBackedMemoryStore,
+    session_query::RepoBackedSessionQuery,
+    turn_store::RepoBackedTurnStore,
 };
-
-use crate::{
-    adapter::turn_store::RepoBackedTurnStore,
-    db,
+use santi_db::{
+    db::init_postgres,
     repo::{
         message_repo::MessageRepo,
         relation_repo::RelationRepo,
         session_repo::SessionRepo,
         soul_repo::SoulRepo,
     },
-    service::openai_compatible::OpenAiCompatibleProvider,
+};
+use santi_lock::{RedisLockClient, RedisLockConfig};
+use santi_provider::openai_compatible::OpenAiCompatibleProvider;
+use santi_runtime::{
+    runtime::tools::ToolExecutorConfig,
+    session::{memory::SessionMemoryService, query::SessionQueryService, send::SessionSendService},
 };
 
 #[derive(Clone)]
@@ -34,7 +38,7 @@ impl AppState {
             config.openai_api_key.clone(),
             config.openai_base_url.clone(),
         );
-        let pool = db::init_postgres(&config.database_url)
+        let pool = init_postgres(&config.database_url)
             .await
             .inspect_err(|err| {
                 tracing::error!(component = "postgres", error = %err, "app state init failed");
@@ -64,24 +68,34 @@ impl AppState {
             message_repo.clone(),
             relation_repo.clone(),
         ));
-        let provider = Arc::new(provider);
-        let session_memory = Arc::new(SessionMemoryService::new(session_repo.clone(), soul_repo.clone()));
-        let session_query = Arc::new(SessionQueryService::new(
+        let session_query_port = Arc::new(RepoBackedSessionQuery::new(
             session_repo.clone(),
             soul_repo.clone(),
             message_repo.clone(),
         ));
-        let tools = Arc::new(ToolExecutor::new(
-            session_memory.as_ref().clone(),
-            config.runtime_root.clone(),
-            config.execution_root.clone(),
+        let memory_store = Arc::new(RepoBackedMemoryStore::new(
+            session_repo.clone(),
+            soul_repo.clone(),
+        ));
+        let provider = Arc::new(provider);
+        let lock: Arc<dyn Lock> = lock_client;
+        let turn_store: Arc<dyn TurnStore> = turn_store;
+        let provider: Arc<dyn Provider> = provider;
+        let session_memory = Arc::new(SessionMemoryService::new(memory_store));
+        let session_query = Arc::new(SessionQueryService::new(
+            session_query_port,
+            "soul_default".to_string(),
         ));
         let session_send = Arc::new(SessionSendService::new(
             config.openai_model.clone(),
-            lock_client,
+            lock,
             turn_store,
-            provider.clone(),
-            tools.clone(),
+            provider,
+            session_memory.as_ref().clone(),
+            ToolExecutorConfig {
+                runtime_root: config.runtime_root.clone(),
+                execution_root: config.execution_root.clone(),
+            },
         ));
 
         Ok(Self {

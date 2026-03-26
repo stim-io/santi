@@ -127,3 +127,24 @@ The goal is a cleaner long-term architecture, not a perfectly smooth internal mi
 - treat `santi-db`, `santi-lock`, and `santi-provider` as replaceable adapter layers
 - continue shrinking `santi-api` toward transport + wiring only
 - keep `santi-runtime` as the application layer so `santi-api` does not grow back into a permanent application layer
+
+## Runtime-Local Contracts
+
+`santi-runtime` should consume `santi-core` contracts, but `santi-core` should not be forced to model every runtime-local dependency.
+
+Use this rule:
+
+- put stable cross-runtime models and ports in `santi-core`
+- let `santi-runtime` define internal contracts when a dependency is clearly runtime-local
+- only promote a runtime-local contract upward after real repeated friction shows that it is stable and broadly reusable
+
+Example:
+
+- `bash` is not a `santi-core` concern
+- `bash` is a runtime-specific local capability that belongs to runtime strategy and orchestration
+- if `santi-runtime` needs an abstraction around local command execution, that abstraction should start as a runtime-local internal contract rather than a `santi-core` port
+
+This avoids two failure modes:
+
+- polluting `santi-core` with premature execution-specific abstractions
+- forcing `santi-runtime` to depend directly on concrete lower-layer implementations just because a capability is not yet stable enough for `santi-core`

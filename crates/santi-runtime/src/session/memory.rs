@@ -1,17 +1,19 @@
 use std::sync::Arc;
 
-use santi_core::model::{session::Session, soul::Soul};
-use santi_db::repo::{session_repo::SessionRepo, soul_repo::SoulRepo};
+use santi_core::{
+    error::Error,
+    model::{session::Session, soul::Soul},
+    port::memory_store::MemoryStore,
+};
 
 #[derive(Clone)]
 pub struct SessionMemoryService {
-    session_repo: Arc<SessionRepo>,
-    soul_repo: Arc<SoulRepo>,
+    memory_store: Arc<dyn MemoryStore>,
 }
 
 impl SessionMemoryService {
-    pub fn new(session_repo: Arc<SessionRepo>, soul_repo: Arc<SoulRepo>) -> Self {
-        Self { session_repo, soul_repo }
+    pub fn new(memory_store: Arc<dyn MemoryStore>) -> Self {
+        Self { memory_store }
     }
 
     pub async fn write_session_memory(
@@ -19,42 +21,26 @@ impl SessionMemoryService {
         session_id: &str,
         text: &str,
     ) -> Result<Option<Session>, String> {
-        let mut tx = self
-            .session_repo
-            .begin_tx()
+        self.memory_store
+            .write_session_memory(session_id, text)
             .await
-            .map_err(|err| format!("transaction begin failed: {err}"))?;
-
-        let updated = self
-            .session_repo
-            .update_memory(&mut tx, session_id, text)
-            .await
-            .map_err(|err| format!("session memory update failed: {err}"))?;
-
-        tx.commit()
-            .await
-            .map_err(|err| format!("transaction commit failed: {err}"))?;
-
-        Ok(updated)
+            .map_err(render_error)
     }
 
     pub async fn write_soul_memory(&self, soul_id: &str, text: &str) -> Result<Option<Soul>, String> {
-        let mut tx = self
-            .session_repo
-            .begin_tx()
+        self.memory_store
+            .write_soul_memory(soul_id, text)
             .await
-            .map_err(|err| format!("transaction begin failed: {err}"))?;
+            .map_err(render_error)
+    }
+}
 
-        let updated = self
-            .soul_repo
-            .update_memory(&mut tx, soul_id, text)
-            .await
-            .map_err(|err| format!("soul memory update failed: {err}"))?;
-
-        tx.commit()
-            .await
-            .map_err(|err| format!("transaction commit failed: {err}"))?;
-
-        Ok(updated)
+fn render_error(err: Error) -> String {
+    match err {
+        Error::NotFound { resource } => format!("{resource} not found"),
+        Error::Busy { resource } => format!("{resource} busy"),
+        Error::InvalidInput { message } => message,
+        Error::Upstream { message } => message,
+        Error::Internal { message } => message,
     }
 }

@@ -42,9 +42,15 @@ Detailed system thinking belongs in `docs/`, not here.
 - `docs/runtime-primitives.md`: current core object model and primitive definitions
 - `docs/lifecycle.md`: soul/session lifecycle and fork hook model
 - `docs/dev-environment.md`: local development and e2e environment baseline
+- `docs/dev-specs/README.md`: index for unstable manual dev specs and smoke validation scenarios
 - `docs/dev-faq.md`: local troubleshooting notes for common development and e2e issues
 - `docs/redis-lock-plan.md`: minimal Redis-based concurrency lock plan for `session/send`
 - `docs/crate-architecture.md`: stable crate layering and refactor guidance
+- `docs/provider-gateway.md`: boundary between thin upstream auth gateway and `santi-provider` protocol ownership
+- `docs/stim-santi-boundary.md`: high-level product boundary between public session ledger and soul runtime
+- `docs/session-message-actor-model.md`: first-pass actor-based structure for session, message, and soul-internal runtime separation
+- `docs/session-message-model-spec.md`: current implementation-oriented draft for the rebuilt ledger and soul runtime model
+- `docs/design-notes.md`: high-level design fragments that are worth keeping but not yet stable enough to treat as current truth
 
 ## Update Rules
 

@@ -38,6 +38,7 @@ impl RepoBackedTurnStore {
     }
 }
 
+#[async_trait::async_trait]
 impl TurnStore for RepoBackedTurnStore {
     async fn load_turn_context(
         &self,

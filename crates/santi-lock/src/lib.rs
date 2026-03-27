@@ -239,18 +239,17 @@ impl RedisLockGuard {
 
 #[async_trait::async_trait]
 impl Lock for RedisLockClient {
-    type Guard = RedisLockGuard;
-
-    async fn acquire(&self, key: &str) -> std::result::Result<Self::Guard, LockError> {
+    async fn acquire(&self, key: &str) -> std::result::Result<Box<dyn LockGuard + Send>, LockError> {
         self.acquire_guard(key.to_string())
             .await
+            .map(|guard| Box::new(guard) as Box<dyn LockGuard + Send>)
             .map_err(map_lock_error)
     }
 }
 
 #[async_trait::async_trait]
 impl LockGuard for RedisLockGuard {
-    async fn release(mut self) -> std::result::Result<(), LockError> {
+    async fn release(mut self: Box<Self>) -> std::result::Result<(), LockError> {
         self.release_inner().await.map_err(map_lock_error)
     }
 }

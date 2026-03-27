@@ -6,17 +6,29 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         bash \
         ca-certificates \
+        gh \
+        git \
+        nodejs \
+        npm \
     && rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g pnpm
+
+RUN ln -sf /usr/local/cargo/bin/cargo /usr/local/bin/cargo \
+    && ln -sf /usr/local/cargo/bin/rustc /usr/local/bin/rustc \
+    && ln -sf /usr/local/cargo/bin/rustup /usr/local/bin/rustup
 
 RUN mkdir -p /var/lib/santi/runtime /var/lib/santi /root/.cargo /root/target
 
 WORKDIR /app/crates/santi-api
 
 ENV HOME=/root \
+    PATH=/usr/local/cargo/bin:${PATH} \
     CARGO_HOME=/root/.cargo \
     CARGO_TARGET_DIR=/root/target \
     CARGO_INCREMENTAL=1 \
     BIND_ADDR=0.0.0.0:8080 \
+    SANTI_BASE_URL=http://127.0.0.1:8080 \
     DATABASE_URL=postgres://santi:santi@postgres:5432/santi?sslmode=disable \
     EXECUTION_ROOT=/app \
     RUNTIME_ROOT=/var/lib/santi/runtime \

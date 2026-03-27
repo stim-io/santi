@@ -11,9 +11,6 @@ pub struct RuntimePromptMeta {
     pub has_soul_memory: bool,
     pub has_session_memory: bool,
     pub has_request_instructions: bool,
-    pub santi_runtime_soul_dir: Option<String>,
-    pub santi_runtime_session_dir: Option<String>,
-    pub fallback_cwd: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -23,9 +20,6 @@ pub struct RuntimePromptSource {
     pub soul_memory: Option<String>,
     pub session_memory: Option<String>,
     pub request_instructions: Option<String>,
-    pub santi_runtime_soul_dir: Option<String>,
-    pub santi_runtime_session_dir: Option<String>,
-    pub fallback_cwd: Option<String>,
 }
 
 pub fn build_runtime_prompt(source: RuntimePromptSource) -> RuntimePrompt {
@@ -54,9 +48,6 @@ pub fn build_runtime_prompt(source: RuntimePromptSource) -> RuntimePrompt {
             has_soul_memory: soul_memory.is_some(),
             has_session_memory: session_memory.is_some(),
             has_request_instructions: request_instructions.is_some(),
-            santi_runtime_soul_dir: source.santi_runtime_soul_dir,
-            santi_runtime_session_dir: source.santi_runtime_session_dir,
-            fallback_cwd: source.fallback_cwd,
         },
         sections,
     }
@@ -85,15 +76,6 @@ impl RuntimePrompt {
             "has_request_instructions: {}",
             self.meta.has_request_instructions
         ));
-        if let Some(path) = self.meta.santi_runtime_soul_dir.as_deref() {
-            meta_lines.push(format!("SANTI_RUNTIME_SOUL_DIR: {}", path));
-        }
-        if let Some(path) = self.meta.santi_runtime_session_dir.as_deref() {
-            meta_lines.push(format!("SANTI_RUNTIME_SESSION_DIR: {}", path));
-        }
-        if let Some(path) = self.meta.fallback_cwd.as_deref() {
-            meta_lines.push(format!("fallback_cwd: {}", path));
-        }
 
         if !meta_lines.is_empty() {
             parts.push(format!(

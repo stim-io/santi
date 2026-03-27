@@ -19,7 +19,7 @@ Detailed system thinking belongs in `docs/`, not here.
 - `session` is currently a work unit, not a security boundary.
 - HTTP capabilities are currently open; `scope` / `tenant` comes later.
 - `soul_dir` and `session_dir` are normal directories used as unified agent resource spaces.
-- Testing follows an e2e-first strategy: use black-box end-to-end cases to validate the main path, add focused `crates/santi-api/tests` only where e2e reveals weak spots, and keep tracing strong enough to diagnose known classes of failure.
+- Testing should start from executable smoke and integration checks on the main path, add focused `crates/santi-api/tests` only where those checks reveal weak spots, and keep tracing strong enough to diagnose known classes of failure.
 - `scripts/dev/send.mjs` is the canonical local send helper: create sessions explicitly when needed and always issue session turns strictly sequentially, never concurrently against the same session.
 - concurrent `session/send` on the same session is a fail-fast conflict: return `409`, do not queue, silently serialize, or retry implicitly.
 
@@ -41,10 +41,16 @@ Detailed system thinking belongs in `docs/`, not here.
 - `docs/system-model.md`: top-level runtime model overview and design principles
 - `docs/runtime-primitives.md`: current core object model and primitive definitions
 - `docs/lifecycle.md`: soul/session lifecycle and fork hook model
-- `docs/dev-environment.md`: local development and e2e environment baseline
-- `docs/dev-faq.md`: local troubleshooting notes for common development and e2e issues
+- `docs/dev-environment.md`: local development baseline and smoke entrypoints
+- `docs/dev-specs/README.md`: index for unstable manual dev specs and smoke validation scenarios
+- `docs/dev-faq.md`: local troubleshooting notes for common development and smoke/integration issues
 - `docs/redis-lock-plan.md`: minimal Redis-based concurrency lock plan for `session/send`
 - `docs/crate-architecture.md`: stable crate layering and refactor guidance
+- `docs/provider-gateway.md`: boundary between thin upstream auth gateway and `santi-provider` protocol ownership
+- `docs/stim-santi-boundary.md`: high-level product boundary between public session ledger and soul runtime
+- `docs/session-message-actor-model.md`: first-pass actor-based structure for session, message, and soul-internal runtime separation
+- `docs/session-message-model-spec.md`: current implementation-oriented draft for the rebuilt ledger and soul runtime model
+- `docs/design-notes.md`: high-level design fragments that are worth keeping but not yet stable enough to treat as current truth
 
 ## Update Rules
 

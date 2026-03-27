@@ -8,7 +8,7 @@ For the stable crate-layering direction, see `docs/crate-architecture.md`.
 
 - keep the existing top-level directory convention
 - rewrite the backend internals around PostgreSQL + `sqlx`
-- use `santi/docker-compose.yml` for local development
+- use the repository root `docker-compose.yml` for local development
 - treat the current docs as the source of truth, not the old SQLite implementation
 
 ## Core Model
@@ -24,7 +24,7 @@ For the stable crate-layering direction, see `docs/crate-architecture.md`.
 ## Local Runtime
 
 - PostgreSQL is the persistence baseline
-- local development runs through `santi/docker-compose.yml`
+- local development runs through the repository root `docker-compose.yml`
 - streaming responses continue to use SSE
 
 ## Backend Layout
@@ -81,6 +81,11 @@ Important constraints:
 - stream output through SSE
 - persist tool-call facts and final assistant facts in separate short transactions
 - stage the rewrite through the runtime session-send path rather than extending the old flat `responses` path
+
+Current phase-1 implementation note:
+
+- first re-establish the correct `session_ledger + soul_runtime` service skeleton, even if that temporarily narrows `session/send` to a no-tool completion path before the full turn/tool/compact loop is rebuilt
+- `turn` should move back into the `session/send` main path as soon as possible; it is the execution boundary even when the tool loop remains temporarily disabled
 
 ## Layering Notes
 

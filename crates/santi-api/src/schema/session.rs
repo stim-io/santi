@@ -1,7 +1,12 @@
 use serde::Serialize;
 use utoipa::ToSchema;
 
-use crate::model::{message::Message, session::Session, soul::Soul};
+use crate::model::{
+    message::MessagePart,
+    runtime::SoulSession,
+    session::{Session, SessionMessage},
+    soul::Soul,
+};
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
 pub struct SessionResponse {
@@ -50,11 +55,11 @@ impl From<Session> for SessionResponse {
     }
 }
 
-impl From<Session> for SessionMemoryResponse {
-    fn from(value: Session) -> Self {
+impl From<SoulSession> for SessionMemoryResponse {
+    fn from(value: SoulSession) -> Self {
         Self {
             id: value.id,
-            memory: value.memory,
+            memory: value.session_memory,
             updated_at: value.updated_at,
         }
     }
@@ -84,9 +89,11 @@ impl From<Soul> for SoulMemoryResponse {
 #[derive(Clone, Debug, Serialize, ToSchema)]
 pub struct SessionMessageResponse {
     pub id: String,
-    pub r#type: String,
-    pub role: Option<String>,
-    pub content: String,
+    pub actor_type: String,
+    pub actor_id: String,
+    pub session_seq: i64,
+    pub content_text: String,
+    pub state: String,
     pub created_at: String,
 }
 
@@ -107,20 +114,32 @@ pub struct SessionMessagesResponse {
     pub messages: Vec<SessionMessageResponse>,
 }
 
-impl From<Message> for SessionMessageResponse {
-    fn from(value: Message) -> Self {
+impl From<SessionMessage> for SessionMessageResponse {
+    fn from(value: SessionMessage) -> Self {
         Self {
-            id: value.id,
-            r#type: value.r#type,
-            role: value.role,
-            content: value.content,
-            created_at: value.created_at,
+            id: value.message.id,
+            actor_type: format!("{:?}", value.message.actor_type).to_lowercase(),
+            actor_id: value.message.actor_id,
+            session_seq: value.relation.session_seq,
+            content_text: value
+                .message
+                .content
+                .parts
+                .iter()
+                .filter_map(|part| match part {
+                    MessagePart::Text { text } => Some(text.as_str()),
+                    MessagePart::Image { .. } => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n\n"),
+            state: format!("{:?}", value.message.state).to_lowercase(),
+            created_at: value.message.created_at,
         }
     }
 }
 
 impl SessionMessagesResponse {
-    pub fn from_messages(messages: Vec<Message>) -> Self {
+    pub fn from_messages(messages: Vec<SessionMessage>) -> Self {
         Self {
             messages: messages
                 .into_iter()

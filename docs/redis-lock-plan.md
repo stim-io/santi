@@ -63,7 +63,7 @@ Required fields:
 
 ## Local Development
 
-The local `santi/docker-compose.yml` should eventually add:
+The local root `docker-compose.yml` should include:
 
 - `redis` service
 - `REDIS_URL=redis://redis:6379/0` for `santi`

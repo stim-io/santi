@@ -1,60 +1,62 @@
 use std::sync::Arc;
 
-use santi_core::model::{session::Session, soul::Soul};
-use santi_db::repo::{session_repo::SessionRepo, soul_repo::SoulRepo};
+use santi_core::{
+    error::Error,
+    model::{runtime::SoulSession, soul::Soul},
+    port::{soul::SoulPort, soul_runtime::SoulRuntimePort},
+};
 
 #[derive(Clone)]
 pub struct SessionMemoryService {
-    session_repo: Arc<SessionRepo>,
-    soul_repo: Arc<SoulRepo>,
+    soul_runtime: Arc<dyn SoulRuntimePort>,
+    soul_port: Arc<dyn SoulPort>,
+    default_soul_id: String,
 }
 
 impl SessionMemoryService {
-    pub fn new(session_repo: Arc<SessionRepo>, soul_repo: Arc<SoulRepo>) -> Self {
-        Self { session_repo, soul_repo }
+    pub fn new(
+        soul_runtime: Arc<dyn SoulRuntimePort>,
+        soul_port: Arc<dyn SoulPort>,
+        default_soul_id: String,
+    ) -> Self {
+        Self {
+            soul_runtime,
+            soul_port,
+            default_soul_id,
+        }
     }
 
     pub async fn write_session_memory(
         &self,
         session_id: &str,
         text: &str,
-    ) -> Result<Option<Session>, String> {
-        let mut tx = self
-            .session_repo
-            .begin_tx()
+    ) -> Result<Option<SoulSession>, String> {
+        let soul_session = self
+            .soul_runtime
+            .get_or_create_soul_session(&self.default_soul_id, session_id)
             .await
-            .map_err(|err| format!("transaction begin failed: {err}"))?;
+            .map_err(render_error)?;
 
-        let updated = self
-            .session_repo
-            .update_memory(&mut tx, session_id, text)
+        self.soul_runtime
+            .write_session_memory(&soul_session.id, text)
             .await
-            .map_err(|err| format!("session memory update failed: {err}"))?;
-
-        tx.commit()
-            .await
-            .map_err(|err| format!("transaction commit failed: {err}"))?;
-
-        Ok(updated)
+            .map_err(render_error)
     }
 
     pub async fn write_soul_memory(&self, soul_id: &str, text: &str) -> Result<Option<Soul>, String> {
-        let mut tx = self
-            .session_repo
-            .begin_tx()
+        self.soul_port
+            .write_soul_memory(soul_id, text)
             .await
-            .map_err(|err| format!("transaction begin failed: {err}"))?;
+            .map_err(render_error)
+    }
+}
 
-        let updated = self
-            .soul_repo
-            .update_memory(&mut tx, soul_id, text)
-            .await
-            .map_err(|err| format!("soul memory update failed: {err}"))?;
-
-        tx.commit()
-            .await
-            .map_err(|err| format!("transaction commit failed: {err}"))?;
-
-        Ok(updated)
+fn render_error(err: Error) -> String {
+    match err {
+        Error::NotFound { resource } => format!("{resource} not found"),
+        Error::Busy { resource } => format!("{resource} busy"),
+        Error::InvalidInput { message } => message,
+        Error::Upstream { message } => message,
+        Error::Internal { message } => message,
     }
 }

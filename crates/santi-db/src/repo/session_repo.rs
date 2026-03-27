@@ -1,14 +1,13 @@
 use sqlx::{PgPool, Postgres, Row, Transaction};
 
-use santi_core::model::session::Session;
+
 
 #[derive(Clone)]
 pub struct SessionRepo {
     pool: PgPool,
 }
 
-impl SessionRepo {
-    pub fn new(pool: PgPool) -> Self {
+#[derive(Clone, Debug)]\npub struct RepoSession {\n    pub id: String,\n    pub soul_id: String,\n    pub memory: String,\n    pub created_at: String,\n    pub updated_at: String,\n}\n\nimpl SessionRepo {\n    pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 
@@ -38,13 +37,7 @@ impl SessionRepo {
         .fetch_one(&self.pool)
         .await?;
 
-        Ok(Session {
-            id: row.get("id"),
-            soul_id: row.get("soul_id"),
-            memory: row.get("memory"),
-            created_at: row.get("created_at"),
-            updated_at: row.get("updated_at"),
-        })
+        Ok(RepoSession {\n            id: row.get(\"id\"),\n            soul_id: row.get(\"soul_id\"),\n            memory: row.get(\"memory\"),\n            created_at: row.get(\"created_at\"),\n            updated_at: row.get(\"updated_at\"),\n        })
     }
 }
 
@@ -67,13 +60,7 @@ impl SessionRepo {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(row.map(|row| Session {
-            id: row.get("id"),
-            soul_id: row.get("soul_id"),
-            memory: row.get("memory"),
-            created_at: row.get("created_at"),
-            updated_at: row.get("updated_at"),
-        }))
+        Ok(row.map(|row| RepoSession {\n            id: row.get(\"id\"),\n            soul_id: row.get(\"soul_id\"),\n            memory: row.get(\"memory\"),\n            created_at: row.get(\"created_at\"),\n            updated_at: row.get(\"updated_at\"),\n        }))
     }
 
     pub async fn exists(&self, session_id: &str) -> Result<bool, sqlx::Error> {
@@ -139,12 +126,6 @@ impl SessionRepo {
         .fetch_optional(&mut **tx)
         .await?;
 
-        Ok(row.map(|row| Session {
-            id: row.get("id"),
-            soul_id: row.get("soul_id"),
-            memory: row.get("memory"),
-            created_at: row.get("created_at"),
-            updated_at: row.get("updated_at"),
-        }))
+        Ok(row.map(|row| RepoSession {\n            id: row.get(\"id\"),\n            soul_id: row.get(\"soul_id\"),\n            memory: row.get(\"memory\"),\n            created_at: row.get(\"created_at\"),\n            updated_at: row.get(\"updated_at\"),\n        }))
     }
 }

@@ -7,9 +7,7 @@ edition = "2021"
 async-stream = "0.3"
 futures = "0.3"
 santi-core = { path = "../santi-core" }
-santi-db = { path = "../santi-db" }
-santi-lock = { path = "../santi-lock" }
-santi-provider = { path = "../santi-provider" }
+serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"

@@ -2,33 +2,49 @@ use std::sync::Arc;
 
 use santi_core::{
     error::Error,
-    model::{session::Session, soul::Soul},
-    port::memory_store::MemoryStore,
+    model::{runtime::SoulSession, soul::Soul},
+    port::{soul::SoulPort, soul_runtime::SoulRuntimePort},
 };
 
 #[derive(Clone)]
 pub struct SessionMemoryService {
-    memory_store: Arc<dyn MemoryStore>,
+    soul_runtime: Arc<dyn SoulRuntimePort>,
+    soul_port: Arc<dyn SoulPort>,
+    default_soul_id: String,
 }
 
 impl SessionMemoryService {
-    pub fn new(memory_store: Arc<dyn MemoryStore>) -> Self {
-        Self { memory_store }
+    pub fn new(
+        soul_runtime: Arc<dyn SoulRuntimePort>,
+        soul_port: Arc<dyn SoulPort>,
+        default_soul_id: String,
+    ) -> Self {
+        Self {
+            soul_runtime,
+            soul_port,
+            default_soul_id,
+        }
     }
 
     pub async fn write_session_memory(
         &self,
         session_id: &str,
         text: &str,
-    ) -> Result<Option<Session>, String> {
-        self.memory_store
-            .write_session_memory(session_id, text)
+    ) -> Result<Option<SoulSession>, String> {
+        let soul_session = self
+            .soul_runtime
+            .get_or_create_soul_session(&self.default_soul_id, session_id)
+            .await
+            .map_err(render_error)?;
+
+        self.soul_runtime
+            .write_session_memory(&soul_session.id, text)
             .await
             .map_err(render_error)
     }
 
     pub async fn write_soul_memory(&self, soul_id: &str, text: &str) -> Result<Option<Soul>, String> {
-        self.memory_store
+        self.soul_port
             .write_soul_memory(soul_id, text)
             .await
             .map_err(render_error)

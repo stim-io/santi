@@ -1,0 +1,334 @@
+use sqlx::{postgres::PgRow, PgPool, Row};
+
+use santi_core::{
+    error::{Error, Result},
+    model::{
+        message::{ActorType, Message, MessageContent, MessageEventPayload, MessageState},
+        session::{Session, SessionMessage, SessionMessageRef},
+    },
+    port::session_ledger::{ApplyMessageEvent, AppendSessionMessage, SessionLedgerPort},
+};
+
+#[derive(Clone)]
+pub struct DbSessionLedger {
+    pool: PgPool,
+}
+
+impl DbSessionLedger {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait::async_trait]
+impl SessionLedgerPort for DbSessionLedger {
+    async fn create_session(&self, session_id: &str) -> Result<Session> {
+        let row = sqlx::query(
+            r#"
+            INSERT INTO sessions (id)
+            VALUES ($1)
+            RETURNING
+                id,
+                to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
+                to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at
+            "#,
+        )
+        .bind(session_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|err| Error::Internal {
+            message: format!("session create failed: {err}"),
+        })?;
+
+        Ok(Session {
+            id: row.get("id"),
+            created_at: row.get("created_at"),
+            updated_at: row.get("updated_at"),
+        })
+    }
+
+    async fn get_session(&self, session_id: &str) -> Result<Option<Session>> {
+        let row = sqlx::query(
+            r#"
+            SELECT
+                id,
+                to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
+                to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at
+            FROM sessions
+            WHERE id = $1
+            LIMIT 1
+            "#,
+        )
+        .bind(session_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|err| Error::Internal {
+            message: format!("session get failed: {err}"),
+        })?;
+
+        Ok(row.map(|row| Session {
+            id: row.get("id"),
+            created_at: row.get("created_at"),
+            updated_at: row.get("updated_at"),
+        }))
+    }
+
+    async fn list_messages(&self, session_id: &str, after_session_seq: Option<i64>) -> Result<Vec<SessionMessage>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                rsm.session_id,
+                rsm.message_id,
+                rsm.session_seq,
+                to_char(rsm.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS relation_created_at,
+                m.id,
+                m.actor_type,
+                m.actor_id,
+                m.content,
+                m.state,
+                m.version,
+                to_char(m.deleted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS deleted_at,
+                to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
+                to_char(m.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at
+            FROM r_session_messages rsm
+            JOIN messages m ON m.id = rsm.message_id
+            WHERE rsm.session_id = $1
+              AND ($2::BIGINT IS NULL OR rsm.session_seq > $2)
+            ORDER BY rsm.session_seq ASC
+            "#,
+        )
+        .bind(session_id)
+        .bind(after_session_seq)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|err| Error::Internal {
+            message: format!("session messages query failed: {err}"),
+        })?;
+
+        rows.into_iter().map(map_session_message_row).collect()
+    }
+
+    async fn append_message(&self, input: AppendSessionMessage) -> Result<SessionMessage> {
+        let mut tx = self.pool.begin().await.map_err(|err| Error::Internal {
+            message: format!("transaction begin failed: {err}"),
+        })?;
+
+        let exists = sqlx::query_scalar::<_, bool>(
+            r#"SELECT EXISTS(SELECT 1 FROM sessions WHERE id = $1)"#,
+        )
+        .bind(&input.session_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|err| Error::Internal {
+            message: format!("session exists query failed: {err}"),
+        })?;
+
+        if !exists {
+            return Err(Error::NotFound { resource: "session" });
+        }
+
+        sqlx::query(
+            r#"
+            INSERT INTO messages (id, actor_type, actor_id, content, state, version)
+            VALUES ($1, $2, $3, $4, $5, 1)
+            "#,
+        )
+        .bind(&input.message_id)
+        .bind(actor_type_str(&input.actor_type))
+        .bind(&input.actor_id)
+        .bind(sqlx::types::Json(&input.content))
+        .bind(message_state_str(&input.state))
+        .execute(&mut *tx)
+        .await
+        .map_err(|err| Error::Internal {
+            message: format!("message insert failed: {err}"),
+        })?;
+
+        let session_seq = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COALESCE(MAX(session_seq), 0) + 1
+            FROM r_session_messages
+            WHERE session_id = $1
+            "#,
+        )
+        .bind(&input.session_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|err| Error::Internal {
+            message: format!("session seq allocation failed: {err}"),
+        })?;
+
+        let relation_row = sqlx::query(
+            r#"
+            INSERT INTO r_session_messages (session_id, message_id, session_seq)
+            VALUES ($1, $2, $3)
+            RETURNING
+                session_id,
+                message_id,
+                session_seq,
+                to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS relation_created_at
+            "#,
+        )
+        .bind(&input.session_id)
+        .bind(&input.message_id)
+        .bind(session_seq)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|err| Error::Internal {
+            message: format!("session relation insert failed: {err}"),
+        })?;
+
+        let message_row = sqlx::query(
+            r#"
+            SELECT
+                id,
+                actor_type,
+                actor_id,
+                content,
+                state,
+                version,
+                to_char(deleted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS deleted_at,
+                to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
+                to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at
+            FROM messages
+            WHERE id = $1
+            LIMIT 1
+            "#,
+        )
+        .bind(&input.message_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|err| Error::Internal {
+            message: format!("message reload failed: {err}"),
+        })?;
+
+        tx.commit().await.map_err(|err| Error::Internal {
+            message: format!("transaction commit failed: {err}"),
+        })?;
+
+        Ok(SessionMessage {
+            relation: SessionMessageRef {
+                session_id: relation_row.get("session_id"),
+                message_id: relation_row.get("message_id"),
+                session_seq: relation_row.get("session_seq"),
+                created_at: relation_row.get("relation_created_at"),
+            },
+            message: map_message_row(&message_row)?,
+        })
+    }
+
+    async fn apply_message_event(&self, input: ApplyMessageEvent) -> Result<SessionMessage> {
+        sqlx::query(
+            r#"
+            INSERT INTO message_events (id, message_id, action, actor_type, actor_id, base_version, payload)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            "#,
+        )
+        .bind(&input.event_id)
+        .bind(&input.message_id)
+        .bind(payload_action_str(&input.payload))
+        .bind(actor_type_str(&input.actor_type))
+        .bind(&input.actor_id)
+        .bind(input.base_version)
+        .bind(sqlx::types::Json(&input.payload))
+        .execute(&self.pool)
+        .await
+        .map_err(|err| Error::Internal {
+            message: format!("message event insert failed: {err}"),
+        })?;
+
+        if matches!(input.payload, MessageEventPayload::Fix) {
+            sqlx::query(
+                r#"
+                UPDATE messages
+                SET state = 'fixed', version = version + 1, updated_at = NOW()
+                WHERE id = $1
+                "#,
+            )
+            .bind(&input.message_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|err| Error::Internal {
+                message: format!("message fix failed: {err}"),
+            })?;
+        }
+
+        let messages = self.list_messages(&input.session_id, None).await?;
+        messages
+            .into_iter()
+            .find(|message| message.message.id == input.message_id)
+            .ok_or(Error::NotFound { resource: "message" })
+    }
+}
+
+fn map_session_message_row(row: PgRow) -> Result<SessionMessage> {
+    Ok(SessionMessage {
+        relation: SessionMessageRef {
+            session_id: row.get("session_id"),
+            message_id: row.get("message_id"),
+            session_seq: row.get("session_seq"),
+            created_at: row.get("relation_created_at"),
+        },
+        message: map_message_row(&row)?,
+    })
+}
+
+fn map_message_row(row: &PgRow) -> Result<Message> {
+    Ok(Message {
+        id: row.get("id"),
+        actor_type: parse_actor_type(row.get::<String, _>("actor_type").as_str())?,
+        actor_id: row.get("actor_id"),
+        content: row.get::<sqlx::types::Json<MessageContent>, _>("content").0,
+        state: parse_message_state(row.get::<String, _>("state").as_str())?,
+        version: row.get("version"),
+        deleted_at: row.try_get("deleted_at").ok(),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    })
+}
+
+fn parse_actor_type(value: &str) -> Result<ActorType> {
+    match value {
+        "account" => Ok(ActorType::Account),
+        "soul" => Ok(ActorType::Soul),
+        "system" => Ok(ActorType::System),
+        _ => Err(Error::Internal {
+            message: format!("unknown actor_type: {value}"),
+        }),
+    }
+}
+
+fn parse_message_state(value: &str) -> Result<MessageState> {
+    match value {
+        "pending" => Ok(MessageState::Pending),
+        "fixed" => Ok(MessageState::Fixed),
+        _ => Err(Error::Internal {
+            message: format!("unknown message state: {value}"),
+        }),
+    }
+}
+
+fn actor_type_str(value: &ActorType) -> &'static str {
+    match value {
+        ActorType::Account => "account",
+        ActorType::Soul => "soul",
+        ActorType::System => "system",
+    }
+}
+
+fn message_state_str(value: &MessageState) -> &'static str {
+    match value {
+        MessageState::Pending => "pending",
+        MessageState::Fixed => "fixed",
+    }
+}
+
+fn payload_action_str(value: &MessageEventPayload) -> &'static str {
+    match value {
+        MessageEventPayload::Patch { .. } => "patch",
+        MessageEventPayload::Insert { .. } => "insert",
+        MessageEventPayload::Remove { .. } => "remove",
+        MessageEventPayload::Fix => "fix",
+        MessageEventPayload::Delete { .. } => "delete",
+    }
+}

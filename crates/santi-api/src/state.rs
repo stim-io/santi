@@ -1,20 +1,16 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use santi_core::{port::{lock::Lock, provider::Provider, turn_store::TurnStore}};
-use santi_db::adapter::{
-    memory_store::RepoBackedMemoryStore,
-    session_query::RepoBackedSessionQuery,
-    turn_store::RepoBackedTurnStore,
+use santi_core::port::{
+    lock::Lock,
+    provider::Provider,
+    session_ledger::SessionLedgerPort,
+    soul::SoulPort,
+    soul_runtime::SoulRuntimePort,
 };
 use santi_db::{
+    adapter::{session_ledger::DbSessionLedger, soul::DbSoul, soul_runtime::DbSoulRuntime},
     db::init_postgres,
-    repo::{
-        message_repo::MessageRepo,
-        relation_repo::RelationRepo,
-        session_repo::SessionRepo,
-        soul_repo::SoulRepo,
-    },
 };
 use santi_lock::{RedisLockClient, RedisLockConfig};
 use santi_provider::openai_compatible::OpenAiCompatibleProvider;
@@ -58,38 +54,31 @@ impl AppState {
                 tracing::error!(component = "redis_lock", error = %err, "app state init failed");
             })?,
         );
-        let session_repo = Arc::new(SessionRepo::new(pool.clone()));
-        let soul_repo = Arc::new(SoulRepo::new(pool.clone()));
-        let message_repo = Arc::new(MessageRepo::new(pool.clone()));
-        let relation_repo = Arc::new(RelationRepo::new());
-        let turn_store = Arc::new(RepoBackedTurnStore::new(
-            session_repo.clone(),
-            soul_repo.clone(),
-            message_repo.clone(),
-            relation_repo.clone(),
-        ));
-        let session_query_port = Arc::new(RepoBackedSessionQuery::new(
-            session_repo.clone(),
-            soul_repo.clone(),
-            message_repo.clone(),
-        ));
-        let memory_store = Arc::new(RepoBackedMemoryStore::new(
-            session_repo.clone(),
-            soul_repo.clone(),
-        ));
+
+        let default_soul_id = "soul_default".to_string();
         let provider = Arc::new(provider);
         let lock: Arc<dyn Lock> = lock_client;
-        let turn_store: Arc<dyn TurnStore> = turn_store;
         let provider: Arc<dyn Provider> = provider;
-        let session_memory = Arc::new(SessionMemoryService::new(memory_store));
+        let session_ledger: Arc<dyn SessionLedgerPort> = Arc::new(DbSessionLedger::new(pool.clone()));
+        let soul_port: Arc<dyn SoulPort> = Arc::new(DbSoul::new(pool.clone()));
+        let soul_runtime: Arc<dyn SoulRuntimePort> = Arc::new(DbSoulRuntime::new(pool));
+
+        let session_memory = Arc::new(SessionMemoryService::new(
+            soul_runtime.clone(),
+            soul_port.clone(),
+            default_soul_id.clone(),
+        ));
         let session_query = Arc::new(SessionQueryService::new(
-            session_query_port,
-            "soul_default".to_string(),
+            session_ledger.clone(),
+            soul_port.clone(),
+            default_soul_id.clone(),
         ));
         let session_send = Arc::new(SessionSendService::new(
             config.openai_model.clone(),
+            default_soul_id,
             lock,
-            turn_store,
+            session_ledger,
+            soul_runtime,
             provider,
             session_memory.as_ref().clone(),
             ToolExecutorConfig {

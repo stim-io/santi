@@ -1,38 +1,41 @@
-use std::sync::Arc;
-use std::pin::Pin;
+use std::{pin::Pin, sync::Arc};
 
 use async_stream::try_stream;
 use futures::{Stream, StreamExt};
 use santi_core::{
     error::{Error, LockError},
+    model::{
+        message::{ActorType, MessageContent, MessagePart, MessageState},
+        runtime::{ProviderState, Turn, TurnTriggerType},
+        session::SessionMessage,
+    },
     port::{
         lock::{Lock, LockGuard},
         provider::{Provider, ProviderEvent, ProviderFunctionCall, ProviderRequest},
-        turn_store::{NewTurnMessage, TurnStore},
+        session_ledger::{AppendSessionMessage, SessionLedgerPort},
+        soul_runtime::{AppendMessageRef, AppendToolCall, AppendToolResult, CompleteTurn, FailTurn, SoulRuntimePort, StartTurn},
     },
     provider::ProviderInputMessage,
     service::session::kernel::{
         runtime_prompt::{build_runtime_prompt, RuntimePromptSource},
-        tool_artifact::{build_tool_call_message, build_tool_result_message},
         transcript,
     },
 };
 use tokio::sync::mpsc;
+use uuid::Uuid;
 
 use crate::{
-    runtime::{
-        context::ToolRuntimeContext,
-        prompt::render_runtime_instructions,
-        tools::{ToolExecutor, ToolExecutorConfig},
-    },
+    runtime::{context::ToolRuntimeContext, prompt::render_runtime_instructions, tools::{ToolExecutor, ToolExecutorConfig}},
     session::memory::SessionMemoryService,
 };
 
 #[derive(Clone)]
 pub struct SessionSendService {
     model: String,
+    default_soul_id: String,
     lock: Arc<dyn Lock>,
-    turn_store: Arc<dyn TurnStore>,
+    session_ledger: Arc<dyn SessionLedgerPort>,
+    soul_runtime: Arc<dyn SoulRuntimePort>,
     provider: Arc<dyn Provider>,
     tools: Arc<ToolExecutor>,
 }
@@ -54,21 +57,36 @@ pub enum SendSessionEvent {
     Completed,
 }
 
-pub type SendSessionStream = Pin<Box<dyn Stream<Item = Result<SendSessionEvent, SendSessionError>> + Send>>;
+pub type SendSessionStream =
+    Pin<Box<dyn Stream<Item = Result<SendSessionEvent, SendSessionError>> + Send>>;
+
+#[derive(Clone)]
+struct StartupContext {
+    provider_input: Vec<ProviderInputMessage>,
+    instructions: Option<String>,
+    soul_session_id: String,
+    input_through_session_seq: i64,
+    trigger_message_id: String,
+    runtime_context: ToolRuntimeContext,
+}
 
 impl SessionSendService {
     pub fn new(
         model: String,
+        default_soul_id: String,
         lock: Arc<dyn Lock>,
-        turn_store: Arc<dyn TurnStore>,
+        session_ledger: Arc<dyn SessionLedgerPort>,
+        soul_runtime: Arc<dyn SoulRuntimePort>,
         provider: Arc<dyn Provider>,
         session_memory: SessionMemoryService,
         tool_config: ToolExecutorConfig,
     ) -> Self {
         Self {
             model,
+            default_soul_id,
             lock,
-            turn_store,
+            session_ledger,
+            soul_runtime,
             provider,
             tools: Arc::new(ToolExecutor::new(session_memory, tool_config)),
         }
@@ -78,22 +96,23 @@ impl SessionSendService {
         &self,
         cmd: SendSessionCommand,
     ) -> Result<SendSessionStream, SendSessionError> {
-        let model = self.model.clone();
-        let lock = self.lock.clone();
-        let turn_store = self.turn_store.clone();
-        let provider = self.provider.clone();
-        let tools = self.tools.clone();
-        let session_id = cmd.session_id.clone();
-        let guard = lock
-            .acquire(&format!("lock:session_send:{}", session_id))
+        let guard = self
+            .lock
+            .acquire(&format!("lock:session_send:{}", cmd.session_id))
             .await
             .map_err(map_lock_error)?;
 
-        let startup = run_startup(&cmd, turn_store.clone(), tools.clone()).await;
-        let (provider_input, instructions, runtime_context, guard) = match startup {
-            Ok((provider_input, instructions, runtime_context)) => {
-                (provider_input, instructions, runtime_context, guard)
-            }
+        let startup = run_startup(
+            &self.default_soul_id,
+            &cmd,
+            self.session_ledger.clone(),
+            self.soul_runtime.clone(),
+            self.tools.clone(),
+        )
+        .await;
+
+        let (startup, guard) = match startup {
+            Ok(startup) => (startup, guard),
             Err(err) => {
                 let release_result = guard.release().await.map_err(map_lock_error);
                 return Err(match release_result {
@@ -103,22 +122,25 @@ impl SessionSendService {
             }
         };
 
-        tracing::info!(session_id = %cmd.session_id, input_messages = provider_input.len(), model = %model, "provider request dispatched");
-
+        let model = self.model.clone();
+        let default_soul_id = self.default_soul_id.clone();
+        let provider = self.provider.clone();
+        let session_ledger = self.session_ledger.clone();
+        let soul_runtime = self.soul_runtime.clone();
+        let tools = self.tools.clone();
         let (tx, mut rx) = mpsc::unbounded_channel::<Result<SendSessionEvent, SendSessionError>>();
         let error_tx = tx.clone();
 
         tokio::spawn(async move {
-            let tx = tx.clone();
             let result = run_session_send_worker(
+                default_soul_id,
                 cmd,
                 model,
                 provider,
-                turn_store,
-                provider_input,
-                instructions,
-                runtime_context,
+                session_ledger,
+                soul_runtime,
                 tools,
+                startup,
                 tx,
                 guard,
             )
@@ -141,149 +163,116 @@ impl SessionSendService {
 }
 
 async fn run_startup(
+    default_soul_id: &str,
     cmd: &SendSessionCommand,
-    turn_store: Arc<dyn TurnStore>,
+    session_ledger: Arc<dyn SessionLedgerPort>,
+    soul_runtime: Arc<dyn SoulRuntimePort>,
     tools: Arc<ToolExecutor>,
-) -> Result<(Vec<ProviderInputMessage>, Option<String>, ToolRuntimeContext), SendSessionError> {
-    tracing::info!(session_id = %cmd.session_id, "session send started");
-
-    let turn_context = turn_store
-        .load_turn_context(&cmd.session_id)
+) -> Result<StartupContext, SendSessionError> {
+    let session = session_ledger
+        .get_session(&cmd.session_id)
         .await
         .map_err(map_core_error)?
         .ok_or(SendSessionError::NotFound)?;
 
-    let message = turn_store
-        .append_message(
-            &cmd.session_id,
-            NewTurnMessage {
-                r#type: "user".to_string(),
-                role: Some("user".to_string()),
-                content: cmd.user_content.clone(),
-            },
-        )
+    let soul_session = soul_runtime
+        .get_or_create_soul_session(default_soul_id, &cmd.session_id)
         .await
         .map_err(map_core_error)?;
 
-    tracing::info!(session_id = %cmd.session_id, message_id = %message.id, "user message persisted");
+    let turn_context = soul_runtime
+        .load_turn_context(default_soul_id, &cmd.session_id)
+        .await
+        .map_err(map_core_error)?
+        .ok_or(SendSessionError::NotFound)?;
 
-    let history = turn_store
-        .list_messages(&cmd.session_id)
+    let user_message = session_ledger
+        .append_message(AppendSessionMessage {
+            session_id: session.id,
+            message_id: format!("msg_{}", Uuid::new_v4().simple()),
+            actor_type: ActorType::Account,
+            actor_id: "account_local".to_string(),
+            content: text_content(&cmd.user_content),
+            state: MessageState::Fixed,
+        })
         .await
         .map_err(map_core_error)?;
 
-    let runtime_context = tools.build_context(&cmd.session_id, &turn_context.session.soul_id);
-    let prompt = build_runtime_prompt(RuntimePromptSource {
-        session_id: Some(cmd.session_id.clone()),
-        soul_id: Some(turn_context.session.soul_id.clone()),
-        soul_memory: Some(turn_context.soul_memory.clone()),
-        session_memory: Some(turn_context.session.memory.clone()),
-        request_instructions: None,
-    });
-    let provider_input: Vec<ProviderInputMessage> = history
+    let history = session_ledger
+        .list_messages(&cmd.session_id, None)
+        .await
+        .map_err(map_core_error)?;
+
+    let provider_input = history
         .iter()
         .filter_map(transcript::to_input_message)
-        .collect();
+        .collect::<Vec<_>>();
+    let runtime_context = tools.build_context(&cmd.session_id, &turn_context.soul.id);
+    let core_prompt = build_runtime_prompt(RuntimePromptSource {
+        session_id: Some(cmd.session_id.clone()),
+        soul_id: Some(turn_context.soul.id.clone()),
+        soul_memory: Some(turn_context.soul.memory.clone()),
+        session_memory: Some(turn_context.soul_session.session_memory.clone()),
+        request_instructions: None,
+    });
+    let instructions = render_runtime_instructions(&core_prompt, &runtime_context, &tools);
 
-    let instructions = render_runtime_instructions(&prompt, &runtime_context, &tools);
-    Ok((provider_input, instructions, runtime_context))
+    Ok(StartupContext {
+        provider_input,
+        instructions,
+        soul_session_id: soul_session.id,
+        input_through_session_seq: user_message.relation.session_seq,
+        trigger_message_id: user_message.message.id,
+        runtime_context,
+    })
 }
 
 async fn run_session_send_worker(
+    default_soul_id: String,
     cmd: SendSessionCommand,
     model: String,
     provider: Arc<dyn Provider>,
-    turn_store: Arc<dyn TurnStore>,
-    provider_input: Vec<ProviderInputMessage>,
-    instructions: Option<String>,
-    runtime_context: ToolRuntimeContext,
+    session_ledger: Arc<dyn SessionLedgerPort>,
+    soul_runtime: Arc<dyn SoulRuntimePort>,
     tools: Arc<ToolExecutor>,
+    startup: StartupContext,
     tx: mpsc::UnboundedSender<Result<SendSessionEvent, SendSessionError>>,
     guard: Box<dyn LockGuard + Send>,
 ) -> Result<(), SendSessionError> {
-    let run_result = async {
-        let provider_model = model;
-        let runtime_instructions = instructions.clone();
-        let mut assistant_text = String::new();
-        let mut next_request = ProviderRequest {
-            model: provider_model.clone(),
-            instructions,
-            input: provider_input,
-            tools: Some(tools.provider_tools()),
-            previous_response_id: None,
-            function_call_outputs: None,
-        };
-        let mut should_stream_deltas = false;
+    let turn_id = format!("turn_{}", Uuid::new_v4().simple());
+    let started_turn = soul_runtime
+        .start_turn(StartTurn {
+            turn_id: turn_id.clone(),
+            soul_session_id: startup.soul_session_id.clone(),
+            trigger_type: TurnTriggerType::SessionSend,
+            trigger_ref: Some(startup.trigger_message_id.clone()),
+            input_through_session_seq: startup.input_through_session_seq,
+        })
+        .await
+        .map_err(map_core_error)?;
 
-        loop {
-            let pass = run_provider_pass(provider.clone(), next_request, should_stream_deltas.then_some(&tx)).await?;
-
-            match pass {
-                ProviderPassOutcome::Completed { assistant_text: pass_text } => {
-                    if !should_stream_deltas && !pass_text.is_empty() {
-                        let _ = tx.send(Ok(SendSessionEvent::OutputTextDelta(pass_text.clone())));
-                    }
-                    assistant_text.push_str(&pass_text);
-                    persist_assistant_message(turn_store.clone(), &cmd.session_id, assistant_text).await?;
-                    let _ = tx.send(Ok(SendSessionEvent::Completed));
-                    break Ok(());
-                }
-                ProviderPassOutcome::ToolCalls {
-                    calls,
-                    assistant_prefix,
-                    response_id,
-                } => {
-                    tracing::info!(
-                        session_id = %cmd.session_id,
-                        tool_calls = calls.len(),
-                        prefix_chars = assistant_prefix.len(),
-                        "provider pass requested tool calls"
-                    );
-
-                    let mut function_call_outputs = Vec::new();
-
-                    for call in calls {
-                        append_artifact_message(
-                            turn_store.clone(),
-                            &cmd.session_id,
-                            build_tool_call_message(call.call_id.clone(), call.name.clone(), call.arguments.clone()),
-                        )
-                        .await?;
-
-                        let dispatch_result = tools
-                            .dispatch(&runtime_context, &call)
-                            .await
-                            .map_err(SendSessionError::Internal)?;
-
-                        append_artifact_message(
-                            turn_store.clone(),
-                            &cmd.session_id,
-                            build_tool_result_message(
-                                call.call_id.clone(),
-                                dispatch_result.tool_name.clone(),
-                                dispatch_result.ok,
-                                dispatch_result.tool_output.clone(),
-                            ),
-                        )
-                        .await?;
-
-                        function_call_outputs.push(dispatch_result.function_call_output);
-                    }
-
-                    next_request = ProviderRequest {
-                        model: provider_model.clone(),
-                        instructions: runtime_instructions.clone(),
-                        input: Vec::new(),
-                        tools: Some(tools.provider_tools()),
-                        previous_response_id: Some(response_id),
-                        function_call_outputs: Some(function_call_outputs),
-                    };
-                    should_stream_deltas = true;
-                }
-            }
-        }
-    }
+    let run_result = run_turn_body(
+        default_soul_id,
+        cmd,
+        model,
+        provider,
+        session_ledger,
+        soul_runtime.clone(),
+        tools,
+        startup,
+        started_turn,
+        tx,
+    )
     .await;
+
+    if let Err(err) = &run_result {
+        let _ = soul_runtime
+            .fail_turn(FailTurn {
+                turn_id,
+                error_text: render_send_error(err),
+            })
+            .await;
+    }
 
     let release_result = guard.release().await.map_err(map_lock_error);
     match (run_result, release_result) {
@@ -293,112 +282,189 @@ async fn run_session_send_worker(
     }
 }
 
-enum ProviderPassOutcome {
-    Completed { assistant_text: String },
-    ToolCalls {
-        calls: Vec<ProviderFunctionCall>,
-        assistant_prefix: String,
-        response_id: String,
-    },
-}
-
-async fn run_provider_pass(
+async fn run_turn_body(
+    default_soul_id: String,
+    cmd: SendSessionCommand,
+    model: String,
     provider: Arc<dyn Provider>,
-    request: ProviderRequest,
-    tx: Option<&mpsc::UnboundedSender<Result<SendSessionEvent, SendSessionError>>>,
-) -> Result<ProviderPassOutcome, SendSessionError> {
-    let stream = provider.stream(request);
-    futures::pin_mut!(stream);
-
+    session_ledger: Arc<dyn SessionLedgerPort>,
+    soul_runtime: Arc<dyn SoulRuntimePort>,
+    tools: Arc<ToolExecutor>,
+    startup: StartupContext,
+    turn: Turn,
+    tx: mpsc::UnboundedSender<Result<SendSessionEvent, SendSessionError>>,
+) -> Result<(), SendSessionError> {
     let mut assistant_text = String::new();
-    let mut calls = Vec::new();
-    let mut response_id: Option<String> = None;
+    let mut previous_response_id: Option<String> = None;
+    let mut function_call_outputs = None;
 
-    while let Some(event) = stream.next().await {
-        match event.map_err(map_core_error)? {
-            ProviderEvent::OutputTextDelta(delta) => {
-                assistant_text.push_str(&delta);
-                if let Some(tx) = tx {
+    loop {
+        let request = ProviderRequest {
+            model: model.clone(),
+            instructions: startup.instructions.clone(),
+            input: if previous_response_id.is_some() {
+                Vec::new()
+            } else {
+                startup.provider_input.clone()
+            },
+            tools: Some(tools.provider_tools()),
+            previous_response_id: previous_response_id.clone(),
+            function_call_outputs: function_call_outputs.take(),
+        };
+
+        let stream = provider.stream(request);
+        futures::pin_mut!(stream);
+
+        let mut calls = Vec::new();
+        let mut completed_response_id: Option<String> = None;
+
+        while let Some(event) = stream.next().await {
+            match event.map_err(map_core_error)? {
+                ProviderEvent::OutputTextDelta(delta) => {
+                    assistant_text.push_str(&delta);
                     let _ = tx.send(Ok(SendSessionEvent::OutputTextDelta(delta)));
                 }
-            }
-            ProviderEvent::FunctionCallRequested(call) => {
-                if let Some(existing_response_id) = response_id.as_ref() {
-                    if existing_response_id != &call.response_id {
-                        return Err(SendSessionError::Internal(
-                            "provider returned inconsistent response_id across tool calls".to_string(),
-                        ));
+                ProviderEvent::FunctionCallRequested(call) => {
+                    previous_response_id = Some(call.response_id.clone());
+                    calls.push(call);
+                }
+                ProviderEvent::Completed { response_id } => {
+                    if response_id.is_some() {
+                        completed_response_id = response_id.clone();
                     }
-                } else {
-                    response_id = Some(call.response_id.clone());
+                    break;
                 }
-                calls.push(call);
-            }
-            ProviderEvent::Completed { response_id: completed_response_id } => {
-                if calls.is_empty() {
-                    return Ok(ProviderPassOutcome::Completed { assistant_text });
-                }
-
-                let response_id = completed_response_id
-                    .or(response_id)
-                    .ok_or_else(|| {
-                        SendSessionError::Internal(
-                            "provider completed tool-call pass without response_id".to_string(),
-                        )
-                    })?;
-
-                return Ok(ProviderPassOutcome::ToolCalls {
-                    calls,
-                    assistant_prefix: assistant_text,
-                    response_id,
-                });
             }
         }
+
+        if calls.is_empty() {
+            if previous_response_id.is_none() {
+                previous_response_id = completed_response_id;
+            }
+            break;
+        }
+
+        let mut outputs = Vec::new();
+        for call in calls {
+            outputs.push(
+                handle_tool_call(
+                    &turn,
+                    &startup.runtime_context,
+                    &soul_runtime,
+                    &tools,
+                    call,
+                )
+                .await?,
+            );
+        }
+
+        function_call_outputs = Some(outputs);
     }
 
-    Err(SendSessionError::Internal(
-        "provider stream ended before completion".to_string(),
-    ))
-}
+    if assistant_text.trim().is_empty() {
+        return Err(SendSessionError::Internal(
+            "provider completed without assistant output".to_string(),
+        ));
+    }
 
-async fn persist_assistant_message(
-    turn_store: Arc<dyn TurnStore>,
-    session_id: &str,
-    assistant_text: String,
-) -> Result<(), SendSessionError> {
-    let assistant_message = turn_store
-        .append_message(
-            session_id,
-            NewTurnMessage {
-                r#type: "assistant".to_string(),
-                role: Some("assistant".to_string()),
-                content: assistant_text.clone(),
-            },
-        )
+    let assistant_message = session_ledger
+        .append_message(AppendSessionMessage {
+            session_id: cmd.session_id,
+            message_id: format!("msg_{}", Uuid::new_v4().simple()),
+            actor_type: ActorType::Soul,
+            actor_id: default_soul_id,
+            content: text_content(&assistant_text),
+            state: MessageState::Fixed,
+        })
         .await
         .map_err(map_core_error)?;
 
-    tracing::info!(session_id = %session_id, message_id = %assistant_message.id, output_chars = assistant_text.len(), "session send completed");
+    soul_runtime
+        .append_message_ref(AppendMessageRef {
+            soul_session_id: startup.soul_session_id,
+            message_id: assistant_message.message.id.clone(),
+        })
+        .await
+        .map_err(map_core_error)?;
+
+    soul_runtime
+        .complete_turn(CompleteTurn {
+            turn_id: turn.id,
+            last_seen_session_seq: assistant_message.relation.session_seq,
+            provider_state: previous_response_id.map(|response_id| ProviderState {
+                provider: "openai_compatible".to_string(),
+                basis_soul_session_seq: assistant_message.relation.session_seq,
+                opaque: serde_json::json!({ "response_id": response_id }),
+                schema_version: Some("phase2".to_string()),
+            }),
+        })
+        .await
+        .map_err(map_core_error)?;
+
+    let _ = tx.send(Ok(SendSessionEvent::Completed));
     Ok(())
 }
 
-async fn append_artifact_message(
-    turn_store: Arc<dyn TurnStore>,
-    session_id: &str,
-    artifact: santi_core::model::message::Message,
-) -> Result<(), SendSessionError> {
-    turn_store
-        .append_message(
-            session_id,
-            NewTurnMessage {
-                r#type: artifact.r#type,
-                role: artifact.role,
-                content: artifact.content,
-            },
-        )
+async fn handle_tool_call(
+    turn: &Turn,
+    runtime_context: &ToolRuntimeContext,
+    soul_runtime: &Arc<dyn SoulRuntimePort>,
+    tools: &Arc<ToolExecutor>,
+    call: ProviderFunctionCall,
+) -> Result<santi_core::port::provider::FunctionCallOutput, SendSessionError> {
+    soul_runtime
+        .append_tool_call(AppendToolCall {
+            tool_call_id: call.call_id.clone(),
+            turn_id: turn.id.clone(),
+            tool_name: call.name.clone(),
+            arguments: call.arguments.clone(),
+        })
         .await
         .map_err(map_core_error)?;
-    Ok(())
+
+    let dispatch_result = tools
+        .dispatch(runtime_context, &call)
+        .await
+        .map_err(SendSessionError::Internal)?;
+
+    soul_runtime
+        .append_tool_result(AppendToolResult {
+            tool_result_id: format!("tool_result_{}", Uuid::new_v4().simple()),
+            tool_call_id: call.call_id.clone(),
+            output: Some(dispatch_result.tool_output.clone()),
+            error_text: None,
+        })
+        .await
+        .map_err(map_core_error)?;
+
+    Ok(dispatch_result.function_call_output)
+}
+
+fn text_content(text: &str) -> MessageContent {
+    MessageContent {
+        parts: vec![MessagePart::Text {
+            text: text.to_string(),
+        }],
+    }
+}
+
+fn render_send_error(err: &SendSessionError) -> String {
+    match err {
+        SendSessionError::Busy => "session send busy".to_string(),
+        SendSessionError::NotFound => "session not found".to_string(),
+        SendSessionError::Internal(message) => message.clone(),
+    }
+}
+
+fn map_core_error(err: Error) -> SendSessionError {
+    match err {
+        Error::NotFound { resource } if resource == "session" => SendSessionError::NotFound,
+        Error::Busy { .. } => SendSessionError::Busy,
+        Error::NotFound { resource } => SendSessionError::Internal(format!("{resource} not found")),
+        Error::InvalidInput { message }
+        | Error::Upstream { message }
+        | Error::Internal { message } => SendSessionError::Internal(message),
+    }
 }
 
 fn map_lock_error(err: LockError) -> SendSessionError {
@@ -409,13 +475,7 @@ fn map_lock_error(err: LockError) -> SendSessionError {
     }
 }
 
-fn map_core_error(err: Error) -> SendSessionError {
-    match err {
-        Error::NotFound { resource } if resource == "session" => SendSessionError::NotFound,
-        Error::NotFound { resource } => SendSessionError::Internal(format!("{resource} not found")),
-        Error::Busy { resource } => SendSessionError::Internal(format!("{resource} busy")),
-        Error::InvalidInput { message } => SendSessionError::Internal(message),
-        Error::Upstream { message } => SendSessionError::Internal(message),
-        Error::Internal { message } => SendSessionError::Internal(message),
-    }
+#[allow(dead_code)]
+fn _message_id(message: &SessionMessage) -> &str {
+    &message.message.id
 }

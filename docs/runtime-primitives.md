@@ -71,7 +71,7 @@ Current implementation state:
 
 - the first real runtime snapshot builder now belongs to the session turn path
 - it currently renders identity text, memory text, request instructions, and a small `<santi-meta>` block
-- current meta facts include runtime-discovery fields such as `session_id`, `soul_id`, memory presence flags, `SANTI_RUNTIME_SOUL_DIR`, `SANTI_RUNTIME_SESSION_DIR`, and `fallback_cwd`
+- current meta facts include runtime-discovery fields such as `session_id`, `soul_id`, memory presence flags, `SANTI_SOUL_MEMORY_DIR`, `SANTI_SESSION_MEMORY_DIR`, and `fallback_cwd`
 
 The assembled provider-facing view may mix raw public messages and runtime artifacts, but that complexity belongs in soul-runtime assembly rather than in the public ledger.
 
@@ -79,13 +79,15 @@ The assembled provider-facing view may mix raw public messages and runtime artif
 
 Two memory layers are exposed as simple native tools.
 
-- `memory.soul(text)`: write long-lived memory
-- `memory.session(text)`: write current-session memory
+- `memory.soul(text)`: replace the long-lived soul-memory core index
+- `memory.session(text)`: replace the current-session memory core index
 
 Current canonical mapping:
 
 - `memory.soul(...)` writes `souls.memory`
 - `memory.session(...)` writes `soul_sessions.session_memory` for the current `soul x session`, not shared public session memory
+- both are replace-whole core indexes, not append-only note stores
+- richer memory material can live in `SANTI_SOUL_MEMORY_DIR` and `SANTI_SESSION_MEMORY_DIR` as free-form files managed by tools such as `bash`
 
 At the concept level, these primitives stay minimal and stable.
 
@@ -98,7 +100,7 @@ This keeps the conceptual model clean while giving the model clearer executable 
 
 Current implementation state:
 
-- the first real provider-facing memory tool is `write_session_memory`
+- provider-facing memory tools are `write_soul_memory` and `write_session_memory`
 - tool targeting uses runtime-injected context such as `session_id`, not model-chosen identifiers
 - provider/tool wire names may be more action-oriented than concept-layer primitive names
 
@@ -108,7 +110,7 @@ At the current stage, there is no hard content constraint on what `soul-memory` 
 
 Its useful boundary should emerge through real usage, especially through the fork-driven workflow.
 
-The core `text` fields in `soul-memory` and `session-memory` are primarily entrusted to model-side management.
+The core `text` fields in `soul-memory` and `session-memory` are primarily entrusted to model-side management as stable indexes rather than free-form note bags.
 
 The system should focus less on over-structuring memory content and more on identifying which missing resources should be supplied back to the model through context or `meta`.
 
@@ -146,22 +148,22 @@ Design intent:
 
 ## Directory Model
 
-- `soul_dir` is a normal directory
-- `session_dir` is a normal directory
+- `SANTI_SOUL_MEMORY_DIR` is a normal directory for free-form soul-memory files
+- `SANTI_SESSION_MEMORY_DIR` is a normal directory for free-form session-memory files
 
-They are not special storage systems. They provide a unified resource space for the agent.
+They are not special storage systems. They provide free-form memory workspaces for the agent.
 
 Design intent:
 
-- keep resource access simple and legible
+- keep memory resource access simple and legible
 - allow agent-readable and human-readable organization
 - avoid inventing a second resource model beside the file system
 
 Current implementation state:
 
-- runtime resource facts are exposed to shell execution through `SANTI_RUNTIME_SOUL_DIR` and `SANTI_RUNTIME_SESSION_DIR`
-- those directories are normal resource roots and are conceptually separate from the process cwd
-- `santi` may provide a fallback cwd, but `cwd` remains a per-call execution choice rather than a synonym for `session_dir`
+- memory workspace facts are exposed to shell execution through `SANTI_SOUL_MEMORY_DIR` and `SANTI_SESSION_MEMORY_DIR`
+- those directories are normal resource roots for memory material and are conceptually separate from the process cwd
+- `santi` may provide a fallback cwd, but `cwd` remains a per-call execution choice rather than a synonym for either memory directory
 
 ## Session Interpretation
 

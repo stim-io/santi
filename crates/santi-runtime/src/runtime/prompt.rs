@@ -41,12 +41,12 @@ pub fn render_runtime_instructions(
 fn render_runtime_meta(runtime_context: &ToolRuntimeContext) -> Vec<String> {
     vec![
         format!(
-            "SANTI_RUNTIME_SOUL_DIR: {}",
-            runtime_context.soul_dir.display()
+            "SANTI_SOUL_MEMORY_DIR: {}",
+            runtime_context.soul_memory_dir.display()
         ),
         format!(
-            "SANTI_RUNTIME_SESSION_DIR: {}",
-            runtime_context.session_dir.display()
+            "SANTI_SESSION_MEMORY_DIR: {}",
+            runtime_context.session_memory_dir.display()
         ),
         format!("fallback_cwd: {}", runtime_context.fallback_cwd.display()),
     ]

@@ -67,7 +67,7 @@ In short:
 
 The preferred gateway interface is intentionally small:
 
-- `POST /v1/responses`
+- `POST /openai/v1/responses`
 - optional `GET /v1/models`
 
 The proxy should accept OpenAI Responses-style JSON and forward it as directly as possible.
@@ -86,7 +86,7 @@ Why:
 
 Preferred future shape:
 
-- `santi-provider` sends a normal `/v1/responses` request
+- `santi-provider` sends a normal `/openai/v1/responses` request
 - the gateway leases an account from the pool
 - the gateway injects upstream auth and forwards the request
 - the gateway updates account health, cooldown, or failure state afterward
@@ -95,7 +95,7 @@ This keeps account-pool evolution mostly inside the gateway.
 
 ## Current Guidance
 
-- shrink `openai-codex-server` toward auth proxy behavior
+- shrink the OpenAI provider gateway toward auth proxy behavior
 - continue growing OpenAI request/response ownership inside `santi-provider/openai-compatible`
 - avoid moving provider semantics into the gateway just because auth already lives there
 - treat account-pool support as a gateway concern unless it clearly changes provider-facing protocol semantics

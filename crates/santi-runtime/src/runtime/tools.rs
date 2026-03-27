@@ -90,18 +90,20 @@ impl ToolExecutor {
         Some(
             [
                 "<santi-tools>",
-                "Available tool:",
-                "- write_session_memory(text: string): write a durable memory note for the current session.",
-                "- bash(command: string, cwd?: string): run a local bash command inside the current runtime workspace.",
+                "Available tools:",
+                "- write_soul_memory(text: string): replace the current soul_memory core index text.",
+                "- write_session_memory(text: string): replace the current session_memory core index text.",
+                "- bash(command: string, cwd?: string): run a local bash command inside the current execution workspace.",
                 "Rules:",
-                "- When the user explicitly asks you to remember or save something in session memory, you must call write_session_memory before claiming it is saved.",
-                "- When the user asks to save multiple distinct notes, call write_session_memory once per note and do not merge them into one tool call.",
-                "- When multiple distinct notes must be saved in the current turn, emit all required write_session_memory calls in the same response/provider pass before giving the final assistant reply.",
-                "- Preserve user order when emitting multiple write_session_memory calls in the same pass.",
-                "- Use bash when the user asks you to inspect or run something in the local runtime workspace.",
+                "- soul_memory and session_memory are replace-whole core indexes, not append-only note stores.",
+                "- Use write_soul_memory or write_session_memory only when you intend to replace the full core index text for that layer.",
+                "- Do not pretend that repeated memory writes create separate durable note objects.",
+                "- When the user wants multiple notes, structured records, drafts, or richer memory material, use bash with SANTI_SOUL_MEMORY_DIR or SANTI_SESSION_MEMORY_DIR to manage files, then optionally refresh the corresponding core index.",
+                "- Treat the core memory text as the stable index and the *_MEMORY_DIR directories as free-form working memory spaces.",
+                "- Use bash when the user asks you to inspect or run something in the local workspace, especially when working with files inside SANTI_SOUL_MEMORY_DIR or SANTI_SESSION_MEMORY_DIR.",
                 "- Prefer a single bash call that contains the exact command sequence needed for the current task.",
-                "- Do not claim memory has been saved unless the tool call has completed.",
-                "- After a successful save, reply briefly and do not repeat the saved content unless the user asks.",
+                "- Do not claim memory has been updated unless the tool call has completed.",
+                "- After a successful memory update, reply briefly and do not repeat the saved content unless the user asks.",
                 "</santi-tools>",
             ]
             .join("\n"),
@@ -111,14 +113,29 @@ impl ToolExecutor {
     pub fn provider_tools(&self) -> Vec<ProviderTool> {
         vec![
             ProviderTool::Function(ProviderFunctionTool {
-                name: "write_session_memory".to_string(),
-                description: "Write a durable memory note for the current session.".to_string(),
+                name: "write_soul_memory".to_string(),
+                description: "Replace the current soul_memory core index text.".to_string(),
                 parameters: serde_json::json!({
                     "type": "object",
                     "properties": {
                         "text": {
                             "type": "string",
-                            "description": "Memory text to save into the current session."
+                            "description": "The full replacement text for the current soul_memory core index."
+                        }
+                    },
+                    "required": ["text"],
+                    "additionalProperties": false
+                }),
+            }),
+            ProviderTool::Function(ProviderFunctionTool {
+                name: "write_session_memory".to_string(),
+                description: "Replace the current session_memory core index text.".to_string(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "text": {
+                            "type": "string",
+                            "description": "The full replacement text for the current session_memory core index."
                         }
                     },
                     "required": ["text"],
@@ -127,7 +144,7 @@ impl ToolExecutor {
             }),
             ProviderTool::Function(ProviderFunctionTool {
                 name: "bash".to_string(),
-                description: "Run a local bash command inside the current runtime workspace.".to_string(),
+                description: "Run a local bash command inside the current execution workspace.".to_string(),
                 parameters: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -153,6 +170,36 @@ impl ToolExecutor {
         call: &ProviderFunctionCall,
     ) -> Result<ToolDispatchResult, String> {
         match call.name.as_str() {
+            "write_soul_memory" => {
+                let args: WriteSessionMemoryArgs = match serde_json::from_value(call.arguments.clone()) {
+                    Ok(args) => args,
+                    Err(err) => {
+                        return Ok(build_failed_dispatch_result(
+                            &call.name,
+                            &call.call_id,
+                            format!("invalid write_soul_memory arguments: {err}"),
+                        ))
+                    }
+                };
+                let result = match self.write_soul_memory(ctx, args.text).await {
+                    Ok(result) => result,
+                    Err(err) => {
+                        return Ok(build_failed_dispatch_result(&call.name, &call.call_id, err))
+                    }
+                };
+                let tool_output = serde_json::to_value(&result)
+                    .map_err(|err| format!("serialize tool output failed: {err}"))?;
+
+                Ok(ToolDispatchResult {
+                    tool_name: call.name.clone(),
+                    ok: true,
+                    function_call_output: FunctionCallOutput {
+                        call_id: call.call_id.clone(),
+                        output: tool_output.to_string(),
+                    },
+                    tool_output,
+                })
+            }
             "write_session_memory" => {
                 let args: WriteSessionMemoryArgs = match serde_json::from_value(call.arguments.clone()) {
                     Ok(args) => args,
@@ -260,10 +307,10 @@ impl ToolExecutor {
             "runtime tool call: bash"
         );
 
-        std::fs::create_dir_all(&ctx.soul_dir)
-            .map_err(|err| format!("failed to create soul_dir: {err}"))?;
-        std::fs::create_dir_all(&ctx.session_dir)
-            .map_err(|err| format!("failed to create session_dir: {err}"))?;
+        std::fs::create_dir_all(&ctx.soul_memory_dir)
+            .map_err(|err| format!("failed to create soul_memory_dir: {err}"))?;
+        std::fs::create_dir_all(&ctx.session_memory_dir)
+            .map_err(|err| format!("failed to create session_memory_dir: {err}"))?;
 
         let workdir = resolve_cwd(ctx, input.cwd.as_deref())?;
         std::fs::create_dir_all(&workdir)
@@ -274,8 +321,8 @@ impl ToolExecutor {
             .arg("-lc")
             .arg(&input.command)
             .current_dir(&workdir)
-            .env("SANTI_RUNTIME_SOUL_DIR", &ctx.soul_dir)
-            .env("SANTI_RUNTIME_SESSION_DIR", &ctx.session_dir)
+            .env("SANTI_SOUL_MEMORY_DIR", &ctx.soul_memory_dir)
+            .env("SANTI_SESSION_MEMORY_DIR", &ctx.session_memory_dir)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -371,9 +418,13 @@ impl ToolExecutor {
         ToolRuntimeContext {
             session_id: session_id.to_string(),
             soul_id: soul_id.to_string(),
-            soul_dir: self.runtime_root.join("souls").join(soul_id),
-            session_dir: self.runtime_root.join("sessions").join(session_id),
-            fallback_cwd: self.execution_root.join(soul_id).join(session_id),
+            soul_memory_dir: self.runtime_root.join("souls").join(soul_id).join("memory"),
+            session_memory_dir: self
+                .runtime_root
+                .join("sessions")
+                .join(session_id)
+                .join("memory"),
+            fallback_cwd: self.execution_root.clone(),
         }
     }
 }

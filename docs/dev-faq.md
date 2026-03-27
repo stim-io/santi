@@ -1,11 +1,23 @@
 # Dev FAQ
 
-## Why can e2e fail with `ECONNREFUSED` or `ECONNRESET` right after restarting `santi`?
+## Does `santi` development always require `docker compose` from the host?
 
-When `santi` runs through `santi/docker-compose.yml`, the container starts with `cargo run`.
+No.
+
+There are two different workflows:
+
+- in-container iteration: a running `santi` container can inspect code, edit files, run `cargo`, use `node` helpers, and eventually drive a small PR flow
+- external root-stack integration: the repository root `docker-compose.yml` is still the baseline for validating the full local stack
+
+Use the compose-based workflow when the question is about end-to-end integration across services.
+Use the in-container workflow when the question is about helping `santi` itself iterate on its own codebase.
+
+## Why can smoke or integration checks fail with `ECONNREFUSED` or `ECONNRESET` right after restarting `santi`?
+
+When `santi` runs through the root `docker-compose.yml`, the container starts with `cargo run`.
 After a rebuild or restart, the service may spend noticeable time recompiling before the HTTP server is ready.
 
-During that window, black-box e2e may fail with:
+During that window, smoke or integration checks may fail with:
 
 - `ECONNREFUSED`
 - `ECONNRESET`
@@ -16,13 +28,13 @@ Recommended checks:
 1. run `docker compose ps santi`
 2. inspect `docker compose logs -f santi`
 3. wait until `GET /api/v1/health` on `127.0.0.1:18081` succeeds
-4. rerun `pnpm test` under `santi/e2e`
+4. rerun the relevant smoke script or harness command
 
 Practical rule:
 
-- treat immediate connection failures after restart as service-readiness issues first, not as e2e assertion failures
+- treat immediate connection failures after restart as service-readiness issues first, not as product-behavior failures
 
-## Why can `santi/docker-compose.yml up` fail with `port is already allocated`?
+## Why can `docker compose up` fail with `port is already allocated`?
 
 This usually means an older local stack is still holding the same host ports.
 
@@ -41,7 +53,7 @@ Recommended checks:
 
 1. run `docker ps --format '{{.Names}} {{.Ports}}'`
 2. identify the container already binding the conflicting port
-3. stop the older stack before starting `santi/docker-compose.yml`
+3. stop the older stack before starting the root compose project
 
 Practical rule:
 

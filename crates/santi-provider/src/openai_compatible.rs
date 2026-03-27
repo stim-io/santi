@@ -5,7 +5,7 @@ use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     pin::Pin,
     sync::{Arc, Mutex},
 };
@@ -37,7 +37,11 @@ enum VerboseProviderEvent {
         content_index: usize,
         part_type: Option<String>,
     },
-    OutputTextDelta(String),
+    OutputTextDelta {
+        output_index: Option<usize>,
+        content_index: Option<usize>,
+        delta: String,
+    },
     OutputTextDone {
         output_index: Option<usize>,
         content_index: Option<usize>,
@@ -162,6 +166,7 @@ impl Provider for OpenAiCompatibleProvider {
             futures::pin_mut!(stream);
             let mut current_response_id: Option<String> = None;
             let mut completed_items = BTreeMap::<usize, Value>::new();
+            let mut streamed_text_parts = HashSet::<(Option<usize>, Option<usize>)>::new();
 
             while let Some(event) = stream.next().await {
                 match event? {
@@ -169,8 +174,18 @@ impl Provider for OpenAiCompatibleProvider {
                     | VerboseProviderEvent::ResponseInProgress { response_id } => {
                         current_response_id = Some(response_id);
                     }
-                    VerboseProviderEvent::OutputTextDelta(delta) => {
+                    VerboseProviderEvent::OutputTextDelta { output_index, content_index, delta } => {
+                        streamed_text_parts.insert((output_index, content_index));
                         yield ProviderEvent::OutputTextDelta(delta);
+                    }
+                    VerboseProviderEvent::OutputTextDone { output_index, content_index, text } => {
+                        if text.is_empty() {
+                            continue;
+                        }
+
+                        if streamed_text_parts.insert((output_index, content_index)) {
+                            yield ProviderEvent::OutputTextDelta(text);
+                        }
                     }
                     VerboseProviderEvent::OutputItemDone {
                         output_index,
@@ -479,7 +494,19 @@ fn parse_sse_frame(frame: &str, sequence: &mut usize) -> Result<Vec<VerboseProvi
 
         if event_type == "response.output_text.delta" {
             if let Some(content) = payload.get("delta").and_then(Value::as_str) {
-                events.push(VerboseProviderEvent::OutputTextDelta(content.to_string()));
+                let output_index = payload
+                    .get("output_index")
+                    .and_then(Value::as_u64)
+                    .map(|v| v as usize);
+                let content_index = payload
+                    .get("content_index")
+                    .and_then(Value::as_u64)
+                    .map(|v| v as usize);
+                events.push(VerboseProviderEvent::OutputTextDelta {
+                    output_index,
+                    content_index,
+                    delta: content.to_string(),
+                });
             }
             continue;
         }

@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::model::{message::Message, session::SessionMessage};
+use crate::model::session::SessionMessage;
 
 #[derive(Clone, Debug)]
 pub struct ProviderState {

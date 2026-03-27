@@ -11,7 +11,7 @@ describe('session send', () => {
     const session = await createSession()
     expect(session.id).toMatch(/^sess_/) 
 
-    const response = await sendSession(session.id, 'hello from e2e')
+    const response = await sendSession(session.id, 'hello from smoke')
     expect(response.headers.get('content-type') ?? '').toContain('text/event-stream')
 
     const events = await readSseData(response)

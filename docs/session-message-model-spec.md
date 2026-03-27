@@ -126,6 +126,7 @@ Current stance:
 - this is the runtime container for one `soul × session`
 - session-scoped runtime memory belongs here, not in public `sessions`
 - `memory.session(...)` writes this `session_memory` layer for the current `soul × session`
+- this layer should be treated as a replace-whole core index, not as a multi-note store
 - provider continuity belongs here, but it is not canonical transcript truth
 
 Suggested constraints:

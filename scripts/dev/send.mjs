@@ -5,6 +5,7 @@ function parseArgs(argv) {
     sessionId: null,
     create: false,
     raw: false,
+    wait: false,
   }
 
   for (const arg of argv) {
@@ -12,6 +13,8 @@ function parseArgs(argv) {
       args.create = true
     } else if (arg === '--raw') {
       args.raw = true
+    } else if (arg === '--wait') {
+      args.wait = true
     } else if (!args.sessionId) {
       args.sessionId = arg
     } else {
@@ -51,20 +54,64 @@ async function createSession(url) {
   process.stdout.write(`${body.id}\n`)
 }
 
-async function sendMessage(url, sessionId, content, raw) {
-  const response = await fetch(`${url}/api/v1/sessions/${sessionId}/send`, {
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function readErrorMessage(bodyText) {
+  if (!bodyText) return null
+
+  try {
+    const parsed = JSON.parse(bodyText)
+    return parsed?.error?.message ?? null
+  } catch {
+    return bodyText
+  }
+}
+
+async function postSend(url, sessionId, content) {
+  return fetch(`${url}/api/v1/sessions/${sessionId}/send`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       content: [{ type: 'text', text: content }],
     }),
   })
+}
 
-  if (!response.ok) {
-    throw new Error((await response.text()) || `HTTP ${response.status}`)
+async function sendMessage(url, sessionId, content, raw, wait) {
+  let warnedBusy = false
+
+  while (true) {
+    const response = await postSend(url, sessionId, content)
+
+    if (response.ok) {
+      await renderStream(response, raw)
+      return
+    }
+
+    const bodyText = (await response.text()).trim()
+    const errorMessage = readErrorMessage(bodyText)
+    if (response.status === 409) {
+      if (!wait) {
+        throw new Error(
+          `session send already in progress (409). Wait for the current turn to finish, or rerun with --wait.${
+            errorMessage ? ` Server said: ${errorMessage}` : ''
+          }`,
+        )
+      }
+
+      if (!warnedBusy) {
+        process.stderr.write('session busy; waiting for current turn to finish...\n')
+        warnedBusy = true
+      }
+
+      await sleep(350)
+      continue
+    }
+
+    throw new Error(errorMessage || `HTTP ${response.status}`)
   }
-
-  await renderStream(response, raw)
 }
 
 async function renderStream(response, raw) {
@@ -142,7 +189,7 @@ async function main() {
   }
 
   if (!args.sessionId) {
-    throw new Error("usage: printf 'hello' | ./scripts/dev/send.mjs <session_id>")
+    throw new Error("usage: printf 'hello' | ./scripts/dev/send.mjs <session_id> [--raw] [--wait]")
   }
 
   const content = await readStdin()
@@ -150,7 +197,7 @@ async function main() {
     throw new Error('expected stdin content')
   }
 
-  await sendMessage(url, args.sessionId, content, args.raw)
+  await sendMessage(url, args.sessionId, content, args.raw, args.wait)
 }
 
 main().catch((error) => {

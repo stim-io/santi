@@ -11,6 +11,8 @@ The `santi` container should be able to support a narrow self-iteration loop suc
 
 - clone or copy a `santi` worktree
 - edit files through agent tooling
+
+> Note: Inside-container PR workflows require GH_TOKEN or GITHUB_TOKEN for gh.
 - run `cargo check`
 - use `node` for `scripts/dev/send.mjs` when helpful
 - use `gh` for the eventual first PR flow

@@ -2,6 +2,7 @@
 members = [
   "crates/santi-core",
   "crates/santi-api",
+  "crates/santi-cli",
   "crates/santi-db",
   "crates/santi-lock",
   "crates/santi-provider",

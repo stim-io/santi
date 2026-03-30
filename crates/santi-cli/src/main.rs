@@ -1,0 +1,160 @@
+mod backend;
+mod cli;
+mod config;
+mod output;
+
+use clap::Parser;
+
+use crate::{
+    backend::{api::ApiBackend, local::LocalBackend, CliBackend},
+    cli::{
+        ApiCommand, BackendKind, Cli, Command, SessionCommand, SessionMemoryCommand, SoulCommand,
+        SoulMemoryCommand,
+    },
+    config::Config,
+};
+
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
+
+    let exit_code = match run().await {
+        Ok(()) => 0,
+        Err(err) => {
+            eprintln!("{err}");
+            1
+        }
+    };
+
+    std::process::exit(exit_code);
+}
+
+async fn run() -> Result<(), String> {
+    let cli = Cli::parse();
+    let config = Config::from_env_and_cli(&cli)?;
+
+    match cli.command {
+        Command::Health => {
+            let backend = build_backend(config.clone(), config.backend).await?;
+            handle_health(backend.as_ref()).await?;
+        }
+        Command::Session { command } => {
+            let backend = build_backend(config.clone(), config.backend).await?;
+            handle_session_command(backend.as_ref(), command).await?;
+        }
+        Command::Soul { command } => {
+            let backend = build_backend(config.clone(), config.backend).await?;
+            handle_soul_command(backend.as_ref(), command).await?;
+        }
+        Command::Api { command } => match command {
+            ApiCommand::Health => {
+                let backend = build_backend(config.clone(), BackendKind::Api).await?;
+                handle_health(backend.as_ref()).await?;
+            }
+            ApiCommand::Session { command } => {
+                let backend = build_backend(config.clone(), BackendKind::Api).await?;
+                handle_session_command(backend.as_ref(), command).await?;
+            }
+            ApiCommand::Soul { command } => {
+                let backend = build_backend(config.clone(), BackendKind::Api).await?;
+                handle_soul_command(backend.as_ref(), command).await?;
+            }
+        },
+    }
+
+    Ok(())
+}
+
+async fn build_backend(config: Config, kind: BackendKind) -> Result<Box<dyn CliBackend>, String> {
+    match kind {
+        BackendKind::Api => Ok(Box::new(ApiBackend::new(config))),
+        BackendKind::Local => Ok(Box::new(LocalBackend::new(config).await?)),
+    }
+}
+
+async fn handle_health(backend: &dyn CliBackend) -> Result<(), String> {
+    let health = backend.health().await.map_err(output::render_error)?;
+    output::render_json(&health)
+}
+
+async fn handle_session_command(
+    backend: &dyn CliBackend,
+    command: SessionCommand,
+) -> Result<(), String> {
+    match command {
+        SessionCommand::Create => {
+            let session = backend
+                .create_session()
+                .await
+                .map_err(output::render_error)?;
+            println!("{}", session.id);
+        }
+        SessionCommand::Get { session_id } => {
+            let session = backend
+                .get_session(session_id)
+                .await
+                .map_err(output::render_error)?;
+            output::render_json(&session)?;
+        }
+        SessionCommand::Send {
+            session_id,
+            raw,
+            wait,
+        } => {
+            let content = output::read_stdin().await?;
+            if content.trim().is_empty() {
+                return Err("expected stdin content".to_string());
+            }
+            let stream = backend
+                .send_session(session_id, content, wait)
+                .await
+                .map_err(output::render_error)?;
+            output::render_send_stream(stream, raw).await?;
+        }
+        SessionCommand::Messages { session_id } => {
+            let messages = backend
+                .list_messages(session_id)
+                .await
+                .map_err(output::render_error)?;
+            output::render_messages(messages)?;
+        }
+        SessionCommand::Memory { command } => match command {
+            SessionMemoryCommand::Set { session_id } => {
+                let text = output::read_stdin().await?;
+                let memory = backend
+                    .set_session_memory(session_id, text)
+                    .await
+                    .map_err(output::render_error)?;
+                output::render_json(&memory)?;
+            }
+        },
+    }
+
+    Ok(())
+}
+
+async fn handle_soul_command(backend: &dyn CliBackend, command: SoulCommand) -> Result<(), String> {
+    match command {
+        SoulCommand::Get => {
+            let soul = backend
+                .get_default_soul()
+                .await
+                .map_err(output::render_error)?;
+            output::render_json(&soul)?;
+        }
+        SoulCommand::Memory { command } => match command {
+            SoulMemoryCommand::Set => {
+                let text = output::read_stdin().await?;
+                let memory = backend
+                    .set_default_soul_memory(text)
+                    .await
+                    .map_err(output::render_error)?;
+                output::render_json(&memory)?;
+            }
+        },
+    }
+
+    Ok(())
+}

@@ -50,7 +50,7 @@ See:
 - `docs/runtime-primitives.md`
 - `docs/lifecycle.md`
 - `docs/stim-santi-boundary.md`
-- `docs/session-message-actor-model.md`
+- `docs/session-message-model-spec.md`
 
 ## HTTP Exposure
 

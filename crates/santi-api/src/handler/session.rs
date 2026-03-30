@@ -1,9 +1,26 @@
-use axum::{extract::{Path, State}, http::StatusCode, response::{IntoResponse, Response, Sse}, Json};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::{IntoResponse, Response, Sse},
+    Json,
+};
 use futures::StreamExt;
 use santi_runtime::session::send::{SendSessionCommand, SendSessionError, SendSessionEvent};
 use std::convert::Infallible;
 
-use crate::{handler::session_events::{done_event, encode_session_sse_event}, schema::{common::ErrorResponse, session::{SessionMemoryRequest, SessionMemoryResponse, SessionMessagesResponse, SessionResponse, SessionSendContentPart, SessionSendRequest, SoulMemoryRequest, SoulMemoryResponse, SoulResponse}, session_events::SessionStreamEvent}, state::AppState};
+use crate::{
+    handler::session_events::{done_event, encode_session_sse_event},
+    schema::{
+        common::ErrorResponse,
+        session::{
+            SessionMemoryRequest, SessionMemoryResponse, SessionMessagesResponse, SessionResponse,
+            SessionSendContentPart, SessionSendRequest, SoulMemoryRequest, SoulMemoryResponse,
+            SoulResponse,
+        },
+        session_events::SessionStreamEvent,
+    },
+    state::AppState,
+};
 
 #[utoipa::path(
     post,
@@ -121,12 +138,14 @@ pub async fn set_session_memory(
     Path(id): Path<String>,
     Json(request): Json<SessionMemoryRequest>,
 ) -> impl IntoResponse {
-    match state.session_memory().write_session_memory(&id, &request.text).await {
-        Ok(Some(session)) => (
-            StatusCode::OK,
-            Json(SessionMemoryResponse::from(session)),
-        )
-            .into_response(),
+    match state
+        .session_memory()
+        .write_session_memory(&id, &request.text)
+        .await
+    {
+        Ok(Some(session)) => {
+            (StatusCode::OK, Json(SessionMemoryResponse::from(session))).into_response()
+        }
         Ok(None) => (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse::new("session not found")),
@@ -179,12 +198,12 @@ pub async fn set_default_soul_memory(
     State(state): State<AppState>,
     Json(request): Json<SoulMemoryRequest>,
 ) -> impl IntoResponse {
-    match state.session_memory().write_soul_memory("soul_default", &request.text).await {
-        Ok(Some(soul)) => (
-            StatusCode::OK,
-            Json(SoulMemoryResponse::from(soul)),
-        )
-            .into_response(),
+    match state
+        .session_memory()
+        .write_soul_memory("soul_default", &request.text)
+        .await
+    {
+        Ok(Some(soul)) => (StatusCode::OK, Json(SoulMemoryResponse::from(soul))).into_response(),
         Ok(None) => (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse::new("soul not found")),
@@ -225,10 +244,14 @@ pub async fn send_session(
         .collect::<Vec<_>>()
         .join("\n\n");
 
-    let stream = match state.session_send().start(SendSessionCommand {
-        session_id: id,
-        user_content,
-    }).await {
+    let stream = match state
+        .session_send()
+        .start(SendSessionCommand {
+            session_id: id,
+            user_content,
+        })
+        .await
+    {
         Ok(stream) => stream,
         Err(SendSessionError::Busy) => {
             return (
@@ -259,19 +282,24 @@ pub async fn send_session(
                 SendSessionEvent::OutputTextDelta(text) => {
                     encode_session_sse_event(SessionStreamEvent::OutputTextDelta(text))
                 }
-                SendSessionEvent::Completed => encode_session_sse_event(SessionStreamEvent::Completed),
+                SendSessionEvent::Completed => {
+                    encode_session_sse_event(SessionStreamEvent::Completed)
+                }
             }),
-            Err(err) => Ok::<_, Infallible>(axum::response::sse::Event::default().data(
-                serde_json::to_string(&ErrorResponse::new(match err {
-                    SendSessionError::Busy => "session send already in progress".to_string(),
-                    SendSessionError::NotFound => "session not found".to_string(),
-                    SendSessionError::Internal(message) => message,
-                })).unwrap_or_else(|_| {
-                    "{\"error\":{\"message\":\"internal error\"}}".to_string()
-                }),
-            )),
+            Err(err) => Ok::<_, Infallible>(
+                axum::response::sse::Event::default().data(
+                    serde_json::to_string(&ErrorResponse::new(match err {
+                        SendSessionError::Busy => "session send already in progress".to_string(),
+                        SendSessionError::NotFound => "session not found".to_string(),
+                        SendSessionError::Internal(message) => message,
+                    }))
+                    .unwrap_or_else(|_| "{\"error\":{\"message\":\"internal error\"}}".to_string()),
+                ),
+            ),
         })
-        .chain(futures::stream::once(async { Ok::<_, Infallible>(done_event()) }));
+        .chain(futures::stream::once(async {
+            Ok::<_, Infallible>(done_event())
+        }));
 
     Sse::new(stream).into_response()
 }

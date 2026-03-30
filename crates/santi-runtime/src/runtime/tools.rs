@@ -4,7 +4,11 @@ use santi_core::port::provider::{
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
 use std::{path::PathBuf, process::Stdio, time::Instant};
-use tokio::{io::AsyncReadExt, process::Command, time::{timeout, Duration}};
+use tokio::{
+    io::AsyncReadExt,
+    process::Command,
+    time::{timeout, Duration},
+};
 
 use crate::{runtime::context::ToolRuntimeContext, session::memory::SessionMemoryService};
 
@@ -144,7 +148,8 @@ impl ToolExecutor {
             }),
             ProviderTool::Function(ProviderFunctionTool {
                 name: "bash".to_string(),
-                description: "Run a local bash command inside the current execution workspace.".to_string(),
+                description: "Run a local bash command inside the current execution workspace."
+                    .to_string(),
                 parameters: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -171,16 +176,17 @@ impl ToolExecutor {
     ) -> Result<ToolDispatchResult, String> {
         match call.name.as_str() {
             "write_soul_memory" => {
-                let args: WriteSessionMemoryArgs = match serde_json::from_value(call.arguments.clone()) {
-                    Ok(args) => args,
-                    Err(err) => {
-                        return Ok(build_failed_dispatch_result(
-                            &call.name,
-                            &call.call_id,
-                            format!("invalid write_soul_memory arguments: {err}"),
-                        ))
-                    }
-                };
+                let args: WriteSessionMemoryArgs =
+                    match serde_json::from_value(call.arguments.clone()) {
+                        Ok(args) => args,
+                        Err(err) => {
+                            return Ok(build_failed_dispatch_result(
+                                &call.name,
+                                &call.call_id,
+                                format!("invalid write_soul_memory arguments: {err}"),
+                            ))
+                        }
+                    };
                 let result = match self.write_soul_memory(ctx, args.text).await {
                     Ok(result) => result,
                     Err(err) => {
@@ -201,16 +207,17 @@ impl ToolExecutor {
                 })
             }
             "write_session_memory" => {
-                let args: WriteSessionMemoryArgs = match serde_json::from_value(call.arguments.clone()) {
-                    Ok(args) => args,
-                    Err(err) => {
-                        return Ok(build_failed_dispatch_result(
-                            &call.name,
-                            &call.call_id,
-                            format!("invalid write_session_memory arguments: {err}"),
-                        ))
-                    }
-                };
+                let args: WriteSessionMemoryArgs =
+                    match serde_json::from_value(call.arguments.clone()) {
+                        Ok(args) => args,
+                        Err(err) => {
+                            return Ok(build_failed_dispatch_result(
+                                &call.name,
+                                &call.call_id,
+                                format!("invalid write_session_memory arguments: {err}"),
+                            ))
+                        }
+                    };
                 let result = match self.write_session_memory(ctx, args.text).await {
                     Ok(result) => result,
                     Err(err) => {
@@ -243,7 +250,9 @@ impl ToolExecutor {
                 };
                 let result = match self.bash(ctx, args).await {
                     Ok(result) => result,
-                    Err(err) => return Ok(build_failed_dispatch_result(&call.name, &call.call_id, err)),
+                    Err(err) => {
+                        return Ok(build_failed_dispatch_result(&call.name, &call.call_id, err))
+                    }
                 };
                 let tool_output = serde_json::to_value(&result)
                     .map_err(|err| format!("serialize tool output failed: {err}"))?;
@@ -328,8 +337,14 @@ impl ToolExecutor {
             .spawn()
             .map_err(|err| format!("failed to spawn bash: {err}"))?;
 
-        let mut stdout = child.stdout.take().ok_or_else(|| "missing child stdout".to_string())?;
-        let mut stderr = child.stderr.take().ok_or_else(|| "missing child stderr".to_string())?;
+        let mut stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "missing child stdout".to_string())?;
+        let mut stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| "missing child stderr".to_string())?;
 
         let stdout_task = tokio::spawn(async move {
             let mut buf = Vec::new();
@@ -346,8 +361,12 @@ impl ToolExecutor {
 
         let (feedback_msg, exit_code) = match wait_result {
             Ok(wait_status) => {
-                let status = wait_status.map_err(|err| format!("failed to wait for bash: {err}"))?;
-                (ToolCallFeedbackMsg::NormalToolCall, status.code().unwrap_or(-1))
+                let status =
+                    wait_status.map_err(|err| format!("failed to wait for bash: {err}"))?;
+                (
+                    ToolCallFeedbackMsg::NormalToolCall,
+                    status.code().unwrap_or(-1),
+                )
             }
             Err(_) => {
                 let _ = child.kill().await;
@@ -357,8 +376,12 @@ impl ToolExecutor {
         };
 
         let duration_ms = started_at.elapsed().as_millis();
-        let stdout = stdout_task.await.map_err(|err| format!("stdout task failed: {err}"))?;
-        let stderr = stderr_task.await.map_err(|err| format!("stderr task failed: {err}"))?;
+        let stdout = stdout_task
+            .await
+            .map_err(|err| format!("stdout task failed: {err}"))?;
+        let stderr = stderr_task
+            .await
+            .map_err(|err| format!("stderr task failed: {err}"))?;
 
         tracing::info!(
             session_id = %ctx.session_id,
@@ -379,7 +402,11 @@ impl ToolExecutor {
     }
 }
 
-fn build_failed_dispatch_result(tool_name: &str, call_id: &str, message: String) -> ToolDispatchResult {
+fn build_failed_dispatch_result(
+    tool_name: &str,
+    call_id: &str,
+    message: String,
+) -> ToolDispatchResult {
     let tool_output = serde_json::json!({
         "ok": false,
         "error": {

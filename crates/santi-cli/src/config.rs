@@ -1,6 +1,7 @@
 use std::{env, fs, path::PathBuf};
 
 use dirs::home_dir;
+use santi_runtime::hooks::{HookSpec, HookSpecSource};
 use serde::Deserialize;
 
 use crate::cli::{BackendKind, Cli};
@@ -16,6 +17,7 @@ pub struct Config {
     pub openai_api_key: Option<String>,
     pub openai_base_url: String,
     pub openai_model: String,
+    pub hook_source: Option<HookSpecSource>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -29,6 +31,9 @@ struct ConfigFile {
     openai_api_key: Option<String>,
     openai_base_url: Option<String>,
     openai_model: Option<String>,
+    hooks: Option<Vec<HookSpec>>,
+    hooks_file: Option<String>,
+    hooks_url: Option<String>,
 }
 
 impl Config {
@@ -90,6 +95,41 @@ impl Config {
             .ok()
             .or(file_config.openai_model.clone())
             .unwrap_or_else(|| "gpt-5.4".to_string());
+        let hook_source = env::var("SANTI_CLI_HOOKS_JSON")
+            .ok()
+            .filter(|raw| !raw.trim().is_empty())
+            .map(|raw| parse_hook_source_json(&raw, "SANTI_CLI_HOOKS_JSON"))
+            .transpose()?
+            .or_else(|| {
+                env::var("SANTI_CLI_HOOKS_FILE")
+                    .ok()
+                    .filter(|raw| !raw.trim().is_empty())
+                    .map(|path| HookSpecSource::Path { path })
+            })
+            .or_else(|| {
+                env::var("SANTI_CLI_HOOKS_URL")
+                    .ok()
+                    .filter(|raw| !raw.trim().is_empty())
+                    .map(|url| HookSpecSource::Url { url })
+            })
+            .or_else(|| {
+                file_config
+                    .hooks
+                    .clone()
+                    .map(|hooks| HookSpecSource::Value { hooks })
+            })
+            .or_else(|| {
+                file_config
+                    .hooks_file
+                    .clone()
+                    .map(|path| HookSpecSource::Path { path })
+            })
+            .or_else(|| {
+                file_config
+                    .hooks_url
+                    .clone()
+                    .map(|url| HookSpecSource::Url { url })
+            });
 
         Ok(Self {
             backend,
@@ -101,8 +141,14 @@ impl Config {
             openai_api_key,
             openai_base_url,
             openai_model,
+            hook_source,
         })
     }
+}
+
+fn parse_hook_source_json(raw: &str, source: &str) -> Result<HookSpecSource, String> {
+    HookSpecSource::from_json_str(raw)
+        .map_err(|err| format!("parse hooks failed ({source}): {err}"))
 }
 
 fn parse_backend_kind(raw: String) -> Option<BackendKind> {

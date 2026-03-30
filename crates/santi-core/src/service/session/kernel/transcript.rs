@@ -1,6 +1,7 @@
 use crate::{
     model::{
         message::{ActorType, MessagePart},
+        runtime::Compact,
         session::SessionMessage,
     },
     provider::ProviderInputMessage,
@@ -30,6 +31,22 @@ pub fn to_input_message(message: &SessionMessage) -> Option<ProviderInputMessage
     } else {
         Some(ProviderInputMessage {
             role: role.to_string(),
+            content,
+        })
+    }
+}
+
+pub fn compact_to_input_message(compact: &Compact) -> Option<ProviderInputMessage> {
+    let content = format!(
+        "[compact {}-{}]\n{}",
+        compact.start_session_seq, compact.end_session_seq, compact.summary
+    );
+
+    if compact.summary.trim().is_empty() {
+        None
+    } else {
+        Some(ProviderInputMessage {
+            role: "system".to_string(),
             content,
         })
     }

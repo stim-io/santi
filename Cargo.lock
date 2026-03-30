@@ -1903,6 +1903,7 @@ version = "0.1.0"
 dependencies = [
  "async-stream",
  "futures",
+ "reqwest",
  "santi-core",
  "serde",
  "serde_json",

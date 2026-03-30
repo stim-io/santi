@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use async_trait::async_trait;
 use futures::StreamExt;
 use santi_core::{
-    model::{message::MessagePart, session::SessionMessage, soul::Soul},
+    model::{message::MessagePart, runtime::Compact, session::SessionMessage, soul::Soul},
     port::{
         lock::Lock, provider::Provider, session_ledger::SessionLedgerPort, soul::SoulPort,
         soul_runtime::SoulRuntimePort,
@@ -16,8 +16,10 @@ use santi_db::{
 use santi_lock::{RedisLockClient, RedisLockConfig};
 use santi_provider::openai_compatible::OpenAiCompatibleProvider;
 use santi_runtime::{
+    hooks::{load_hook_specs, HookRegistryHolder, HookSpecSource},
     runtime::tools::ToolExecutorConfig,
     session::{
+        compact::SessionCompactService,
         memory::SessionMemoryService,
         query::SessionQueryService,
         send::{SendSessionCommand, SendSessionError, SendSessionEvent, SessionSendService},
@@ -27,8 +29,8 @@ use tokio::time::sleep;
 
 use crate::{
     backend::{
-        BackendError, CliBackend, CliHealth, CliMemoryRecord, CliMessage, CliSession, CliSoul,
-        SendEvent, SendStream,
+        BackendError, CliBackend, CliCompact, CliHealth, CliHookReload, CliMemoryRecord,
+        CliMessage, CliSession, CliSoul, SendEvent, SendStream,
     },
     config::Config,
 };
@@ -36,7 +38,10 @@ use crate::{
 #[derive(Clone)]
 pub struct LocalBackend {
     default_soul_id: String,
+    #[allow(dead_code)]
+    hook_registry: HookRegistryHolder,
     session_memory: Arc<SessionMemoryService>,
+    session_compact: Arc<SessionCompactService>,
     session_query: Arc<SessionQueryService>,
     session_send: Arc<SessionSendService>,
 }
@@ -84,6 +89,13 @@ impl LocalBackend {
             soul_port,
             default_soul_id.clone(),
         ));
+        let session_compact = Arc::new(SessionCompactService::new(
+            session_ledger.clone(),
+            soul_runtime.clone(),
+            default_soul_id.clone(),
+        ));
+        let hook_specs = load_startup_hook_specs(config.hook_source.as_ref()).await?;
+        let hook_registry = HookRegistryHolder::from_specs(&hook_specs);
         let session_send = Arc::new(SessionSendService::new(
             config.openai_model.clone(),
             default_soul_id.clone(),
@@ -96,14 +108,36 @@ impl LocalBackend {
                 runtime_root: config.runtime_root,
                 execution_root: config.execution_root,
             },
+            hook_registry.clone(),
         ));
 
         Ok(Self {
             default_soul_id,
+            hook_registry,
             session_memory,
+            session_compact,
             session_query,
             session_send,
         })
+    }
+
+    #[allow(dead_code)]
+    pub fn reload_hooks(&self, specs: &[santi_runtime::hooks::HookSpec]) -> usize {
+        self.hook_registry.reload_from_specs(specs)
+    }
+
+    async fn reload_hook_source(&self, source: &HookSpecSource) -> Result<usize, String> {
+        let specs = load_hook_specs(source).await?;
+        Ok(self.hook_registry.reload_from_specs(&specs))
+    }
+}
+
+async fn load_startup_hook_specs(
+    source: Option<&HookSpecSource>,
+) -> Result<Vec<santi_runtime::hooks::HookSpec>, String> {
+    match source {
+        Some(source) => load_hook_specs(source).await,
+        None => Ok(Vec::new()),
     }
 }
 
@@ -215,6 +249,27 @@ impl CliBackend for LocalBackend {
             updated_at: soul_session.updated_at,
         })
     }
+
+    async fn compact_session(
+        &self,
+        session_id: String,
+        summary: String,
+    ) -> Result<CliCompact, BackendError> {
+        self.session_compact
+            .compact_session(&session_id, &summary)
+            .await
+            .map(map_compact)
+            .map_err(BackendError::Other)
+    }
+
+    async fn reload_hooks(&self, source: HookSpecSource) -> Result<CliHookReload, BackendError> {
+        Ok(CliHookReload {
+            hook_count: self
+                .reload_hook_source(&source)
+                .await
+                .map_err(BackendError::Other)?,
+        })
+    }
 }
 
 fn map_send_event(event: SendSessionEvent) -> SendEvent {
@@ -271,5 +326,16 @@ fn map_soul(soul: Soul) -> CliSoul {
         memory: soul.memory,
         created_at: Some(soul.created_at),
         updated_at: soul.updated_at,
+    }
+}
+
+fn map_compact(compact: Compact) -> CliCompact {
+    CliCompact {
+        id: compact.id,
+        turn_id: compact.turn_id,
+        summary: compact.summary,
+        start_session_seq: compact.start_session_seq,
+        end_session_seq: compact.end_session_seq,
+        created_at: compact.created_at,
     }
 }

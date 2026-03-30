@@ -3,7 +3,7 @@ use utoipa::ToSchema;
 
 use crate::model::{
     message::MessagePart,
-    runtime::SoulSession,
+    runtime::{Compact, SoulSession},
     session::{Session, SessionMessage},
     soul::Soul,
 };
@@ -103,6 +103,21 @@ pub struct SessionSendRequest {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, ToSchema)]
+pub struct SessionCompactRequest {
+    pub summary: String,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub struct SessionCompactResponse {
+    pub id: String,
+    pub turn_id: String,
+    pub summary: String,
+    pub start_session_seq: i64,
+    pub end_session_seq: i64,
+    pub created_at: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, ToSchema)]
 #[serde(tag = "type")]
 pub enum SessionSendContentPart {
     #[serde(rename = "text")]
@@ -145,6 +160,19 @@ impl SessionMessagesResponse {
                 .into_iter()
                 .map(SessionMessageResponse::from)
                 .collect(),
+        }
+    }
+}
+
+impl From<Compact> for SessionCompactResponse {
+    fn from(value: Compact) -> Self {
+        Self {
+            id: value.id,
+            turn_id: value.turn_id,
+            summary: value.summary,
+            start_session_seq: value.start_session_seq,
+            end_session_seq: value.end_session_seq,
+            created_at: value.created_at,
         }
     }
 }

@@ -13,7 +13,8 @@ use crate::{
     schema::{
         common::ErrorResponse,
         session::{
-            SessionMemoryRequest, SessionMemoryResponse, SessionMessagesResponse, SessionResponse,
+            SessionCompactRequest, SessionCompactResponse, SessionMemoryRequest,
+            SessionMemoryResponse, SessionMessagesResponse, SessionResponse,
             SessionSendContentPart, SessionSendRequest, SoulMemoryRequest, SoulMemoryResponse,
             SoulResponse,
         },
@@ -302,4 +303,37 @@ pub async fn send_session(
         }));
 
     Sse::new(stream).into_response()
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/sessions/{id}/compact",
+    tag = "session",
+    params(
+        ("id" = String, Path, description = "Session id")
+    ),
+    request_body(content = SessionCompactRequest),
+    responses(
+        (status = 200, description = "Session compact created", body = SessionCompactResponse),
+        (status = 404, description = "Session not found", body = ErrorResponse)
+    )
+)]
+pub async fn compact_session(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(request): Json<SessionCompactRequest>,
+) -> impl IntoResponse {
+    match state
+        .session_compact()
+        .compact_session(&id, &request.summary)
+        .await
+    {
+        Ok(compact) => {
+            (StatusCode::OK, Json(SessionCompactResponse::from(compact))).into_response()
+        }
+        Err(err) if err.contains("not found") => {
+            (StatusCode::NOT_FOUND, Json(ErrorResponse::new(err))).into_response()
+        }
+        Err(err) => (StatusCode::BAD_REQUEST, Json(ErrorResponse::new(err))).into_response(),
+    }
 }

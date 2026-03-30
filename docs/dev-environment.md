@@ -56,8 +56,37 @@ docker compose up -d --build
 santi-cli health
 santi-cli chat 'hello'
 printf 'hello again' | santi-cli chat --session <session_id>
+printf 'compact summary' | santi-cli session compact <session_id>
 santi-cli --backend api chat 'hello from api backend'
+printf 'compact summary' | santi-cli --backend api session compact <session_id>
 SANTI_CLI_BACKEND=api santi-cli health
+
+# optional typed hook instances for local CLI runtime
+export SANTI_CLI_HOOKS_JSON='[{"id":"auto-compact-threshold","enabled":true,"hook_point":"turn_completed","kind":"compact_threshold","params":{"min_messages_since_last_compact":2}}]'
+santi-cli chat 'auto compact local'
+
+# or point startup at a file / url instead of inline JSON
+export SANTI_CLI_HOOKS_FILE='/absolute/path/to/hooks.json'
+export SANTI_CLI_HOOKS_URL='https://example.com/hooks.json'
+
+# optional typed hook instances for dockerized API runtime
+export HOOK_SPECS_JSON='[{"id":"auto-compact-threshold","enabled":true,"hook_point":"turn_completed","kind":"compact_threshold","params":{"min_messages_since_last_compact":2}}]'
+export HOOK_SPECS_FILE='/app/tmp/hooks.json'
+export HOOK_SPECS_URL='https://example.com/hooks.json'
+docker compose up -d --build santi
+
+# runtime hook reload without restart (whole-set replace)
+curl -X PUT http://127.0.0.1:18081/api/v1/admin/hooks \
+  -H 'content-type: application/json' \
+  -d '{"hooks":[{"id":"auto-compact-threshold","enabled":true,"hook_point":"turn_completed","kind":"compact_threshold","params":{"min_messages_since_last_compact":2}}]}'
+
+# same operation through santi-cli
+printf '[{"id":"auto-compact-threshold","enabled":true,"hook_point":"turn_completed","kind":"compact_threshold","params":{"min_messages_since_last_compact":2}}]' \
+  | santi-cli --backend api admin hooks reload
+
+# path/url modes for the same reload entrypoint
+printf '{"source":"path","path":"/app/tmp/hooks.json"}' | santi-cli --backend api admin hooks reload
+printf '{"source":"url","url":"http://host.docker.internal:18765/hooks.json"}' | santi-cli --backend api admin hooks reload
 ```
 
 ## Rule

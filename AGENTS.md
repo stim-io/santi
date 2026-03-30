@@ -41,6 +41,7 @@ Detailed system thinking belongs in `docs/`, not here.
 - `docs/system-model.md`: top-level runtime model overview and design principles
 - `docs/runtime-primitives.md`: current core object model and primitive definitions
 - `docs/lifecycle.md`: soul/session lifecycle and fork hook model
+- `docs/hook-reload-boundary.md`: runtime boundary for hook source inputs and whole-set reload
 - `docs/dev-environment.md`: local development baseline and smoke entrypoints
 - `docs/dev-faq.md`: local troubleshooting notes for common development and smoke/integration issues
 - `docs/redis-lock-plan.md`: minimal Redis-based concurrency lock plan for `session/send`

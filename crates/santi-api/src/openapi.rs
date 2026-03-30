@@ -3,6 +3,7 @@ use utoipa::OpenApi;
 use crate::{
     handler,
     schema::{
+        admin::{HookReloadRequest, HookReloadResponse},
         common::ErrorResponse,
         health::HealthResponse,
         session::{
@@ -16,6 +17,7 @@ use crate::{
 #[openapi(
     paths(
         handler::health::health,
+        handler::admin::reload_hooks,
         handler::session::get_default_soul,
         handler::session::set_default_soul_memory,
         handler::session::create_session,
@@ -26,6 +28,8 @@ use crate::{
     ),
     components(schemas(
         ErrorResponse,
+        HookReloadRequest,
+        HookReloadResponse,
         HealthResponse,
         SessionMemoryRequest,
         SessionMemoryResponse,
@@ -37,6 +41,7 @@ use crate::{
         SoulResponse
     )),
     tags(
+        (name = "admin", description = "Admin management endpoints"),
         (name = "health", description = "Health check endpoints"),
         (name = "session", description = "Session runtime endpoints"),
         (name = "soul", description = "Soul runtime endpoints")

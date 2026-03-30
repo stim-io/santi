@@ -8,8 +8,8 @@ use clap::Parser;
 use crate::{
     backend::{api::ApiBackend, local::LocalBackend, CliBackend},
     cli::{
-        ApiCommand, BackendKind, ChatCommand, Cli, Command, SessionCommand, SessionMemoryCommand,
-        SoulCommand, SoulMemoryCommand,
+        AdminCommand, ApiCommand, BackendKind, ChatCommand, Cli, Command, HookAdminCommand,
+        SessionCommand, SessionMemoryCommand, SoulCommand, SoulMemoryCommand,
     },
     config::Config,
 };
@@ -48,6 +48,10 @@ async fn run() -> Result<(), String> {
             let backend = build_backend(config.clone(), config.backend).await?;
             handle_session_command(backend.as_ref(), command).await?;
         }
+        Command::Admin { command } => {
+            let backend = build_backend(config.clone(), config.backend).await?;
+            handle_admin_command(backend.as_ref(), command).await?;
+        }
         Command::Soul { command } => {
             let backend = build_backend(config.clone(), config.backend).await?;
             handle_soul_command(backend.as_ref(), command).await?;
@@ -64,6 +68,10 @@ async fn run() -> Result<(), String> {
             ApiCommand::Session { command } => {
                 let backend = build_backend(config.clone(), BackendKind::Api).await?;
                 handle_session_command(backend.as_ref(), command).await?;
+            }
+            ApiCommand::Admin { command } => {
+                let backend = build_backend(config.clone(), BackendKind::Api).await?;
+                handle_admin_command(backend.as_ref(), command).await?;
             }
             ApiCommand::Soul { command } => {
                 let backend = build_backend(config.clone(), BackendKind::Api).await?;
@@ -120,6 +128,17 @@ async fn handle_session_command(
                 .await
                 .map_err(output::render_error)?;
             output::render_send_stream(stream, raw).await?;
+        }
+        SessionCommand::Compact { session_id } => {
+            let summary = output::read_stdin().await?;
+            if summary.trim().is_empty() {
+                return Err("expected stdin summary content".to_string());
+            }
+            let compact = backend
+                .compact_session(session_id, summary)
+                .await
+                .map_err(output::render_error)?;
+            output::render_json(&compact)?;
         }
         SessionCommand::Messages { session_id } => {
             let messages = backend
@@ -185,6 +204,31 @@ async fn handle_soul_command(backend: &dyn CliBackend, command: SoulCommand) -> 
                     .await
                     .map_err(output::render_error)?;
                 output::render_json(&memory)?;
+            }
+        },
+    }
+
+    Ok(())
+}
+
+async fn handle_admin_command(
+    backend: &dyn CliBackend,
+    command: AdminCommand,
+) -> Result<(), String> {
+    match command {
+        AdminCommand::Hooks { command } => match command {
+            HookAdminCommand::Reload => {
+                let raw = output::read_stdin().await?;
+                if raw.trim().is_empty() {
+                    return Err("expected stdin hook payload".to_string());
+                }
+                let source = santi_runtime::hooks::HookSpecSource::from_json_str(&raw)
+                    .map_err(|err| format!("parse hook payload failed: {err}"))?;
+                let result = backend
+                    .reload_hooks(source)
+                    .await
+                    .map_err(output::render_error)?;
+                output::render_json(&result)?;
             }
         },
     }

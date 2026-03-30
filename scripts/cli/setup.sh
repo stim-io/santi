@@ -17,6 +17,9 @@ execution_root="${SANTI_CLI_EXECUTION_ROOT:-$repo_root}"
 openai_api_key="${SANTI_CLI_OPENAI_API_KEY:-codex-local-dev}"
 openai_base_url="${SANTI_CLI_OPENAI_BASE_URL:-http://127.0.0.1:18082/openai/v1}"
 openai_model="${SANTI_CLI_OPENAI_MODEL:-gpt-5.4}"
+hooks_json="${SANTI_CLI_HOOKS_JSON:-}"
+hooks_file="${SANTI_CLI_HOOKS_FILE:-}"
+hooks_url="${SANTI_CLI_HOOKS_URL:-}"
 
 mkdir -p "$config_dir"
 mkdir -p "$runtime_root"
@@ -47,6 +50,15 @@ data = {
 api_key = os.environ.get("SANTI_CLI_OPENAI_API_KEY", "")
 if api_key:
     data["openai_api_key"] = api_key
+hooks_json = os.environ.get("SANTI_CLI_HOOKS_JSON", "")
+if hooks_json:
+    data["hooks"] = json.loads(hooks_json)
+hooks_file = os.environ.get("SANTI_CLI_HOOKS_FILE", "")
+if hooks_file:
+    data["hooks_file"] = hooks_file
+hooks_url = os.environ.get("SANTI_CLI_HOOKS_URL", "")
+if hooks_url:
+    data["hooks_url"] = hooks_url
 with open(path, "w", encoding="utf-8") as f:
     json.dump(data, f, indent=2)
     f.write("\n")

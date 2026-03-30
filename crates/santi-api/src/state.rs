@@ -12,13 +12,19 @@ use santi_db::{
 use santi_lock::{RedisLockClient, RedisLockConfig};
 use santi_provider::openai_compatible::OpenAiCompatibleProvider;
 use santi_runtime::{
+    hooks::{load_hook_specs, HookRegistryHolder, HookSpec, HookSpecSource},
     runtime::tools::ToolExecutorConfig,
-    session::{memory::SessionMemoryService, query::SessionQueryService, send::SessionSendService},
+    session::{
+        compact::SessionCompactService, memory::SessionMemoryService, query::SessionQueryService,
+        send::SessionSendService,
+    },
 };
 
 #[derive(Clone)]
 pub struct AppState {
+    hook_registry: HookRegistryHolder,
     session_memory: Arc<SessionMemoryService>,
+    session_compact: Arc<SessionCompactService>,
     session_query: Arc<SessionQueryService>,
     session_send: Arc<SessionSendService>,
 }
@@ -71,6 +77,13 @@ impl AppState {
             soul_port.clone(),
             default_soul_id.clone(),
         ));
+        let session_compact = Arc::new(SessionCompactService::new(
+            session_ledger.clone(),
+            soul_runtime.clone(),
+            default_soul_id.clone(),
+        ));
+        let hook_specs = load_startup_hook_specs(config.hook_source.as_ref()).await?;
+        let hook_registry = HookRegistryHolder::from_specs(&hook_specs);
         let session_send = Arc::new(SessionSendService::new(
             config.openai_model.clone(),
             default_soul_id,
@@ -83,10 +96,13 @@ impl AppState {
                 runtime_root: config.runtime_root.clone(),
                 execution_root: config.execution_root.clone(),
             },
+            hook_registry.clone(),
         ));
 
         Ok(Self {
+            hook_registry,
             session_memory,
+            session_compact,
             session_query,
             session_send,
         })
@@ -100,7 +116,27 @@ impl AppState {
         self.session_memory.clone()
     }
 
+    pub fn session_compact(&self) -> Arc<SessionCompactService> {
+        self.session_compact.clone()
+    }
+
     pub fn session_query(&self) -> Arc<SessionQueryService> {
         self.session_query.clone()
+    }
+
+    pub fn reload_hooks(&self, specs: &[HookSpec]) -> usize {
+        self.hook_registry.reload_from_specs(specs)
+    }
+
+    pub async fn reload_hooks_from_source(&self, source: HookSpecSource) -> Result<usize, String> {
+        let specs = load_hook_specs(&source).await?;
+        Ok(self.reload_hooks(&specs))
+    }
+}
+
+async fn load_startup_hook_specs(source: Option<&HookSpecSource>) -> Result<Vec<HookSpec>, String> {
+    match source {
+        Some(source) => load_hook_specs(source).await,
+        None => Ok(Vec::new()),
     }
 }

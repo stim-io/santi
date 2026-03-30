@@ -32,6 +32,10 @@ pub enum Command {
         #[command(subcommand)]
         command: SessionCommand,
     },
+    Admin {
+        #[command(subcommand)]
+        command: AdminCommand,
+    },
     Soul {
         #[command(subcommand)]
         command: SoulCommand,
@@ -52,6 +56,10 @@ pub enum ApiCommand {
     Session {
         #[command(subcommand)]
         command: SessionCommand,
+    },
+    Admin {
+        #[command(subcommand)]
+        command: AdminCommand,
     },
     Soul {
         #[command(subcommand)]
@@ -86,6 +94,9 @@ pub enum SessionCommand {
         #[arg(long)]
         wait: bool,
     },
+    Compact {
+        session_id: String,
+    },
     Messages {
         session_id: String,
     },
@@ -112,4 +123,17 @@ pub enum SoulCommand {
 #[derive(Debug, Subcommand)]
 pub enum SoulMemoryCommand {
     Set,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AdminCommand {
+    Hooks {
+        #[command(subcommand)]
+        command: HookAdminCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum HookAdminCommand {
+    Reload,
 }

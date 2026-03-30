@@ -18,6 +18,12 @@ This file records the stable role and local constraints of `santi-cli`.
 - Do not document or imply a backend selector field unless the code actually reads one.
 - The normal operator path is `santi-cli chat <message>`; continuing a session should use `santi-cli chat --session <id> <message>` or stdin with `--session <id>`.
 - Backend-specific wrapper scripts should not carry user-facing chat semantics; use backend flags/env on `santi-cli` itself instead.
+- Explicit compact verification should use `printf '<summary>' | santi-cli session compact <session_id>` and the same command with `--backend api` for the HTTP path.
+- Hook instances are typed in Rust but loaded dynamically from config/env; the current CLI-side env override is `SANTI_CLI_HOOKS_JSON`.
+- Startup hook input may come from `SANTI_CLI_HOOKS_JSON`, `SANTI_CLI_HOOKS_FILE`, or `SANTI_CLI_HOOKS_URL`.
+- Hook loading is now routed through a registry holder that supports atomic whole-set replacement; file watching and live reload triggers are still deferred.
+- The current service-side management entrypoint for hook replacement is `PUT /api/v1/admin/hooks` with a whole hook-set payload.
+- The preferred operator path for service-side replacement is now `santi-cli --backend api admin hooks reload` with an inline value / path / url payload on stdin.
 
 ## Cold Start Flow
 
@@ -26,7 +32,8 @@ This file records the stable role and local constraints of `santi-cli`.
 3. run installed `santi-cli` directly, starting with `santi-cli health`
 4. use `santi-cli chat ...` for the normal loop; use `--session <id>` when you want to continue an existing session explicitly
 5. use `santi-cli --backend api chat ...` or `SANTI_CLI_BACKEND=api santi-cli chat ...` when you want the HTTP backend explicitly
-6. use `./scripts/cli/reset.sh` only when you want to remove the local install and default CLI state
+6. use `printf '[...]' | santi-cli --backend api admin hooks reload` when you want to replace the active hook set on a running API service
+7. use `./scripts/cli/reset.sh` only when you want to remove the local install and default CLI state
 
 ## Key File Index
 

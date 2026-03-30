@@ -237,7 +237,9 @@ Current stance:
 - `compact` is an immutable runtime summary block over the inclusive public-session interval `[start_session_seq, end_session_seq]`
 - it belongs to the `turn` that created it; `soul_session_id` is derived through that `turn`
 - keep the persisted object plain in the first pass
-- schema shape and storage path are present now, but compact creation is not yet wired into the main session runtime path
+- schema shape, storage path, and explicit `session compact` entrypoints are present now
+- compacts are consumed during provider snapshot assembly when referenced by `r_soul_session_messages`
+- automatic compact generation is still not wired into the main `session/send` runtime path
 
 Constraints:
 

@@ -10,6 +10,7 @@ use crate::{handler, openapi::ApiDoc, state::AppState};
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/api/v1/health", get(handler::health::health))
+        .route("/api/v1/admin/hooks", put(handler::admin::reload_hooks))
         .route("/api/v1/soul", get(handler::session::get_default_soul))
         .route(
             "/api/v1/soul/memory",
@@ -20,6 +21,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/sessions/:id/send",
             post(handler::session::send_session),
+        )
+        .route(
+            "/api/v1/sessions/:id/compact",
+            post(handler::session::compact_session),
         )
         .route(
             "/api/v1/sessions/:id/memory",

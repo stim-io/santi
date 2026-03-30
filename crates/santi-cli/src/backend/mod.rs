@@ -5,6 +5,7 @@ use std::pin::Pin;
 
 use async_trait::async_trait;
 use futures::Stream;
+use santi_runtime::hooks::HookSpecSource;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -31,6 +32,21 @@ pub struct CliMemoryRecord {
     pub id: String,
     pub memory: String,
     pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CliCompact {
+    pub id: String,
+    pub turn_id: String,
+    pub summary: String,
+    pub start_session_seq: i64,
+    pub end_session_seq: i64,
+    pub created_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CliHookReload {
+    pub hook_count: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -83,4 +99,10 @@ pub trait CliBackend: Send + Sync {
         session_id: String,
         text: String,
     ) -> Result<CliMemoryRecord, BackendError>;
+    async fn compact_session(
+        &self,
+        session_id: String,
+        summary: String,
+    ) -> Result<CliCompact, BackendError>;
+    async fn reload_hooks(&self, source: HookSpecSource) -> Result<CliHookReload, BackendError>;
 }

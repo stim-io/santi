@@ -28,12 +28,15 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::{
+    hooks::{HookRegistryHolder, TurnCompletedHookInput},
     runtime::{
         context::ToolRuntimeContext,
         prompt::render_runtime_instructions,
         tools::{ToolExecutor, ToolExecutorConfig},
     },
-    session::memory::SessionMemoryService,
+    session::{
+        compact::SessionCompactService, hook_runtime::HookRuntime, memory::SessionMemoryService,
+    },
 };
 
 #[derive(Clone)]
@@ -45,6 +48,7 @@ pub struct SessionSendService {
     soul_runtime: Arc<dyn SoulRuntimePort>,
     provider: Arc<dyn Provider>,
     tools: Arc<ToolExecutor>,
+    hooks: Arc<HookRuntime>,
 }
 
 pub struct SendSessionCommand {
@@ -69,6 +73,7 @@ pub type SendSessionStream =
 
 #[derive(Clone)]
 struct StartupContext {
+    session: santi_core::model::session::Session,
     provider_input: Vec<ProviderInputMessage>,
     instructions: Option<String>,
     soul_session_id: String,
@@ -87,7 +92,13 @@ impl SessionSendService {
         provider: Arc<dyn Provider>,
         session_memory: SessionMemoryService,
         tool_config: ToolExecutorConfig,
+        hook_registry: HookRegistryHolder,
     ) -> Self {
+        let compact_service = Arc::new(SessionCompactService::new(
+            session_ledger.clone(),
+            soul_runtime.clone(),
+            default_soul_id.clone(),
+        ));
         Self {
             model,
             default_soul_id,
@@ -96,6 +107,7 @@ impl SessionSendService {
             soul_runtime,
             provider,
             tools: Arc::new(ToolExecutor::new(session_memory, tool_config)),
+            hooks: Arc::new(HookRuntime::new(hook_registry, compact_service)),
         }
     }
 
@@ -135,6 +147,7 @@ impl SessionSendService {
         let session_ledger = self.session_ledger.clone();
         let soul_runtime = self.soul_runtime.clone();
         let tools = self.tools.clone();
+        let hooks = self.hooks.clone();
         let (tx, mut rx) = mpsc::unbounded_channel::<Result<SendSessionEvent, SendSessionError>>();
         let error_tx = tx.clone();
 
@@ -147,6 +160,7 @@ impl SessionSendService {
                 session_ledger,
                 soul_runtime,
                 tools,
+                hooks,
                 startup,
                 tx,
                 guard,
@@ -195,7 +209,7 @@ async fn run_startup(
 
     let user_message = session_ledger
         .append_message(AppendSessionMessage {
-            session_id: session.id,
+            session_id: session.id.clone(),
             message_id: format!("msg_{}", Uuid::new_v4().simple()),
             actor_type: ActorType::Account,
             actor_id: "account_local".to_string(),
@@ -218,10 +232,7 @@ async fn run_startup(
         .await
         .map_err(map_core_error)?;
 
-    let provider_input = assembly
-        .iter()
-        .filter_map(assembly_item_to_input_message)
-        .collect::<Vec<_>>();
+    let provider_input = assembly_to_provider_input(&assembly);
     let runtime_context = tools.build_context(&cmd.session_id, &turn_context.soul.id);
     let core_prompt = build_runtime_prompt(RuntimePromptSource {
         session_id: Some(cmd.session_id.clone()),
@@ -233,6 +244,7 @@ async fn run_startup(
     let instructions = render_runtime_instructions(&core_prompt, &runtime_context, &tools);
 
     Ok(StartupContext {
+        session,
         provider_input,
         instructions,
         soul_session_id: soul_session.id,
@@ -250,6 +262,7 @@ async fn run_session_send_worker(
     session_ledger: Arc<dyn SessionLedgerPort>,
     soul_runtime: Arc<dyn SoulRuntimePort>,
     tools: Arc<ToolExecutor>,
+    hooks: Arc<HookRuntime>,
     startup: StartupContext,
     tx: mpsc::UnboundedSender<Result<SendSessionEvent, SendSessionError>>,
     guard: Box<dyn LockGuard + Send>,
@@ -274,6 +287,7 @@ async fn run_session_send_worker(
         session_ledger,
         soul_runtime.clone(),
         tools,
+        hooks,
         startup,
         started_turn,
         tx,
@@ -305,6 +319,7 @@ async fn run_turn_body(
     session_ledger: Arc<dyn SessionLedgerPort>,
     soul_runtime: Arc<dyn SoulRuntimePort>,
     tools: Arc<ToolExecutor>,
+    hooks: Arc<HookRuntime>,
     startup: StartupContext,
     turn: Turn,
     tx: mpsc::UnboundedSender<Result<SendSessionEvent, SendSessionError>>,
@@ -390,7 +405,7 @@ async fn run_turn_body(
 
     let assistant_entry = soul_runtime
         .append_message_ref(AppendMessageRef {
-            soul_session_id: startup.soul_session_id,
+            soul_session_id: startup.soul_session_id.clone(),
             message_id: assistant_message.message.id.clone(),
         })
         .await
@@ -398,7 +413,7 @@ async fn run_turn_body(
 
     soul_runtime
         .complete_turn(CompleteTurn {
-            turn_id: turn.id,
+            turn_id: turn.id.clone(),
             last_seen_session_seq: assistant_message.relation.session_seq,
             provider_state: previous_response_id.map(|response_id| {
                 let basis_soul_session_seq = assistant_entry.entry.soul_session_seq;
@@ -413,6 +428,27 @@ async fn run_turn_body(
         })
         .await
         .map_err(map_core_error)?;
+
+    if let Some(soul_session) = soul_runtime
+        .get_soul_session(&startup.soul_session_id)
+        .await
+        .map_err(map_core_error)?
+    {
+        let assembly = soul_runtime
+            .list_assembly_items(&startup.soul_session_id, None)
+            .await
+            .map_err(map_core_error)?;
+
+        let _ = hooks
+            .run_turn_completed(TurnCompletedHookInput {
+                turn: &turn,
+                session: &startup.session,
+                soul_session: &soul_session,
+                assistant_message: Some(&assistant_message),
+                assembly_tail: &assembly,
+            })
+            .await;
+    }
 
     let _ = tx.send(Ok(SendSessionEvent::Completed));
     Ok(())
@@ -493,13 +529,199 @@ fn assembly_item_to_input_message(
 ) -> Option<santi_core::provider::ProviderInputMessage> {
     match &item.target {
         AssemblyTarget::Message(message) => transcript::to_input_message(message),
-        AssemblyTarget::Compact(_)
-        | AssemblyTarget::ToolCall(_)
-        | AssemblyTarget::ToolResult(_) => None,
+        AssemblyTarget::Compact(compact) => transcript::compact_to_input_message(compact),
+        AssemblyTarget::ToolCall(_) | AssemblyTarget::ToolResult(_) => None,
     }
+}
+
+fn assembly_to_provider_input(
+    items: &[AssemblyItem],
+) -> Vec<santi_core::provider::ProviderInputMessage> {
+    let effective_compact_indexes = effective_compact_indexes(items);
+
+    items
+        .iter()
+        .enumerate()
+        .filter_map(|(index, item)| match &item.target {
+            AssemblyTarget::Message(message) => {
+                if message_is_compacted(
+                    message.relation.session_seq,
+                    items,
+                    &effective_compact_indexes,
+                ) {
+                    None
+                } else {
+                    transcript::to_input_message(message)
+                }
+            }
+            AssemblyTarget::Compact(_) if effective_compact_indexes.contains(&index) => {
+                assembly_item_to_input_message(item)
+            }
+            AssemblyTarget::Compact(_)
+            | AssemblyTarget::ToolCall(_)
+            | AssemblyTarget::ToolResult(_) => None,
+        })
+        .collect()
+}
+
+fn effective_compact_indexes(items: &[AssemblyItem]) -> std::collections::BTreeSet<usize> {
+    let compact_ranges = items
+        .iter()
+        .enumerate()
+        .filter_map(|(index, item)| match &item.target {
+            AssemblyTarget::Compact(compact) => {
+                Some((index, compact.start_session_seq, compact.end_session_seq))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    compact_ranges
+        .iter()
+        .filter(|(index, start, end)| {
+            !compact_ranges
+                .iter()
+                .any(|(other_index, other_start, other_end)| {
+                    other_index > index && other_start <= start && other_end >= end
+                })
+        })
+        .map(|(index, _, _)| *index)
+        .collect()
+}
+
+fn message_is_compacted(
+    session_seq: i64,
+    items: &[AssemblyItem],
+    effective_compact_indexes: &std::collections::BTreeSet<usize>,
+) -> bool {
+    items.iter().enumerate().any(|(index, item)| {
+        if !effective_compact_indexes.contains(&index) {
+            return false;
+        }
+
+        match &item.target {
+            AssemblyTarget::Compact(compact) => {
+                compact.start_session_seq <= session_seq && session_seq <= compact.end_session_seq
+            }
+            _ => false,
+        }
+    })
 }
 
 #[allow(dead_code)]
 fn _message_id(message: &SessionMessage) -> &str {
     &message.message.id
+}
+
+#[cfg(test)]
+mod tests {
+    use santi_core::model::{
+        message::{ActorType, Message, MessageContent, MessagePart, MessageState},
+        runtime::{AssemblyItem, AssemblyTarget, Compact, SoulSessionEntry, SoulSessionTargetType},
+        session::{SessionMessage, SessionMessageRef},
+    };
+
+    use super::assembly_to_provider_input;
+
+    #[test]
+    fn compact_replaces_covered_messages_in_provider_input() {
+        let items = vec![
+            message_item(1, "first"),
+            message_item(2, "second"),
+            compact_item(3, 1, 2, "summary one"),
+            message_item(4, "third"),
+        ];
+
+        let input = assembly_to_provider_input(&items);
+        let contents = input
+            .into_iter()
+            .map(|m| (m.role, m.content))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            contents,
+            vec![
+                (
+                    "system".to_string(),
+                    "[compact 1-2]\nsummary one".to_string()
+                ),
+                ("user".to_string(), "third".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn later_wider_compact_supersedes_earlier_compact() {
+        let items = vec![
+            message_item(1, "first"),
+            compact_item(2, 1, 1, "summary one"),
+            message_item(2, "second"),
+            compact_item(4, 1, 2, "summary two"),
+        ];
+
+        let input = assembly_to_provider_input(&items);
+        let contents = input.into_iter().map(|m| m.content).collect::<Vec<_>>();
+
+        assert_eq!(contents, vec!["[compact 1-2]\nsummary two".to_string()]);
+    }
+
+    fn message_item(session_seq: i64, text: &str) -> AssemblyItem {
+        AssemblyItem {
+            entry: SoulSessionEntry {
+                soul_session_id: "ss_1".to_string(),
+                target_type: SoulSessionTargetType::Message,
+                target_id: format!("msg_{session_seq}"),
+                soul_session_seq: session_seq,
+                created_at: "now".to_string(),
+            },
+            target: AssemblyTarget::Message(SessionMessage {
+                relation: SessionMessageRef {
+                    session_id: "sess_1".to_string(),
+                    message_id: format!("msg_{session_seq}"),
+                    session_seq,
+                    created_at: "now".to_string(),
+                },
+                message: Message {
+                    id: format!("msg_{session_seq}"),
+                    actor_type: ActorType::Account,
+                    actor_id: "acct_1".to_string(),
+                    content: MessageContent {
+                        parts: vec![MessagePart::Text {
+                            text: text.to_string(),
+                        }],
+                    },
+                    state: MessageState::Fixed,
+                    version: 1,
+                    deleted_at: None,
+                    created_at: "now".to_string(),
+                    updated_at: "now".to_string(),
+                },
+            }),
+        }
+    }
+
+    fn compact_item(
+        soul_session_seq: i64,
+        start_session_seq: i64,
+        end_session_seq: i64,
+        summary: &str,
+    ) -> AssemblyItem {
+        AssemblyItem {
+            entry: SoulSessionEntry {
+                soul_session_id: "ss_1".to_string(),
+                target_type: SoulSessionTargetType::Compact,
+                target_id: format!("compact_{soul_session_seq}"),
+                soul_session_seq,
+                created_at: "now".to_string(),
+            },
+            target: AssemblyTarget::Compact(Compact {
+                id: format!("compact_{soul_session_seq}"),
+                turn_id: format!("turn_{soul_session_seq}"),
+                summary: summary.to_string(),
+                start_session_seq,
+                end_session_seq,
+                created_at: "now".to_string(),
+            }),
+        }
+    }
 }

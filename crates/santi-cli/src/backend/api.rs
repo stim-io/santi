@@ -9,11 +9,12 @@ use tokio::time::sleep;
 
 use crate::{
     backend::{
-        BackendError, CliBackend, CliHealth, CliMemoryRecord, CliMessage, CliSession, CliSoul,
-        SendEvent, SendStream,
+        BackendError, CliBackend, CliCompact, CliHealth, CliHookReload, CliMemoryRecord,
+        CliMessage, CliSession, CliSoul, SendEvent, SendStream,
     },
     config::Config,
 };
+use santi_runtime::hooks::HookSpecSource;
 
 #[derive(Clone)]
 pub struct ApiBackend {
@@ -77,6 +78,17 @@ enum SessionSendContentPart {
 #[derive(Debug, Serialize)]
 struct MemoryRequest {
     text: String,
+}
+
+#[derive(Debug, Serialize)]
+struct SessionCompactRequest {
+    summary: String,
+}
+
+#[derive(Debug, Serialize)]
+struct HookReloadRequest {
+    #[serde(flatten)]
+    source: HookSpecSource,
 }
 
 #[derive(Debug, Deserialize)]
@@ -343,6 +355,48 @@ impl CliBackend for ApiBackend {
             memory: body.memory,
             updated_at: body.updated_at,
         })
+    }
+
+    async fn compact_session(
+        &self,
+        session_id: String,
+        summary: String,
+    ) -> Result<CliCompact, BackendError> {
+        let response = self
+            .client
+            .post(self.endpoint(&format!("/api/v1/sessions/{session_id}/compact")))
+            .json(&SessionCompactRequest { summary })
+            .send()
+            .await
+            .map_err(|err| BackendError::Other(err.to_string()))?;
+
+        if !response.status().is_success() {
+            return Err(map_error_response(response).await);
+        }
+
+        response
+            .json::<CliCompact>()
+            .await
+            .map_err(|err| BackendError::Other(err.to_string()))
+    }
+
+    async fn reload_hooks(&self, source: HookSpecSource) -> Result<CliHookReload, BackendError> {
+        let response = self
+            .client
+            .put(self.endpoint("/api/v1/admin/hooks"))
+            .json(&HookReloadRequest { source })
+            .send()
+            .await
+            .map_err(|err| BackendError::Other(err.to_string()))?;
+
+        if !response.status().is_success() {
+            return Err(map_error_response(response).await);
+        }
+
+        response
+            .json::<CliHookReload>()
+            .await
+            .map_err(|err| BackendError::Other(err.to_string()))
     }
 }
 

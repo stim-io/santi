@@ -1,5 +1,7 @@
 use std::{env, net::SocketAddr};
 
+use santi_runtime::hooks::HookSpecSource;
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub bind_addr: SocketAddr,
@@ -10,6 +12,7 @@ pub struct Config {
     pub redis_url: String,
     pub execution_root: String,
     pub runtime_root: String,
+    pub hook_source: Option<HookSpecSource>,
 }
 
 impl Config {
@@ -39,6 +42,24 @@ impl Config {
         let runtime_root =
             env::var("RUNTIME_ROOT").unwrap_or_else(|_| "/tmp/santi-runtime".to_string());
 
+        let hook_source = env::var("HOOK_SPECS_JSON")
+            .ok()
+            .filter(|raw| !raw.trim().is_empty())
+            .map(|raw| parse_hook_source_json(&raw))
+            .transpose()?
+            .or_else(|| {
+                env::var("HOOK_SPECS_FILE")
+                    .ok()
+                    .filter(|raw| !raw.trim().is_empty())
+                    .map(|path| HookSpecSource::Path { path })
+            })
+            .or_else(|| {
+                env::var("HOOK_SPECS_URL")
+                    .ok()
+                    .filter(|raw| !raw.trim().is_empty())
+                    .map(|url| HookSpecSource::Url { url })
+            });
+
         Ok(Self {
             bind_addr,
             openai_api_key,
@@ -48,6 +69,11 @@ impl Config {
             redis_url,
             execution_root,
             runtime_root,
+            hook_source,
         })
     }
+}
+
+fn parse_hook_source_json(raw: &str) -> Result<HookSpecSource, String> {
+    HookSpecSource::from_json_str(raw).map_err(|err| format!("parse HOOK_SPECS_JSON failed: {err}"))
 }

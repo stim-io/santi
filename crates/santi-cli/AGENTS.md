@@ -16,14 +16,16 @@ This file records the stable role and local constraints of `santi-cli`.
 - Fallback handling should stay simple: if the local stack shape differs, update `~/.santi-cli/config.json` or override with `SANTI_CLI_*` for that run.
 - Keep one stable command vocabulary across top-level and `api` forms.
 - Do not document or imply a backend selector field unless the code actually reads one.
+- The normal operator path is `santi-cli chat <message>`; continuing a session should use `santi-cli chat --session <id> <message>` or stdin with `--session <id>`.
+- Backend-specific wrapper scripts should not carry user-facing chat semantics; use backend flags/env on `santi-cli` itself instead.
 
 ## Cold Start Flow
 
 1. start the root stack with `docker compose up -d --build`
 2. run `./scripts/cli/setup.sh`
 3. run installed `santi-cli` directly, starting with `santi-cli health`
-4. use `santi-cli session create` / `santi-cli session send ...` for the normal loop
-5. use `--backend api` or `SANTI_CLI_BACKEND=api` when you want the HTTP backend explicitly
+4. use `santi-cli chat ...` for the normal loop; use `--session <id>` when you want to continue an existing session explicitly
+5. use `santi-cli --backend api chat ...` or `SANTI_CLI_BACKEND=api santi-cli chat ...` when you want the HTTP backend explicitly
 6. use `./scripts/cli/reset.sh` only when you want to remove the local install and default CLI state
 
 ## Key File Index
@@ -31,6 +33,6 @@ This file records the stable role and local constraints of `santi-cli`.
 - `src/main.rs`: CLI entrypoint and shared command dispatch
 - `src/cli.rs`: command-line contract for top-level and `api` namespaces
 - `src/config.rs`: config-file and `SANTI_CLI_*` fallback rules
+- `src/output.rs`: stdout/stderr rendering behavior and chat/session hints
 - `src/backend/api.rs`: HTTP/SSE-backed adaptor to `santi-api`
 - `src/backend/local.rs`: true local backend wired directly to runtime services
-- `src/output.rs`: stdout/stderr rendering behavior

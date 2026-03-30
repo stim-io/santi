@@ -13,6 +13,17 @@ pub async fn read_stdin() -> Result<String, String> {
     String::from_utf8(chunks).map_err(|err| err.to_string())
 }
 
+pub async fn read_message_input(message: Option<String>) -> Result<String, String> {
+    match message {
+        Some(message) => Ok(message),
+        None => read_stdin().await,
+    }
+}
+
+pub fn render_session_hint(session_id: &str) {
+    eprintln!("session: {session_id}");
+}
+
 pub async fn render_send_stream(mut stream: SendStream, raw: bool) -> Result<(), String> {
     let mut saw_text = false;
 

@@ -24,6 +24,10 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Command {
     Health,
+    Chat {
+        #[command(flatten)]
+        command: ChatCommand,
+    },
     Session {
         #[command(subcommand)]
         command: SessionCommand,
@@ -41,6 +45,10 @@ pub enum Command {
 #[derive(Debug, Subcommand)]
 pub enum ApiCommand {
     Health,
+    Chat {
+        #[command(flatten)]
+        command: ChatCommand,
+    },
     Session {
         #[command(subcommand)]
         command: SessionCommand,
@@ -49,6 +57,20 @@ pub enum ApiCommand {
         #[command(subcommand)]
         command: SoulCommand,
     },
+}
+
+#[derive(Debug, clap::Args)]
+pub struct ChatCommand {
+    #[arg(long)]
+    pub session: Option<String>,
+
+    #[arg(long)]
+    pub raw: bool,
+
+    #[arg(long)]
+    pub wait: bool,
+
+    pub message: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]

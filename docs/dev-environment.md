@@ -54,8 +54,9 @@ Examples:
 docker compose up -d --build
 ./scripts/cli/setup.sh
 santi-cli health
-santi-cli session create
-printf 'hello' | santi-cli session send <session_id>
+santi-cli chat 'hello'
+printf 'hello again' | santi-cli chat --session <session_id>
+santi-cli --backend api chat 'hello from api backend'
 SANTI_CLI_BACKEND=api santi-cli health
 ```
 

@@ -52,9 +52,11 @@ with open(path, "w", encoding="utf-8") as f:
     f.write("\n")
 PY
 
-cargo install --path "$repo_root/crates/santi-cli"
+cargo install --path "$repo_root/crates/santi-cli" --force >/dev/null
 
 cargo_bin_dir="${CARGO_HOME:-$HOME/.cargo}/bin"
+
+"$cargo_bin_dir/santi-cli" health >/dev/null
 
 cat <<EOF
 santi-cli installed.

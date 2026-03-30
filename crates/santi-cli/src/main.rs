@@ -8,8 +8,8 @@ use clap::Parser;
 use crate::{
     backend::{api::ApiBackend, local::LocalBackend, CliBackend},
     cli::{
-        ApiCommand, BackendKind, Cli, Command, SessionCommand, SessionMemoryCommand, SoulCommand,
-        SoulMemoryCommand,
+        ApiCommand, BackendKind, ChatCommand, Cli, Command, SessionCommand, SessionMemoryCommand,
+        SoulCommand, SoulMemoryCommand,
     },
     config::Config,
 };
@@ -40,6 +40,10 @@ async fn run() -> Result<(), String> {
             let backend = build_backend(config.clone(), config.backend).await?;
             handle_health(backend.as_ref()).await?;
         }
+        Command::Chat { command } => {
+            let backend = build_backend(config.clone(), config.backend).await?;
+            handle_chat_command(backend.as_ref(), command).await?;
+        }
         Command::Session { command } => {
             let backend = build_backend(config.clone(), config.backend).await?;
             handle_session_command(backend.as_ref(), command).await?;
@@ -52,6 +56,10 @@ async fn run() -> Result<(), String> {
             ApiCommand::Health => {
                 let backend = build_backend(config.clone(), BackendKind::Api).await?;
                 handle_health(backend.as_ref()).await?;
+            }
+            ApiCommand::Chat { command } => {
+                let backend = build_backend(config.clone(), BackendKind::Api).await?;
+                handle_chat_command(backend.as_ref(), command).await?;
             }
             ApiCommand::Session { command } => {
                 let backend = build_backend(config.clone(), BackendKind::Api).await?;
@@ -133,6 +141,31 @@ async fn handle_session_command(
     }
 
     Ok(())
+}
+
+async fn handle_chat_command(backend: &dyn CliBackend, command: ChatCommand) -> Result<(), String> {
+    let content = output::read_message_input(command.message).await?;
+    if content.trim().is_empty() {
+        return Err("expected message argument or stdin content".to_string());
+    }
+
+    let session_id = match command.session {
+        Some(session_id) => session_id,
+        None => {
+            let session = backend
+                .create_session()
+                .await
+                .map_err(output::render_error)?;
+            session.id
+        }
+    };
+
+    let stream = backend
+        .send_session(session_id.clone(), content, command.wait)
+        .await
+        .map_err(output::render_error)?;
+    output::render_session_hint(&session_id);
+    output::render_send_stream(stream, command.raw).await
 }
 
 async fn handle_soul_command(backend: &dyn CliBackend, command: SoulCommand) -> Result<(), String> {

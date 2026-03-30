@@ -2,10 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use santi_core::port::{
-    lock::Lock,
-    provider::Provider,
-    session_ledger::SessionLedgerPort,
-    soul::SoulPort,
+    lock::Lock, provider::Provider, session_ledger::SessionLedgerPort, soul::SoulPort,
     soul_runtime::SoulRuntimePort,
 };
 use santi_db::{
@@ -59,7 +56,8 @@ impl AppState {
         let provider = Arc::new(provider);
         let lock: Arc<dyn Lock> = lock_client;
         let provider: Arc<dyn Provider> = provider;
-        let session_ledger: Arc<dyn SessionLedgerPort> = Arc::new(DbSessionLedger::new(pool.clone()));
+        let session_ledger: Arc<dyn SessionLedgerPort> =
+            Arc::new(DbSessionLedger::new(pool.clone()));
         let soul_port: Arc<dyn SoulPort> = Arc::new(DbSoul::new(pool.clone()));
         let soul_runtime: Arc<dyn SoulRuntimePort> = Arc::new(DbSoulRuntime::new(pool));
 

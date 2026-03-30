@@ -7,5 +7,6 @@ pub trait LockGuard: Send {
 
 #[async_trait::async_trait]
 pub trait Lock: Send + Sync {
-    async fn acquire(&self, key: &str) -> std::result::Result<Box<dyn LockGuard + Send>, LockError>;
+    async fn acquire(&self, key: &str)
+        -> std::result::Result<Box<dyn LockGuard + Send>, LockError>;
 }

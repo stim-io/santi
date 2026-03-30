@@ -1,82 +1,64 @@
 # Dev Environment
 
-This file records two different baselines:
+## Required host tools
 
-- the minimum tooling for iterating on `santi` from inside the `santi` container itself
-- the external root-stack setup used to run the full local integration path
+- `cargo`
+- `node` + `pnpm`
+- `docker` + `docker compose`
 
-## In-Container Iteration Baseline
-
-The `santi` container should be able to support a narrow self-iteration loop such as:
-
-- clone or copy a `santi` worktree
-- edit files through agent tooling
-- run `cargo check`
-- use `node` for `scripts/dev/send.mjs` when helpful
-- use `gh` for the eventual first PR flow
-
-Minimum in-container tools:
-
-- `cargo` / Rust toolchain
-- `git`
-- `node`
-- `pnpm`
-- `gh`
-- `bash`
-
-Useful in-container defaults:
-
-- `SANTI_BASE_URL=http://127.0.0.1:8080` so `scripts/dev/send.mjs` can talk to the API from inside the `santi` container without relying on host-mapped port `18081`
-
-This baseline is intentionally smaller than a full general-purpose dev image.
-
-## External Root-Stack Baseline
-
-Required host-side tools for the shared integration stack:
-
-- `cargo` / Rust toolchain: build and run `santi/api`
-- `node` + `pnpm`: run the current TypeScript smoke/integration harness under `santi/e2e`
-- `docker` + `docker compose`: run the local stack
-
-## Required Local Files
+## Required local file
 
 - `providers/auth.json`
-  - required by the local `openai-codex-server` service in the root `docker-compose.yml`
-  - should stay local and private
 
-## Local Stack Baseline
+## Local stack
 
-The default local workflow assumes the repository root `docker-compose.yml` is the single source of truth.
+Use the repository root `docker-compose.yml`.
 
-Exposed ports:
+Ports:
 
 - `postgres`: `127.0.0.1:15432`
+- `redis`: `127.0.0.1:16379`
 - `santi`: `127.0.0.1:18081`
-- `openai-codex-server`: `127.0.0.1:18082`
+- provider service (`openai-codex-server`): `127.0.0.1:18082`
 
-## Runtime Environment
+Note:
 
-Typical values for local development:
+- these are the host-facing stack ports used by local CLI/config examples
+- `santi-api` crate defaults are container-oriented (`postgres:5432`, `redis:6379`, `127.0.0.1:8080`) and are expected to be overridden by compose/env in the stack
 
-- `DATABASE_URL=postgres://santi:santi@127.0.0.1:15432/santi?sslmode=disable`
-- `REDIS_URL=redis://127.0.0.1:16379/0`
-- `OPENAI_BASE_URL=http://127.0.0.1:18082/openai/v1`
-- `OPENAI_API_KEY=codex-local-dev`
-- `SANTI_BASE_URL=http://127.0.0.1:18081`
+## CLI
 
-## Smoke Entry Points
+- install: `./scripts/cli/setup.sh`
+- reset: `./scripts/cli/reset.sh`
+- top-level commands default to the configured backend
+- backend selection priority: `--backend` > `SANTI_CLI_BACKEND` > `config.json` > default `local`
+- explicit API compatibility form: `santi-cli api ...`
 
-- start the shared stack from the repository root: `docker compose up --build`
-- use root smoke scripts for the first-pass checks:
-  - `scripts/smoke/codex-server.sh`
-  - `scripts/smoke/stack.sh`
-- the current `santi/e2e` package is legacy harness code and should be treated as smoke/integration scaffolding, not as stable end-to-end truth
+Typical `~/.santi-cli/config.json`:
 
-## Practical Split
+```json
+{
+  "backend": "local",
+  "base_url": "http://127.0.0.1:18081",
+  "database_url": "postgres://santi:santi@127.0.0.1:15432/santi?sslmode=disable",
+  "redis_url": "redis://127.0.0.1:16379/0",
+  "openai_base_url": "http://127.0.0.1:18082/openai/v1",
+  "openai_api_key": "codex-local-dev",
+  "openai_model": "gpt-5.4"
+}
+```
 
-- use the in-container baseline when the goal is to let a running `santi` instance inspect, modify, build, and eventually submit a small PR against `santi`
-- use the external root-stack baseline when the goal is to validate the full integration path across postgres / redis / provider / api
+Examples:
 
-## Practical Rule
+```bash
+docker compose up -d --build
+./scripts/cli/setup.sh
+santi-cli health
+santi-cli session create
+printf 'hello' | santi-cli session send <session_id>
+SANTI_CLI_BACKEND=api santi-cli health
+```
 
-- if the local stack cannot satisfy `create session -> send session -> SSE -> persistence`, fix the runtime first before expanding test coverage
+## Rule
+
+If the local stack cannot satisfy `create session -> send session -> SSE -> persistence`, fix the runtime first.

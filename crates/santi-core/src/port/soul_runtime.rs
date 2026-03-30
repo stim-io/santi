@@ -62,10 +62,17 @@ pub struct FailTurn {
 
 #[async_trait::async_trait]
 pub trait SoulRuntimePort: Send + Sync {
-    async fn get_or_create_soul_session(&self, soul_id: &str, session_id: &str)
-        -> Result<SoulSession>;
+    async fn get_or_create_soul_session(
+        &self,
+        soul_id: &str,
+        session_id: &str,
+    ) -> Result<SoulSession>;
     async fn get_soul_session(&self, soul_session_id: &str) -> Result<Option<SoulSession>>;
-    async fn load_turn_context(&self, soul_id: &str, session_id: &str) -> Result<Option<TurnContext>>;
+    async fn load_turn_context(
+        &self,
+        soul_id: &str,
+        session_id: &str,
+    ) -> Result<Option<TurnContext>>;
     async fn write_session_memory(
         &self,
         soul_session_id: &str,

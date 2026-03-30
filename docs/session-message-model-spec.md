@@ -65,6 +65,11 @@ Current stance:
 - `{"type":"text","text":"..."}`
 - `{"type":"image","mime_type":"image/png","data_base64":"..."}`
 
+Current repo note:
+
+- the core model supports structured `parts[]`
+- the current API/CLI send surface is still text-first and does not yet expose image input
+
 ### `r_session_messages`
 
 - `session_id`
@@ -232,6 +237,7 @@ Current stance:
 - `compact` is an immutable runtime summary block over the inclusive public-session interval `[start_session_seq, end_session_seq]`
 - it belongs to the `turn` that created it; `soul_session_id` is derived through that `turn`
 - keep the persisted object plain in the first pass
+- schema shape and storage path are present now, but compact creation is not yet wired into the main session runtime path
 
 Constraints:
 

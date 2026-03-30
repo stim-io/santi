@@ -1,60 +1,27 @@
 # Dev FAQ
 
-## Does `santi` development always require `docker compose` from the host?
+## `ECONNREFUSED` or `ECONNRESET` right after restart
 
-No.
+Usually `santi` is still compiling or starting.
 
-There are two different workflows:
+Check:
 
-- in-container iteration: a running `santi` container can inspect code, edit files, run `cargo`, use `node` helpers, and eventually drive a small PR flow
-- external root-stack integration: the repository root `docker-compose.yml` is still the baseline for validating the full local stack
+1. `docker compose ps santi`
+2. `docker compose logs -f santi`
+3. `curl http://127.0.0.1:18081/api/v1/health`
 
-Use the compose-based workflow when the question is about end-to-end integration across services.
-Use the in-container workflow when the question is about helping `santi` itself iterate on its own codebase.
+## `port is already allocated`
 
-## Why can smoke or integration checks fail with `ECONNREFUSED` or `ECONNRESET` right after restarting `santi`?
+Usually another local stack is still holding the port.
 
-When `santi` runs through the root `docker-compose.yml`, the container starts with `cargo run`.
-After a rebuild or restart, the service may spend noticeable time recompiling before the HTTP server is ready.
+Common ports:
 
-During that window, smoke or integration checks may fail with:
+- `15432`
+- `18081`
+- `18082`
+- `16379`
 
-- `ECONNREFUSED`
-- `ECONNRESET`
-- early `404` if the request hit the wrong fallback address before `.env` was loaded
+Check:
 
-Recommended checks:
-
-1. run `docker compose ps santi`
-2. inspect `docker compose logs -f santi`
-3. wait until `GET /api/v1/health` on `127.0.0.1:18081` succeeds
-4. rerun the relevant smoke script or harness command
-
-Practical rule:
-
-- treat immediate connection failures after restart as service-readiness issues first, not as product-behavior failures
-
-## Why can `docker compose up` fail with `port is already allocated`?
-
-This usually means an older local stack is still holding the same host ports.
-
-Common conflicts:
-
-- `15432` for PostgreSQL
-- `18081` for `santi`
-- `18082` for `openai-codex-server`
-- `16379` for Redis
-
-Typical cause:
-
-- an older compose project is still running from another compose file or project root
-
-Recommended checks:
-
-1. run `docker ps --format '{{.Names}} {{.Ports}}'`
-2. identify the container already binding the conflicting port
-3. stop the older stack before starting the root compose project
-
-Practical rule:
-
-- treat host-port conflicts as local process/environment issues, not as application bugs
+1. `docker ps --format '{{.Names}} {{.Ports}}'`
+2. stop the conflicting stack

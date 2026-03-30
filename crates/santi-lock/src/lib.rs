@@ -1,8 +1,21 @@
-use std::{future::Future, sync::{atomic::{AtomicBool, Ordering}, Arc}, time::Duration};
+use std::{
+    future::Future,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use redis::{aio::MultiplexedConnection, Client, Script};
-use santi_core::{error::LockError, port::lock::{Lock, LockGuard}};
-use tokio::{sync::oneshot, time::{sleep, timeout}};
+use santi_core::{
+    error::LockError,
+    port::lock::{Lock, LockGuard},
+};
+use tokio::{
+    sync::oneshot,
+    time::{sleep, timeout},
+};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -167,7 +180,12 @@ impl RedisLockClient {
         }
     }
 
-    async fn try_acquire(&self, key: &str, token: &str, ttl_ms: u64) -> Result<bool, RedisLockError> {
+    async fn try_acquire(
+        &self,
+        key: &str,
+        token: &str,
+        ttl_ms: u64,
+    ) -> Result<bool, RedisLockError> {
         let mut conn = self.connection().await?;
         redis::cmd("SET")
             .arg(key)
@@ -239,7 +257,10 @@ impl RedisLockGuard {
 
 #[async_trait::async_trait]
 impl Lock for RedisLockClient {
-    async fn acquire(&self, key: &str) -> std::result::Result<Box<dyn LockGuard + Send>, LockError> {
+    async fn acquire(
+        &self,
+        key: &str,
+    ) -> std::result::Result<Box<dyn LockGuard + Send>, LockError> {
         self.acquire_guard(key.to_string())
             .await
             .map(|guard| Box::new(guard) as Box<dyn LockGuard + Send>)

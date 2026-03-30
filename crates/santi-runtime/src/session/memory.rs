@@ -43,7 +43,11 @@ impl SessionMemoryService {
             .map_err(render_error)
     }
 
-    pub async fn write_soul_memory(&self, soul_id: &str, text: &str) -> Result<Option<Soul>, String> {
+    pub async fn write_soul_memory(
+        &self,
+        soul_id: &str,
+        text: &str,
+    ) -> Result<Option<Soul>, String> {
         self.soul_port
             .write_soul_memory(soul_id, text)
             .await

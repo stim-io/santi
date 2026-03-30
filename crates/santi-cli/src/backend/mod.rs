@@ -1,0 +1,86 @@
+pub mod api;
+pub mod local;
+
+use std::pin::Pin;
+
+use async_trait::async_trait;
+use futures::Stream;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CliSession {
+    pub id: String,
+    pub created_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CliHealth {
+    pub status: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CliSoul {
+    pub id: String,
+    pub memory: String,
+    pub created_at: Option<String>,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CliMemoryRecord {
+    pub id: String,
+    pub memory: String,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CliMessage {
+    pub id: String,
+    pub actor_type: String,
+    pub actor_id: String,
+    pub session_seq: i64,
+    pub content_text: String,
+    pub state: String,
+    pub created_at: String,
+}
+
+#[derive(Clone, Debug)]
+pub enum SendEvent {
+    OutputTextDelta(String),
+    Completed,
+}
+
+pub type SendStream = Pin<Box<dyn Stream<Item = Result<SendEvent, BackendError>> + Send>>;
+
+#[derive(Debug, thiserror::Error)]
+pub enum BackendError {
+    #[error("session not found")]
+    NotFound,
+
+    #[error("session send already in progress")]
+    Busy,
+
+    #[error("backend error: {0}")]
+    Other(String),
+}
+
+#[async_trait]
+pub trait CliBackend: Send + Sync {
+    async fn health(&self) -> Result<CliHealth, BackendError>;
+    async fn create_session(&self) -> Result<CliSession, BackendError>;
+    async fn get_session(&self, session_id: String) -> Result<CliSession, BackendError>;
+    async fn send_session(
+        &self,
+        session_id: String,
+        content: String,
+        wait: bool,
+    ) -> Result<SendStream, BackendError>;
+    async fn list_messages(&self, session_id: String) -> Result<Vec<CliMessage>, BackendError>;
+    async fn get_default_soul(&self) -> Result<CliSoul, BackendError>;
+    async fn set_default_soul_memory(&self, text: String) -> Result<CliMemoryRecord, BackendError>;
+    async fn set_session_memory(
+        &self,
+        session_id: String,
+        text: String,
+    ) -> Result<CliMemoryRecord, BackendError>;
+}

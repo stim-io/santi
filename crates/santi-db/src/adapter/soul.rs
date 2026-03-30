@@ -1,6 +1,10 @@
 use sqlx::{PgPool, Row};
 
-use santi_core::{error::{Error, Result}, model::soul::Soul, port::soul::SoulPort};
+use santi_core::{
+    error::{Error, Result},
+    model::soul::Soul,
+    port::soul::SoulPort,
+};
 
 #[derive(Clone)]
 pub struct DbSoul {
@@ -31,7 +35,9 @@ impl SoulPort for DbSoul {
         .bind(soul_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|err| Error::Internal { message: format!("soul get failed: {err}") })?;
+        .map_err(|err| Error::Internal {
+            message: format!("soul get failed: {err}"),
+        })?;
 
         Ok(row.map(|row| Soul {
             id: row.get("id"),
@@ -59,7 +65,9 @@ impl SoulPort for DbSoul {
         .bind(text)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|err| Error::Internal { message: format!("soul memory update failed: {err}") })?;
+        .map_err(|err| Error::Internal {
+            message: format!("soul memory update failed: {err}"),
+        })?;
 
         Ok(row.map(|row| Soul {
             id: row.get("id"),

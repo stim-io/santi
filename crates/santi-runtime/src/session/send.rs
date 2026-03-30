@@ -6,14 +6,17 @@ use santi_core::{
     error::{Error, LockError},
     model::{
         message::{ActorType, MessageContent, MessagePart, MessageState},
-        runtime::{ProviderState, Turn, TurnTriggerType},
+        runtime::{AssemblyItem, AssemblyTarget, ProviderState, Turn, TurnTriggerType},
         session::SessionMessage,
     },
     port::{
         lock::{Lock, LockGuard},
         provider::{Provider, ProviderEvent, ProviderFunctionCall, ProviderRequest},
         session_ledger::{AppendSessionMessage, SessionLedgerPort},
-        soul_runtime::{AppendMessageRef, AppendToolCall, AppendToolResult, CompleteTurn, FailTurn, SoulRuntimePort, StartTurn},
+        soul_runtime::{
+            AppendMessageRef, AppendToolCall, AppendToolResult, CompleteTurn, FailTurn,
+            SoulRuntimePort, StartTurn,
+        },
     },
     provider::ProviderInputMessage,
     service::session::kernel::{
@@ -25,7 +28,11 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::{
-    runtime::{context::ToolRuntimeContext, prompt::render_runtime_instructions, tools::{ToolExecutor, ToolExecutorConfig}},
+    runtime::{
+        context::ToolRuntimeContext,
+        prompt::render_runtime_instructions,
+        tools::{ToolExecutor, ToolExecutorConfig},
+    },
     session::memory::SessionMemoryService,
 };
 
@@ -198,14 +205,22 @@ async fn run_startup(
         .await
         .map_err(map_core_error)?;
 
-    let history = session_ledger
-        .list_messages(&cmd.session_id, None)
+    soul_runtime
+        .append_message_ref(AppendMessageRef {
+            soul_session_id: soul_session.id.clone(),
+            message_id: user_message.message.id.clone(),
+        })
         .await
         .map_err(map_core_error)?;
 
-    let provider_input = history
+    let assembly = soul_runtime
+        .list_assembly_items(&soul_session.id, None)
+        .await
+        .map_err(map_core_error)?;
+
+    let provider_input = assembly
         .iter()
-        .filter_map(transcript::to_input_message)
+        .filter_map(assembly_item_to_input_message)
         .collect::<Vec<_>>();
     let runtime_context = tools.build_context(&cmd.session_id, &turn_context.soul.id);
     let core_prompt = build_runtime_prompt(RuntimePromptSource {
@@ -347,14 +362,8 @@ async fn run_turn_body(
         let mut outputs = Vec::new();
         for call in calls {
             outputs.push(
-                handle_tool_call(
-                    &turn,
-                    &startup.runtime_context,
-                    &soul_runtime,
-                    &tools,
-                    call,
-                )
-                .await?,
+                handle_tool_call(&turn, &startup.runtime_context, &soul_runtime, &tools, call)
+                    .await?,
             );
         }
 
@@ -379,7 +388,7 @@ async fn run_turn_body(
         .await
         .map_err(map_core_error)?;
 
-    soul_runtime
+    let assistant_entry = soul_runtime
         .append_message_ref(AppendMessageRef {
             soul_session_id: startup.soul_session_id,
             message_id: assistant_message.message.id.clone(),
@@ -391,11 +400,15 @@ async fn run_turn_body(
         .complete_turn(CompleteTurn {
             turn_id: turn.id,
             last_seen_session_seq: assistant_message.relation.session_seq,
-            provider_state: previous_response_id.map(|response_id| ProviderState {
-                provider: "openai_compatible".to_string(),
-                basis_soul_session_seq: assistant_message.relation.session_seq,
-                opaque: serde_json::json!({ "response_id": response_id }),
-                schema_version: Some("phase2".to_string()),
+            provider_state: previous_response_id.map(|response_id| {
+                let basis_soul_session_seq = assistant_entry.entry.soul_session_seq;
+
+                ProviderState {
+                    provider: "openai_compatible".to_string(),
+                    basis_soul_session_seq,
+                    opaque: serde_json::json!({ "response_id": response_id }),
+                    schema_version: Some("phase2".to_string()),
+                }
             }),
         })
         .await
@@ -472,6 +485,17 @@ fn map_lock_error(err: LockError) -> SendSessionError {
         LockError::Busy => SendSessionError::Busy,
         LockError::Lost => SendSessionError::Internal("session send lock lost".to_string()),
         LockError::Backend { message } => SendSessionError::Internal(message),
+    }
+}
+
+fn assembly_item_to_input_message(
+    item: &AssemblyItem,
+) -> Option<santi_core::provider::ProviderInputMessage> {
+    match &item.target {
+        AssemblyTarget::Message(message) => transcript::to_input_message(message),
+        AssemblyTarget::Compact(_)
+        | AssemblyTarget::ToolCall(_)
+        | AssemblyTarget::ToolResult(_) => None,
     }
 }
 

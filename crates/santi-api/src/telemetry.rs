@@ -1,16 +1,14 @@
-use axum::{
-    extract::Request,
-    http::HeaderValue,
-    middleware::Next,
-    response::Response,
-};
+use axum::{extract::Request, http::HeaderValue, middleware::Next, response::Response};
 use std::time::Instant;
 use tracing::Instrument;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 pub fn init_tracing(service_name: &'static str) {
     tracing_subscriber::registry()
-        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| format!("{},tower_http=info", service_name).into()))
+        .with(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| format!("{},tower_http=info", service_name).into()),
+        )
         .with(tracing_subscriber::fmt::layer().with_target(false))
         .init();
 }

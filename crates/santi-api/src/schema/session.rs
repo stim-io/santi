@@ -2,6 +2,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 
 use crate::model::{
+    effect::SessionEffect,
     message::MessagePart,
     runtime::{Compact, SoulSession},
     session::{Session, SessionMessage},
@@ -133,6 +134,26 @@ pub struct SessionMessagesResponse {
     pub messages: Vec<SessionMessageResponse>,
 }
 
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub struct SessionEffectResponse {
+    pub id: String,
+    pub session_id: String,
+    pub effect_type: String,
+    pub idempotency_key: String,
+    pub status: String,
+    pub source_hook_id: String,
+    pub source_turn_id: String,
+    pub result_ref: Option<String>,
+    pub error_text: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub struct SessionEffectsResponse {
+    pub effects: Vec<SessionEffectResponse>,
+}
+
 impl From<SessionMessage> for SessionMessageResponse {
     fn from(value: SessionMessage) -> Self {
         Self {
@@ -164,6 +185,32 @@ impl SessionMessagesResponse {
                 .into_iter()
                 .map(SessionMessageResponse::from)
                 .collect(),
+        }
+    }
+}
+
+impl From<SessionEffect> for SessionEffectResponse {
+    fn from(value: SessionEffect) -> Self {
+        Self {
+            id: value.id,
+            session_id: value.session_id,
+            effect_type: value.effect_type,
+            idempotency_key: value.idempotency_key,
+            status: value.status,
+            source_hook_id: value.source_hook_id,
+            source_turn_id: value.source_turn_id,
+            result_ref: value.result_ref,
+            error_text: value.error_text,
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+        }
+    }
+}
+
+impl SessionEffectsResponse {
+    pub fn from_effects(effects: Vec<SessionEffect>) -> Self {
+        Self {
+            effects: effects.into_iter().map(Into::into).collect(),
         }
     }
 }

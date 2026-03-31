@@ -43,6 +43,7 @@ pub enum HookPointPayload {
 pub enum HookKindPayload {
     CompactThreshold,
     CompactHandoff,
+    ForkHandoffThreshold,
 }
 
 impl From<HookPointPayload> for HookPoint {
@@ -58,6 +59,7 @@ impl From<HookKindPayload> for HookKind {
         match value {
             HookKindPayload::CompactThreshold => HookKind::CompactThreshold,
             HookKindPayload::CompactHandoff => HookKind::CompactHandoff,
+            HookKindPayload::ForkHandoffThreshold => HookKind::ForkHandoffThreshold,
         }
     }
 }

@@ -6,13 +6,16 @@ use santi_core::{
     hook::{HookSpec, HookSpecSource},
     model::{message::MessagePart, runtime::Compact, session::SessionMessage, soul::Soul},
     port::{
-        ebus::SubscriberSetPort,
+        ebus::SubscriberSetPort, effect_ledger::EffectLedgerPort,
         lock::Lock, provider::Provider, session_ledger::SessionLedgerPort, soul::SoulPort,
         soul_runtime::SoulRuntimePort,
     },
 };
 use santi_db::{
-    adapter::{session_ledger::DbSessionLedger, soul::DbSoul, soul_runtime::DbSoulRuntime},
+    adapter::{
+        effect_ledger::DbEffectLedger, session_ledger::DbSessionLedger, soul::DbSoul,
+        soul_runtime::DbSoulRuntime,
+    },
     db::init_postgres,
 };
 use santi_lock::{RedisLockClient, RedisLockConfig};
@@ -77,6 +80,7 @@ impl LocalBackend {
         let lock: Arc<dyn Lock> = lock_client;
         let session_ledger: Arc<dyn SessionLedgerPort> =
             Arc::new(DbSessionLedger::new(pool.clone()));
+        let effect_ledger: Arc<dyn EffectLedgerPort> = Arc::new(DbEffectLedger::new(pool.clone()));
         let soul_port: Arc<dyn SoulPort> = Arc::new(DbSoul::new(pool.clone()));
         let soul_runtime: Arc<dyn SoulRuntimePort> = Arc::new(DbSoulRuntime::new(pool));
 
@@ -100,12 +104,18 @@ impl LocalBackend {
         let ebus: Arc<dyn SubscriberSetPort<Arc<dyn HookEvaluator>>> =
             Arc::new(InMemorySubscriberSet::<Arc<dyn HookEvaluator>>::new());
         ebus.replace_all(compile_hook_specs(&hook_specs));
+        let session_fork = Arc::new(santi_runtime::session::fork::SessionForkService::new(
+            lock.clone(),
+            soul_runtime.clone(),
+        ));
         let session_send = Arc::new(SessionSendService::new(
             config.openai_model.clone(),
             default_soul_id.clone(),
             lock,
             session_ledger,
             soul_runtime,
+            effect_ledger,
+            session_fork,
             provider,
             session_memory.as_ref().clone(),
             ToolExecutorConfig {

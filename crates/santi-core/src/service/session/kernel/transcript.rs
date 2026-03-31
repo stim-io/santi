@@ -11,7 +11,7 @@ pub fn to_input_message(message: &SessionMessage) -> Option<ProviderInputMessage
     let role = match message.message.actor_type {
         ActorType::Account => "user",
         ActorType::Soul => "assistant",
-        ActorType::System => return None,
+        ActorType::System => "system",
     };
 
     let content = message

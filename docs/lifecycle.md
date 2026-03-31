@@ -41,6 +41,7 @@ Current stance:
 - hook evaluation is read-only and produces runtime actions
 - runtime actions run after `turn.completed` and must fail-open
 - action execution does not recursively trigger more hooks
+- hook-triggered fork handoff now runs through a minimal session effect ledger; the effect owns status transitions and is the first-pass source of truth for idempotency / recursion control
 - first runtime action is `compact`
 - hook instances are dynamically loaded from config/env, while hook kinds stay typed in Rust
 - hot-reload shape is still deferred, but the registry holder is designed for atomic whole-set replacement
@@ -61,4 +62,5 @@ Current stance:
 - parent and child compact state diverge immediately after fork; later compaction is independent per session
 - first-pass lineage is `parent_session_id + fork_point`
 - explicit API is the source of truth; hook integration, when added, should reuse the same fork service instead of redefining fork semantics
+- the first hook-side fork path is `hook_fork_handoff`: threshold hit on `turn.completed`, fixed `fork_point = assistant_message.session_seq`, then child seeded send through a system-triggered send variant
 - do not turn hooks into a workflow engine

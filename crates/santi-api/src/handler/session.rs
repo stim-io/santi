@@ -16,7 +16,7 @@ use crate::{
         common::ErrorResponse,
         session::{
             ForkRequest, ForkResponse, SessionCompactRequest, SessionCompactResponse, SessionMemoryRequest,
-            SessionMemoryResponse, SessionMessagesResponse, SessionResponse,
+            SessionEffectsResponse, SessionMemoryResponse, SessionMessagesResponse, SessionResponse,
             SessionSendContentPart, SessionSendRequest, SoulMemoryRequest, SoulMemoryResponse,
             SoulResponse,
         },
@@ -118,6 +118,54 @@ pub async fn list_session_messages(
         Err(err) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse::new(err)),
+        )
+            .into_response(),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/sessions/{id}/effects",
+    tag = "session",
+    params(
+        ("id" = String, Path, description = "Session id")
+    ),
+    responses(
+        (status = 200, description = "Session effects", body = SessionEffectsResponse),
+        (status = 404, description = "Session not found", body = ErrorResponse)
+    )
+)]
+pub async fn list_session_effects(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match state.session_query().get_session(&id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("session not found")),
+            )
+                .into_response();
+        }
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new(err)),
+            )
+                .into_response();
+        }
+    }
+
+    match state.effect_ledger().list_effects(&id).await {
+        Ok(effects) => (
+            StatusCode::OK,
+            Json(SessionEffectsResponse::from_effects(effects)),
+        )
+            .into_response(),
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new(format!("{err:?}"))),
         )
             .into_response(),
     }

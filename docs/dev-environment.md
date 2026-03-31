@@ -16,15 +16,23 @@ Use the repository root `docker-compose.yml`.
 
 Ports:
 
-- `postgres`: `127.0.0.1:15432`
-- `redis`: `127.0.0.1:16379`
 - `santi`: `127.0.0.1:18081`
-- provider service (`openai-codex-server`): `127.0.0.1:18082`
+- `providers`: `127.0.0.1:18082`
 
 Note:
 
-- these are the host-facing stack ports used by local CLI/config examples
+- only `santi` and `providers` are host-exposed in the default stack
+- `postgres` and `redis` stay internal to Docker; probe them with `docker exec`, not host ports
 - `santi-api` crate defaults are container-oriented (`postgres:5432`, `redis:6379`, `127.0.0.1:8080`) and are expected to be overridden by compose/env in the stack
+
+Probe examples:
+
+```bash
+docker compose exec postgres pg_isready -U santi -d santi
+docker compose exec postgres psql -U santi -d santi -c 'select 1;'
+docker compose exec redis redis-cli ping
+docker compose exec redis redis-cli info server
+```
 
 ## CLI
 
@@ -33,15 +41,14 @@ Note:
 - top-level commands default to the configured backend
 - backend selection priority: `--backend` > `SANTI_CLI_BACKEND` > `config.json` > default `local`
 - explicit API compatibility form: `santi-cli api ...`
+- with the default compose stack, host-side CLI usage should prefer `api` backend because `postgres` and `redis` are not host-exposed
 
 Typical `~/.santi-cli/config.json`:
 
 ```json
 {
-  "backend": "local",
+  "backend": "api",
   "base_url": "http://127.0.0.1:18081",
-  "database_url": "postgres://santi:santi@127.0.0.1:15432/santi?sslmode=disable",
-  "redis_url": "redis://127.0.0.1:16379/0",
   "openai_base_url": "http://127.0.0.1:18082/openai/v1",
   "openai_api_key": "codex-local-dev",
   "openai_model": "gpt-5.4"
@@ -53,10 +60,10 @@ Examples:
 ```bash
 docker compose up -d --build
 ./scripts/cli/setup.sh
-santi-cli health
-santi-cli chat 'hello'
-printf 'hello again' | santi-cli chat --session <session_id>
-printf 'compact summary' | santi-cli session compact <session_id>
+santi-cli --backend api health
+santi-cli --backend api chat 'hello'
+printf 'hello again' | santi-cli --backend api chat --session <session_id>
+printf 'compact summary' | santi-cli --backend api session compact <session_id>
 santi-cli --backend api chat 'hello from api backend'
 printf 'compact summary' | santi-cli --backend api session compact <session_id>
 SANTI_CLI_BACKEND=api santi-cli health

@@ -11,3 +11,9 @@ members = [
 ]
 
 resolver = "2"
+
+[profile.container-dev]
+inherits = "dev"
+debug = 0
+codegen-units = 256
+incremental = true

@@ -4,6 +4,7 @@
 
 This file manages two things only:
 
+- the stable role of `santi/` as the core runtime layer beneath the repo-root product and deployment boundary
 - core constraints that should stay stable while the system evolves
 - key file indexes for the most important design documents
 
@@ -50,6 +51,7 @@ Detailed system thinking belongs in `docs/`, not here.
 - `docs/stim-santi-boundary.md`: high-level product boundary between public session ledger and soul runtime
 - `docs/session-message-model-spec.md`: current implementation-oriented draft for the rebuilt ledger and soul runtime model
 - `crates/santi-cli/AGENTS.md`: stable local constraints and file index for the CLI host and backend adaptors
+- `../AGENTS.md`: repo-root product and deployment boundary across `santi/` and `providers/`
 
 ## Update Rules
 

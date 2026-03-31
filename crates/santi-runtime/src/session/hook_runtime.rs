@@ -4,7 +4,10 @@ use santi_core::{hook::RuntimeAction, port::ebus::SubscriberSetPort};
 
 use crate::{
     hooks::{HookEvaluator, TurnCompletedHookInput},
-    session::compact::{CompactRequest, SessionCompactService},
+    session::{
+        compact::{CompactRequest, SessionCompactService},
+        effect::{ForkHandoffEffectRequest, SessionEffectService},
+    },
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,16 +31,19 @@ pub struct ActionRecord {
 pub struct HookRuntime {
     subscriber_set: Arc<dyn SubscriberSetPort<Arc<dyn HookEvaluator>>>,
     compact_service: Arc<SessionCompactService>,
+    effect_service: Arc<SessionEffectService>,
 }
 
 impl HookRuntime {
     pub fn new(
         subscriber_set: Arc<dyn SubscriberSetPort<Arc<dyn HookEvaluator>>>,
         compact_service: Arc<SessionCompactService>,
+        effect_service: Arc<SessionEffectService>,
     ) -> Self {
         Self {
             subscriber_set,
             compact_service,
+            effect_service,
         }
     }
 
@@ -124,6 +130,44 @@ impl HookRuntime {
                 status: ActionStatus::Skipped,
                 result_ref: None,
                 error_text: Some("fork action reserved but not implemented".to_string()),
+            },
+            RuntimeAction::ForkHandoff {
+                session_id,
+                fork_point,
+                seed_text,
+                source_hook_id,
+                source_turn_id,
+            } => match self
+                .effect_service
+                .execute_fork_handoff(ForkHandoffEffectRequest {
+                    parent_session_id: session_id,
+                    source_hook_id: source_hook_id.clone(),
+                    source_turn_id: source_turn_id.clone(),
+                    fork_point,
+                    seed_text,
+                })
+                .await
+            {
+                Ok(effect) => ActionRecord {
+                    hook_id: source_hook_id,
+                    turn_id: source_turn_id,
+                    action_type: "fork_handoff".to_string(),
+                    status: if effect.status == "failed" {
+                        ActionStatus::Failed
+                    } else {
+                        ActionStatus::Executed
+                    },
+                    result_ref: Some(effect.id),
+                    error_text: effect.error_text,
+                },
+                Err(err) => ActionRecord {
+                    hook_id: source_hook_id,
+                    turn_id: source_turn_id,
+                    action_type: "fork_handoff".to_string(),
+                    status: ActionStatus::Failed,
+                    result_ref: None,
+                    error_text: Some(err),
+                },
             },
         }
     }

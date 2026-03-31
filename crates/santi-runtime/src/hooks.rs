@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use santi_core::{
     hook::{HookKind, HookPoint, HookSpec, HookSpecSource, RuntimeAction},
-    model::{runtime::AssemblyItem, runtime::SoulSession, runtime::Turn, session::Session, session::SessionMessage},
+    model::{runtime::AssemblyItem, runtime::SoulSession, runtime::Turn, runtime::TurnTriggerType, session::Session, session::SessionMessage},
 };
 use serde::Deserialize;
 
@@ -67,6 +67,8 @@ fn compile_spec(spec: &HookSpec) -> Option<Arc<dyn HookEvaluator>> {
         HookKind::CompactThreshold => CompactThresholdHook::from_spec(spec)
             .map(|hook| Arc::new(hook) as Arc<dyn HookEvaluator>),
         HookKind::CompactHandoff => CompactHandoffHook::from_spec(spec)
+            .map(|hook| Arc::new(hook) as Arc<dyn HookEvaluator>),
+        HookKind::ForkHandoffThreshold => ForkHandoffThresholdHook::from_spec(spec)
             .map(|hook| Arc::new(hook) as Arc<dyn HookEvaluator>),
     }
 }
@@ -161,6 +163,12 @@ struct CompactHandoffParams {
     summary: String,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+struct ForkHandoffThresholdParams {
+    min_messages_since_last_compact: usize,
+    seed_text: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 struct CompactHandoffHook {
     id: String,
@@ -183,6 +191,86 @@ impl HookEvaluator for CompactHandoffHook {
     }
 }
 
+#[derive(Clone, Debug)]
+struct ForkHandoffThresholdHook {
+    id: String,
+    min_messages_since_last_compact: usize,
+    seed_text: Option<String>,
+}
+
+impl ForkHandoffThresholdHook {
+    fn from_spec(spec: &HookSpec) -> Option<Self> {
+        let params: ForkHandoffThresholdParams = serde_json::from_value(spec.params.clone()).ok()?;
+        Some(Self {
+            id: spec.id.clone(),
+            min_messages_since_last_compact: params.min_messages_since_last_compact,
+            seed_text: params.seed_text,
+        })
+    }
+}
+
+impl HookEvaluator for ForkHandoffThresholdHook {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn hook_point(&self) -> HookPoint {
+        HookPoint::TurnCompleted
+    }
+
+    fn evaluate_turn_completed(&self, input: TurnCompletedHookInput<'_>) -> Vec<RuntimeAction> {
+        if !matches!(input.turn.trigger_type, TurnTriggerType::SessionSend) {
+            return Vec::new();
+        }
+
+        let assistant_message = match input.assistant_message {
+            Some(message) => message,
+            None => return Vec::new(),
+        };
+
+        let last_compact_end = input
+            .assembly_tail
+            .iter()
+            .filter_map(|item| match &item.target {
+                santi_core::model::runtime::AssemblyTarget::Compact(compact) => Some(compact.end_session_seq),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(0);
+
+        let messages_since_last_compact = input
+            .assembly_tail
+            .iter()
+            .filter(|item| matches!(item.target, santi_core::model::runtime::AssemblyTarget::Message(_)))
+            .filter(|item| match &item.target {
+                santi_core::model::runtime::AssemblyTarget::Message(message) => message.relation.session_seq > last_compact_end,
+                _ => false,
+            })
+            .count();
+
+        if messages_since_last_compact < self.min_messages_since_last_compact {
+            return Vec::new();
+        }
+
+        let seed_text = self.seed_text.clone().unwrap_or_else(|| {
+            format!(
+                "Recommend to use compact before continuing. <santi-meta effect=\"hook_fork_handoff\" source_hook_id=\"{}\" source_turn_id=\"{}\" fork_point=\"{}\"></santi-meta>",
+                self.id,
+                input.turn.id,
+                assistant_message.relation.session_seq,
+            )
+        });
+
+        vec![RuntimeAction::ForkHandoff {
+            session_id: input.session.id.clone(),
+            fork_point: assistant_message.relation.session_seq,
+            seed_text,
+            source_hook_id: self.id.clone(),
+            source_turn_id: input.turn.id.clone(),
+        }]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,5 +288,19 @@ mod tests {
 
         assert_eq!(subscribers.len(), 1);
         assert_eq!(subscribers[0].id(), "compact-threshold");
+    }
+
+    #[test]
+    fn compile_fork_handoff_threshold_spec() {
+        let subscribers = compile_hook_specs(&[HookSpec {
+            id: "fork-handoff".to_string(),
+            enabled: true,
+            hook_point: HookPoint::TurnCompleted,
+            kind: HookKind::ForkHandoffThreshold,
+            params: serde_json::json!({"min_messages_since_last_compact": 3}),
+        }]);
+
+        assert_eq!(subscribers.len(), 1);
+        assert_eq!(subscribers[0].id(), "fork-handoff");
     }
 }

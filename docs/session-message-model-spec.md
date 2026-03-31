@@ -21,6 +21,26 @@ Current stance:
 - `session` is a shared ledger container, not a single-soul thread
 - first-pass fork lineage lives here as `parent_session_id + fork_point`
 
+### `session_effects`
+
+- `id`
+- `session_id`
+- `effect_type`
+- `idempotency_key`
+- `status`
+- `source_hook_id`
+- `source_turn_id`
+- `result_ref` (`nullable`)
+- `error_text` (`nullable`)
+- `created_at`
+- `updated_at`
+
+Current stance:
+
+- first use is `hook_fork_handoff`
+- effect rows are the first-pass source of truth for hook idempotency and recursion control
+- `status` is intentionally lightweight; detailed per-stage traces still live in logs
+
 ### `accounts`
 
 - `id`

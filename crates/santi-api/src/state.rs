@@ -2,11 +2,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use santi_core::port::{
-    lock::Lock, provider::Provider, session_ledger::SessionLedgerPort, soul::SoulPort,
-    soul_runtime::SoulRuntimePort,
+    effect_ledger::EffectLedgerPort, lock::Lock, provider::Provider,
+    session_ledger::SessionLedgerPort, soul::SoulPort, soul_runtime::SoulRuntimePort,
 };
 use santi_db::{
-    adapter::{session_ledger::DbSessionLedger, soul::DbSoul, soul_runtime::DbSoulRuntime},
+    adapter::{
+        effect_ledger::DbEffectLedger, session_ledger::DbSessionLedger, soul::DbSoul,
+        soul_runtime::DbSoulRuntime,
+    },
     db::init_postgres,
 };
 use santi_ebus::InMemorySubscriberSet;
@@ -29,6 +32,7 @@ pub struct AppState {
     session_query: Arc<SessionQueryService>,
     session_send: Arc<SessionSendService>,
     session_fork: Arc<SessionForkService>,
+    effect_ledger: Arc<dyn EffectLedgerPort>,
 }
 
 impl AppState {
@@ -66,6 +70,7 @@ impl AppState {
         let provider: Arc<dyn Provider> = provider;
         let session_ledger: Arc<dyn SessionLedgerPort> =
             Arc::new(DbSessionLedger::new(pool.clone()));
+        let effect_ledger: Arc<dyn EffectLedgerPort> = Arc::new(DbEffectLedger::new(pool.clone()));
         let soul_port: Arc<dyn SoulPort> = Arc::new(DbSoul::new(pool.clone()));
         let soul_runtime: Arc<dyn SoulRuntimePort> = Arc::new(DbSoulRuntime::new(pool));
 
@@ -97,6 +102,8 @@ impl AppState {
             lock.clone(),
             session_ledger.clone(),
             soul_runtime.clone(),
+            effect_ledger.clone(),
+            session_fork.clone(),
             provider,
             session_memory.as_ref().clone(),
             ToolExecutorConfig {
@@ -112,6 +119,7 @@ impl AppState {
             session_query,
             session_send,
             session_fork,
+            effect_ledger,
         })
     }
 
@@ -133,6 +141,10 @@ impl AppState {
 
     pub fn session_fork(&self) -> Arc<SessionForkService> {
         self.session_fork.clone()
+    }
+
+    pub fn effect_ledger(&self) -> Arc<dyn EffectLedgerPort> {
+        self.effect_ledger.clone()
     }
 
     pub fn reload_hooks(&self, specs: &[HookSpec]) -> usize {

@@ -38,6 +38,10 @@ pub fn build_router(state: AppState) -> Router {
             "/api/v1/sessions/:id/messages",
             get(handler::session::list_session_messages),
         )
+        .route(
+            "/api/v1/sessions/:id/effects",
+            get(handler::session::list_session_effects),
+        )
         .merge(SwaggerUi::new("/api/docs").url("/api/openapi.json", ApiDoc::openapi()))
         .with_state(state)
 }

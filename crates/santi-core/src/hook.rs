@@ -11,6 +11,7 @@ pub enum HookPoint {
 pub enum HookKind {
     CompactThreshold,
     CompactHandoff,
+    ForkHandoffThreshold,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -50,6 +51,13 @@ pub enum RuntimeAction {
         source_turn_id: String,
     },
     ForkReserved {
+        source_hook_id: String,
+        source_turn_id: String,
+    },
+    ForkHandoff {
+        session_id: String,
+        fork_point: i64,
+        seed_text: String,
         source_hook_id: String,
         source_turn_id: String,
     },

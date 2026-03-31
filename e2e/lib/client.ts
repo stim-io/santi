@@ -24,6 +24,54 @@ export async function getSession(
   return response.json()
 }
 
+export async function listSessionEffects(
+  sessionId: string
+): Promise<{
+  effects: Array<{
+    id: string
+    session_id: string
+    effect_type: string
+    idempotency_key: string
+    status: string
+    source_hook_id: string
+    source_turn_id: string
+    result_ref: string | null
+    error_text: string | null
+    created_at: string
+    updated_at: string
+  }>
+}> {
+  const response = await fetch(`${baseUrl()}/api/v1/sessions/${sessionId}/effects`)
+
+  if (!response.ok) {
+    throw new Error(`list session effects failed: ${response.status} ${await response.text()}`)
+  }
+
+  return response.json()
+}
+
+export async function reloadHooks(hooks: Array<{
+  id: string
+  enabled: boolean
+  hook_point: 'turn_completed'
+  kind: 'compact_threshold' | 'compact_handoff' | 'fork_handoff_threshold'
+  params: Record<string, unknown>
+}>): Promise<{ hook_count: number }> {
+  const response = await fetch(`${baseUrl()}/api/v1/admin/hooks`, {
+    method: 'PUT',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({ hooks })
+  })
+
+  if (!response.ok) {
+    throw new Error(`reload hooks failed: ${response.status} ${await response.text()}`)
+  }
+
+  return response.json()
+}
+
 export async function forkSession(
   sessionId: string,
   forkPoint: number,

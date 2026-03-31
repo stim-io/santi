@@ -101,6 +101,8 @@ impl EffectLedgerPort for DbEffectLedger {
                 error_text
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (session_id, effect_type, idempotency_key)
+            DO UPDATE SET updated_at = session_effects.updated_at
             RETURNING
                 id,
                 session_id,

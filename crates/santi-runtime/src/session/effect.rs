@@ -110,7 +110,12 @@ impl SessionEffectService {
             .await
             .map_err(render_core_error)?
         {
-            return Ok(existing);
+            if existing.status == "completed" {
+                return Ok(existing);
+            }
+
+            let rerun = self.run_fork_handoff(&request).await;
+            return self.finish_effect(existing.id, existing.result_ref, rerun).await;
         }
 
         let effect_id = format!("effect_{}", Uuid::new_v4().simple());
@@ -130,8 +135,38 @@ impl SessionEffectService {
             .await
             .map_err(render_core_error)?;
 
-        let run_result = self.run_fork_handoff(&request).await;
+        self.finish_effect(effect_id, created.result_ref, self.run_fork_handoff(&request).await)
+            .await
+    }
 
+    async fn run_fork_handoff(&self, request: &ForkHandoffEffectRequest) -> Result<String, (Option<String>, String)> {
+        let fork_result = self
+            .fork_service
+            .fork_session(
+                request.parent_session_id.clone(),
+                request.fork_point,
+                format!(
+                    "hook_fork_handoff:{}:{}:{}",
+                    request.source_hook_id, request.source_turn_id, request.fork_point
+                ),
+            )
+            .await
+            .map_err(|err| (None, render_fork_error(err)))?;
+
+        self.seeded_send
+            .seeded_send(fork_result.new_session_id.clone(), request.seed_text.clone())
+            .await
+            .map_err(|err| (Some(fork_result.new_session_id.clone()), render_send_error(err)))?;
+
+        Ok(fork_result.new_session_id)
+    }
+
+    async fn finish_effect(
+        &self,
+        effect_id: String,
+        prior_result_ref: Option<String>,
+        run_result: Result<String, (Option<String>, String)>,
+    ) -> Result<SessionEffect, String> {
         match run_result {
             Ok(result_ref) => self
                 .ledger
@@ -144,40 +179,18 @@ impl SessionEffectService {
                 .await
                 .map_err(render_core_error)?
                 .ok_or_else(|| "effect disappeared before completion".to_string()),
-            Err(err) => self
+            Err((result_ref, err)) => self
                 .ledger
                 .update_effect(UpdateSessionEffect {
                     effect_id,
                     status: "failed".to_string(),
-                    result_ref: created.result_ref.clone(),
+                    result_ref: result_ref.or(prior_result_ref),
                     error_text: Some(err.clone()),
                 })
                 .await
                 .map_err(render_core_error)?
                 .ok_or(err),
         }
-    }
-
-    async fn run_fork_handoff(&self, request: &ForkHandoffEffectRequest) -> Result<String, String> {
-        let fork_result = self
-            .fork_service
-            .fork_session(
-                request.parent_session_id.clone(),
-                request.fork_point,
-                format!(
-                    "hook_fork_handoff:{}:{}:{}",
-                    request.source_hook_id, request.source_turn_id, request.fork_point
-                ),
-            )
-            .await
-            .map_err(render_fork_error)?;
-
-        self.seeded_send
-            .seeded_send(fork_result.new_session_id.clone(), request.seed_text.clone())
-            .await
-            .map_err(render_send_error)?;
-
-        Ok(fork_result.new_session_id)
     }
 }
 
@@ -314,5 +327,6 @@ mod tests {
 
         assert_eq!(effect.status, "failed");
         assert_eq!(effect.error_text.as_deref(), Some("seed failed"));
+        assert_eq!(effect.result_ref.as_deref(), Some("sess_child"));
     }
 }

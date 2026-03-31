@@ -1,16 +1,12 @@
 [package]
-name = "santi-runtime"
+name = "santi-ebus"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 async-trait = "0.1"
-async-stream = "0.3"
-futures = "0.3"
+redis = "0.27"
 santi-core = { path = "../santi-core" }
-serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-uuid = { version = "1", features = ["v4", "v5"] }

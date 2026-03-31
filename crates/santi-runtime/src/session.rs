@@ -1,4 +1,5 @@
 pub mod compact;
+pub mod fork;
 pub mod hook_runtime;
 pub mod memory;
 pub mod query;

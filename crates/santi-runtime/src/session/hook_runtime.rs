@@ -1,34 +1,50 @@
 use std::sync::Arc;
 
+use santi_core::{hook::RuntimeAction, port::ebus::SubscriberSetPort};
+
 use crate::{
-    hooks::{
-        ActionRecord, ActionStatus, HookRegistryHolder, RuntimeAction, TurnCompletedHookInput,
-    },
+    hooks::{HookEvaluator, TurnCompletedHookInput},
     session::compact::{CompactRequest, SessionCompactService},
 };
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ActionStatus {
+    Executed,
+    Skipped,
+    Failed,
+}
+
+#[derive(Clone, Debug)]
+pub struct ActionRecord {
+    pub hook_id: String,
+    pub turn_id: String,
+    pub action_type: String,
+    pub status: ActionStatus,
+    pub result_ref: Option<String>,
+    pub error_text: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct HookRuntime {
-    registry_holder: HookRegistryHolder,
+    subscriber_set: Arc<dyn SubscriberSetPort<Arc<dyn HookEvaluator>>>,
     compact_service: Arc<SessionCompactService>,
 }
 
 impl HookRuntime {
     pub fn new(
-        registry_holder: HookRegistryHolder,
+        subscriber_set: Arc<dyn SubscriberSetPort<Arc<dyn HookEvaluator>>>,
         compact_service: Arc<SessionCompactService>,
     ) -> Self {
         Self {
-            registry_holder,
+            subscriber_set,
             compact_service,
         }
     }
 
     pub async fn run_turn_completed(&self, input: TurnCompletedHookInput<'_>) -> Vec<ActionRecord> {
         let mut records = Vec::new();
-        let registry = self.registry_holder.snapshot();
 
-        for evaluator in registry.turn_completed() {
+        for evaluator in self.subscriber_set.snapshot() {
             let actions = evaluator.evaluate_turn_completed(TurnCompletedHookInput {
                 turn: input.turn,
                 session: input.session,
@@ -53,6 +69,10 @@ impl HookRuntime {
         }
 
         records
+    }
+
+    pub fn replace_subscribers(&self, subscribers: Vec<Arc<dyn HookEvaluator>>) {
+        self.subscriber_set.replace_all(subscribers);
     }
 
     async fn execute_action(&self, action: RuntimeAction) -> ActionRecord {
@@ -91,7 +111,7 @@ impl HookRuntime {
                     action_type: "compact".to_string(),
                     status: ActionStatus::Failed,
                     result_ref: None,
-                    error_text: Some(err),
+                    error_text: Some(format!("{err:?}")),
                 },
             },
             RuntimeAction::ForkReserved {

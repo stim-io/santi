@@ -1,16 +1,16 @@
 use std::sync::Arc;
 
 use santi_core::{
-    error::Error,
+    error::{Error, LockError},
+    hook::CompactReason,
     model::runtime::{AssemblyTarget, Compact},
     port::{
+        lock::Lock,
         session_ledger::SessionLedgerPort,
         soul_runtime::{AppendCompact, SoulRuntimePort, StartTurn},
     },
 };
 use uuid::Uuid;
-
-use crate::hooks::CompactReason;
 
 #[derive(Clone, Debug)]
 pub struct CompactRequest {
@@ -23,18 +23,29 @@ pub struct CompactRequest {
 
 #[derive(Clone)]
 pub struct SessionCompactService {
+    lock: Arc<dyn Lock>,
     session_ledger: Arc<dyn SessionLedgerPort>,
     soul_runtime: Arc<dyn SoulRuntimePort>,
     default_soul_id: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CompactSessionError {
+    Busy,
+    NotFound,
+    Invalid(String),
+    Internal(String),
+}
+
 impl SessionCompactService {
     pub fn new(
+        lock: Arc<dyn Lock>,
         session_ledger: Arc<dyn SessionLedgerPort>,
         soul_runtime: Arc<dyn SoulRuntimePort>,
         default_soul_id: String,
     ) -> Self {
         Self {
+            lock,
             session_ledger,
             soul_runtime,
             default_soul_id,
@@ -45,7 +56,7 @@ impl SessionCompactService {
         &self,
         session_id: &str,
         summary: &str,
-    ) -> Result<Compact, String> {
+    ) -> Result<Compact, CompactSessionError> {
         self.execute_compact(CompactRequest {
             session_id: session_id.to_string(),
             summary: summary.to_string(),
@@ -56,9 +67,21 @@ impl SessionCompactService {
         .await
     }
 
-    pub async fn execute_compact(&self, request: CompactRequest) -> Result<Compact, String> {
+    pub async fn execute_compact(
+        &self,
+        request: CompactRequest,
+    ) -> Result<Compact, CompactSessionError> {
+        let guard = self
+            .lock
+            .acquire(&format!("lock:session_send:{}", request.session_id))
+            .await
+            .map_err(map_lock_error)?;
+
         if request.summary.trim().is_empty() {
-            return Err("expected non-empty compact summary".to_string());
+            guard.release().await.map_err(map_lock_error)?;
+            return Err(CompactSessionError::Invalid(
+                "expected non-empty compact summary".to_string(),
+            ));
         }
 
         let session = self
@@ -66,7 +89,7 @@ impl SessionCompactService {
             .get_session(&request.session_id)
             .await
             .map_err(render_error)?
-            .ok_or_else(|| "session not found".to_string())?;
+            .ok_or(CompactSessionError::NotFound)?;
 
         let messages = self
             .session_ledger
@@ -76,7 +99,7 @@ impl SessionCompactService {
         let computed_end_session_seq = messages
             .last()
             .map(|message| message.relation.session_seq)
-            .ok_or_else(|| "cannot compact empty session".to_string())?;
+            .ok_or_else(|| CompactSessionError::Invalid("cannot compact empty session".to_string()))?;
 
         let soul_session = self
             .soul_runtime
@@ -104,7 +127,10 @@ impl SessionCompactService {
         let end_session_seq = request.end_session_seq.unwrap_or(computed_end_session_seq);
 
         if start_session_seq > end_session_seq {
-            return Err("no uncompacted session range".to_string());
+            guard.release().await.map_err(map_lock_error)?;
+            return Err(CompactSessionError::Invalid(
+                "no uncompacted session range".to_string(),
+            ));
         }
 
         let turn = self
@@ -140,19 +166,108 @@ impl SessionCompactService {
             .await
             .map_err(render_error)?;
 
+        guard.release().await.map_err(map_lock_error)?;
+
         match compact.target {
             AssemblyTarget::Compact(compact) => Ok(compact),
-            _ => Err("unexpected assembly target while compacting session".to_string()),
+            _ => Err(CompactSessionError::Internal(
+                "unexpected assembly target while compacting session".to_string(),
+            )),
         }
     }
 }
 
-fn render_error(err: Error) -> String {
+fn render_error(err: Error) -> CompactSessionError {
     match err {
-        Error::NotFound { resource } => format!("{resource} not found"),
-        Error::Busy { resource } => format!("{resource} busy"),
-        Error::InvalidInput { message } => message,
-        Error::Upstream { message } => message,
-        Error::Internal { message } => message,
+        Error::NotFound { .. } => CompactSessionError::NotFound,
+        Error::Busy { resource } => CompactSessionError::Internal(format!("{resource} busy")),
+        Error::InvalidInput { message } => CompactSessionError::Invalid(message),
+        Error::Upstream { message } | Error::Internal { message } => {
+            CompactSessionError::Internal(message)
+        }
+    }
+}
+
+fn map_lock_error(err: LockError) -> CompactSessionError {
+    match err {
+        LockError::Busy => CompactSessionError::Busy,
+        LockError::Lost => CompactSessionError::Internal("session compact lock lost".to_string()),
+        LockError::Backend { message } => CompactSessionError::Internal(message),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use santi_core::{
+        error::LockError,
+        port::{
+            lock::{Lock, LockGuard},
+            session_ledger::SessionLedgerPort,
+            soul_runtime::SoulRuntimePort,
+        },
+    };
+
+    use super::{CompactSessionError, SessionCompactService};
+
+    struct BusyLock;
+
+    #[async_trait::async_trait]
+    impl Lock for BusyLock {
+        async fn acquire(
+            &self,
+            _key: &str,
+        ) -> std::result::Result<Box<dyn LockGuard + Send>, LockError> {
+            Err(LockError::Busy)
+        }
+    }
+
+    struct UnusedLedger;
+
+    #[async_trait::async_trait]
+    impl SessionLedgerPort for UnusedLedger {
+        async fn create_session(&self, _session_id: &str) -> santi_core::error::Result<santi_core::model::session::Session> { unreachable!() }
+        async fn get_session(&self, _session_id: &str) -> santi_core::error::Result<Option<santi_core::model::session::Session>> { unreachable!() }
+        async fn list_messages(&self, _session_id: &str, _after_session_seq: Option<i64>) -> santi_core::error::Result<Vec<santi_core::model::session::SessionMessage>> { unreachable!() }
+        async fn append_message(&self, _input: santi_core::port::session_ledger::AppendSessionMessage) -> santi_core::error::Result<santi_core::model::session::SessionMessage> { unreachable!() }
+        async fn apply_message_event(&self, _input: santi_core::port::session_ledger::ApplyMessageEvent) -> santi_core::error::Result<santi_core::model::session::SessionMessage> { unreachable!() }
+    }
+
+    struct UnusedSoulRuntime;
+
+    #[async_trait::async_trait]
+    impl SoulRuntimePort for UnusedSoulRuntime {
+        async fn get_or_create_soul_session(&self, _soul_id: &str, _session_id: &str) -> santi_core::error::Result<santi_core::model::runtime::SoulSession> { unreachable!() }
+        async fn get_soul_session(&self, _soul_session_id: &str) -> santi_core::error::Result<Option<santi_core::model::runtime::SoulSession>> { unreachable!() }
+        async fn load_turn_context(&self, _soul_id: &str, _session_id: &str) -> santi_core::error::Result<Option<santi_core::model::runtime::TurnContext>> { unreachable!() }
+        async fn write_session_memory(&self, _soul_session_id: &str, _text: &str) -> santi_core::error::Result<Option<santi_core::model::runtime::SoulSession>> { unreachable!() }
+        async fn start_turn(&self, _input: santi_core::port::soul_runtime::StartTurn) -> santi_core::error::Result<santi_core::model::runtime::Turn> { unreachable!() }
+        async fn append_message_ref(&self, _input: santi_core::port::soul_runtime::AppendMessageRef) -> santi_core::error::Result<santi_core::model::runtime::AssemblyItem> { unreachable!() }
+        async fn append_tool_call(&self, _input: santi_core::port::soul_runtime::AppendToolCall) -> santi_core::error::Result<santi_core::model::runtime::AssemblyItem> { unreachable!() }
+        async fn append_tool_result(&self, _input: santi_core::port::soul_runtime::AppendToolResult) -> santi_core::error::Result<santi_core::model::runtime::AssemblyItem> { unreachable!() }
+        async fn append_compact(&self, _input: santi_core::port::soul_runtime::AppendCompact) -> santi_core::error::Result<santi_core::model::runtime::AssemblyItem> { unreachable!() }
+        async fn complete_turn(&self, _input: santi_core::port::soul_runtime::CompleteTurn) -> santi_core::error::Result<santi_core::model::runtime::Turn> { unreachable!() }
+        async fn fail_turn(&self, _input: santi_core::port::soul_runtime::FailTurn) -> santi_core::error::Result<santi_core::model::runtime::Turn> { unreachable!() }
+        async fn get_soul_session_by_session_id(&self, _session_id: &str) -> santi_core::error::Result<Option<santi_core::model::runtime::SoulSession>> { unreachable!() }
+        async fn fork_soul_session(&self, _parent_soul_session_id: &str, _fork_point: i64, _new_soul_session_id: &str, _new_session_id: &str) -> santi_core::error::Result<santi_core::model::runtime::SoulSession> { unreachable!() }
+        async fn list_assembly_items(&self, _soul_session_id: &str, _after_soul_session_seq: Option<i64>) -> santi_core::error::Result<Vec<santi_core::model::runtime::AssemblyItem>> { unreachable!() }
+    }
+
+    #[tokio::test]
+    async fn returns_busy_when_compact_lock_is_held() {
+        let service = SessionCompactService::new(
+            Arc::new(BusyLock),
+            Arc::new(UnusedLedger),
+            Arc::new(UnusedSoulRuntime),
+            "soul_default".to_string(),
+        );
+
+        let err = service
+            .compact_session("sess_1", "summary")
+            .await
+            .expect_err("compact should fail when lock is busy");
+
+        assert_eq!(err, CompactSessionError::Busy);
     }
 }

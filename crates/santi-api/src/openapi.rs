@@ -7,6 +7,7 @@ use crate::{
         common::ErrorResponse,
         health::HealthResponse,
         session::{
+            ForkRequest, ForkResponse, SessionCompactRequest, SessionCompactResponse,
             SessionMemoryRequest, SessionMemoryResponse, SessionMessagesResponse, SessionResponse,
             SoulMemoryRequest, SoulMemoryResponse, SoulResponse,
         },
@@ -24,13 +25,19 @@ use crate::{
         handler::session::get_session,
         handler::session::send_session,
         handler::session::list_session_messages,
+        handler::session::fork_session,
+        handler::session::compact_session,
         handler::session::set_session_memory
     ),
     components(schemas(
         ErrorResponse,
+        ForkRequest,
+        ForkResponse,
         HookReloadRequest,
         HookReloadResponse,
         HealthResponse,
+        SessionCompactRequest,
+        SessionCompactResponse,
         SessionMemoryRequest,
         SessionMemoryResponse,
         crate::schema::session::SessionSendRequest,

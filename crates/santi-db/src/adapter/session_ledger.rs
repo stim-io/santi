@@ -32,6 +32,8 @@ impl SessionLedgerPort for DbSessionLedger {
             VALUES ($1)
             RETURNING
                 id,
+                parent_session_id,
+                fork_point,
                 to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
                 to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at
             "#,
@@ -45,6 +47,8 @@ impl SessionLedgerPort for DbSessionLedger {
 
         Ok(Session {
             id: row.get("id"),
+            parent_session_id: row.try_get("parent_session_id").ok(),
+            fork_point: row.try_get("fork_point").ok(),
             created_at: row.get("created_at"),
             updated_at: row.get("updated_at"),
         })
@@ -55,6 +59,8 @@ impl SessionLedgerPort for DbSessionLedger {
             r#"
             SELECT
                 id,
+                parent_session_id,
+                fork_point,
                 to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
                 to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at
             FROM sessions
@@ -71,6 +77,8 @@ impl SessionLedgerPort for DbSessionLedger {
 
         Ok(row.map(|row| Session {
             id: row.get("id"),
+            parent_session_id: row.try_get("parent_session_id").ok(),
+            fork_point: row.try_get("fork_point").ok(),
             created_at: row.get("created_at"),
             updated_at: row.get("updated_at"),
         }))

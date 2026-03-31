@@ -5,6 +5,8 @@ use axum::{
     Json,
 };
 use futures::StreamExt;
+use santi_runtime::session::compact::CompactSessionError;
+use santi_runtime::session::fork::{ForkError, ForkResult};
 use santi_runtime::session::send::{SendSessionCommand, SendSessionError, SendSessionEvent};
 use std::convert::Infallible;
 
@@ -13,7 +15,7 @@ use crate::{
     schema::{
         common::ErrorResponse,
         session::{
-            SessionCompactRequest, SessionCompactResponse, SessionMemoryRequest,
+            ForkRequest, ForkResponse, SessionCompactRequest, SessionCompactResponse, SessionMemoryRequest,
             SessionMemoryResponse, SessionMessagesResponse, SessionResponse,
             SessionSendContentPart, SessionSendRequest, SoulMemoryRequest, SoulMemoryResponse,
             SoulResponse,
@@ -307,6 +309,58 @@ pub async fn send_session(
 
 #[utoipa::path(
     post,
+    path = "/api/v1/sessions/{id}/fork",
+    tag = "session",
+    params(
+        ("id" = String, Path, description = "Parent session id")
+    ),
+    request_body(content = ForkRequest),
+    responses(
+        (status = 201, description = "Forked session created", body = ForkResponse),
+        (status = 400, description = "Invalid request", body = ErrorResponse),
+        (status = 404, description = "Parent session not found", body = ErrorResponse),
+        (status = 409, description = "Session busy", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    )
+)]
+pub async fn fork_session(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<ForkRequest>,
+) -> impl IntoResponse {
+    match state.session_fork().fork_session(id, req.fork_point, req.request_id).await {
+        Ok(res) => (
+            StatusCode::CREATED,
+            Json(ForkResponse::from_result(res)),
+        )
+            .into_response(),
+        Err(err) => match err {
+            ForkError::Busy => (
+                StatusCode::CONFLICT,
+                Json(ErrorResponse::new("session fork already in progress")),
+            )
+                .into_response(),
+            ForkError::ParentNotFound => (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse::new("parent session not found")),
+            )
+                .into_response(),
+            ForkError::InvalidForkPoint(message) => (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse::new(message)),
+            )
+                .into_response(),
+            ForkError::Internal(message) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new(message)),
+            )
+                .into_response(),
+        },
+    }
+}
+
+#[utoipa::path(
+    post,
     path = "/api/v1/sessions/{id}/compact",
     tag = "session",
     params(
@@ -331,9 +385,33 @@ pub async fn compact_session(
         Ok(compact) => {
             (StatusCode::OK, Json(SessionCompactResponse::from(compact))).into_response()
         }
-        Err(err) if err.contains("not found") => {
-            (StatusCode::NOT_FOUND, Json(ErrorResponse::new(err))).into_response()
+        Err(CompactSessionError::Busy) => (
+            StatusCode::CONFLICT,
+            Json(ErrorResponse::new("session compact already in progress")),
+        )
+            .into_response(),
+        Err(CompactSessionError::NotFound) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse::new("session not found")),
+        )
+            .into_response(),
+        Err(CompactSessionError::Invalid(message)) => {
+            (StatusCode::BAD_REQUEST, Json(ErrorResponse::new(message))).into_response()
         }
-        Err(err) => (StatusCode::BAD_REQUEST, Json(ErrorResponse::new(err))).into_response(),
+        Err(CompactSessionError::Internal(message)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse::new(message)),
+        )
+            .into_response(),
+    }
+}
+
+impl ForkResponse {
+    fn from_result(value: ForkResult) -> Self {
+        Self {
+            new_session_id: value.new_session_id,
+            parent_session_id: value.parent_session_id,
+            fork_point: value.fork_point,
+        }
     }
 }

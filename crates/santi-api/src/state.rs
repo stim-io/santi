@@ -9,24 +9,26 @@ use santi_db::{
     adapter::{session_ledger::DbSessionLedger, soul::DbSoul, soul_runtime::DbSoulRuntime},
     db::init_postgres,
 };
+use santi_ebus::InMemorySubscriberSet;
 use santi_lock::{RedisLockClient, RedisLockConfig};
 use santi_provider::openai_compatible::OpenAiCompatibleProvider;
 use santi_runtime::{
-    hooks::{load_hook_specs, HookRegistryHolder, HookSpec, HookSpecSource},
+    hooks::{compile_hook_specs, load_hook_specs, HookEvaluator},
     runtime::tools::ToolExecutorConfig,
     session::{
-        compact::SessionCompactService, memory::SessionMemoryService, query::SessionQueryService,
-        send::SessionSendService,
+        compact::SessionCompactService, fork::SessionForkService, memory::SessionMemoryService,
+        query::SessionQueryService, send::SessionSendService,
     },
 };
+use santi_core::hook::{HookSpec, HookSpecSource};
 
 #[derive(Clone)]
 pub struct AppState {
-    hook_registry: HookRegistryHolder,
     session_memory: Arc<SessionMemoryService>,
     session_compact: Arc<SessionCompactService>,
     session_query: Arc<SessionQueryService>,
     session_send: Arc<SessionSendService>,
+    session_fork: Arc<SessionForkService>,
 }
 
 impl AppState {
@@ -78,33 +80,38 @@ impl AppState {
             default_soul_id.clone(),
         ));
         let session_compact = Arc::new(SessionCompactService::new(
+            lock.clone(),
             session_ledger.clone(),
             soul_runtime.clone(),
             default_soul_id.clone(),
         ));
         let hook_specs = load_startup_hook_specs(config.hook_source.as_ref()).await?;
-        let hook_registry = HookRegistryHolder::from_specs(&hook_specs);
+        let ebus: Arc<dyn santi_core::port::ebus::SubscriberSetPort<Arc<dyn HookEvaluator>>> =
+            Arc::new(InMemorySubscriberSet::<Arc<dyn HookEvaluator>>::new());
+        ebus.replace_all(compile_hook_specs(&hook_specs));
+        let session_fork = Arc::new(SessionForkService::new(lock.clone(), soul_runtime.clone()));
+
         let session_send = Arc::new(SessionSendService::new(
             config.openai_model.clone(),
             default_soul_id,
-            lock,
-            session_ledger,
-            soul_runtime,
+            lock.clone(),
+            session_ledger.clone(),
+            soul_runtime.clone(),
             provider,
             session_memory.as_ref().clone(),
             ToolExecutorConfig {
                 runtime_root: config.runtime_root.clone(),
                 execution_root: config.execution_root.clone(),
             },
-            hook_registry.clone(),
+            ebus,
         ));
 
         Ok(Self {
-            hook_registry,
             session_memory,
             session_compact,
             session_query,
             session_send,
+            session_fork,
         })
     }
 
@@ -124,8 +131,12 @@ impl AppState {
         self.session_query.clone()
     }
 
+    pub fn session_fork(&self) -> Arc<SessionForkService> {
+        self.session_fork.clone()
+    }
+
     pub fn reload_hooks(&self, specs: &[HookSpec]) -> usize {
-        self.hook_registry.reload_from_specs(specs)
+        self.session_send.replace_hooks(specs)
     }
 
     pub async fn reload_hooks_from_source(&self, source: HookSpecSource) -> Result<usize, String> {

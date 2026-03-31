@@ -1,6 +1,6 @@
 use std::{env, net::SocketAddr};
 
-use santi_runtime::hooks::HookSpecSource;
+use santi_core::hook::HookSpecSource;
 
 #[derive(Clone, Debug)]
 pub struct Config {

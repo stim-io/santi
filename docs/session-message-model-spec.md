@@ -9,6 +9,8 @@ It is still a draft, but it is meant to be concrete enough to guide the first cl
 ### `sessions`
 
 - `id`
+- `parent_session_id` (`nullable`)
+- `fork_point` (`nullable`)
 - `created_at`
 - `updated_at`
 
@@ -17,6 +19,7 @@ Current stance:
 - no `soul_id`
 - no participant list
 - `session` is a shared ledger container, not a single-soul thread
+- first-pass fork lineage lives here as `parent_session_id + fork_point`
 
 ### `accounts`
 
@@ -123,6 +126,8 @@ First-pass payloads:
 - `provider_state` (`jsonb nullable`)
 - `next_seq`
 - `last_seen_session_seq`
+- `parent_soul_session_id` (`nullable`)
+- `fork_point` (`nullable`)
 - `created_at`
 - `updated_at`
 
@@ -137,6 +142,16 @@ Current stance:
 Suggested constraints:
 
 - `(soul_id, session_id)` unique
+
+Fork current stance:
+
+- explicit fork input is `(parent_session_id, fork_point, request_id)`
+- `fork_point` is a position inside the parent `r_soul_session_messages` view
+- fork copies only the reference prefix `<= fork_point`; it does not clone message rows or other runtime artifacts
+- child `session_memory` is copied by value from the latest parent `soul_session` state while the fork lock is held
+- child `provider_state` starts empty
+- child `next_seq` restarts from its own local space after the copied prefix
+- parent and child runtime views diverge immediately after fork; later compacts and message-view rewrites are independent
 
 `provider_state` current stance:
 

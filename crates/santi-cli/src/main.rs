@@ -4,6 +4,7 @@ mod config;
 mod output;
 
 use clap::Parser;
+use santi_core::hook::HookSpecSource;
 
 use crate::{
     backend::{api::ApiBackend, local::LocalBackend, CliBackend},
@@ -222,7 +223,7 @@ async fn handle_admin_command(
                 if raw.trim().is_empty() {
                     return Err("expected stdin hook payload".to_string());
                 }
-                let source = santi_runtime::hooks::HookSpecSource::from_json_str(&raw)
+                let source = HookSpecSource::from_json_str(&raw)
                     .map_err(|err| format!("parse hook payload failed: {err}"))?;
                 let result = backend
                     .reload_hooks(source)

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use santi_runtime::hooks::{HookKind, HookPoint, HookSpec, HookSpecSource};
+use santi_core::hook::{HookKind, HookPoint, HookSpec, HookSpecSource};
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 pub struct HookReloadRequest {

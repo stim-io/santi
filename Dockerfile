@@ -42,6 +42,7 @@ COPY crates/santi-provider/Cargo.toml /app/crates/santi-provider/Cargo.toml
 COPY crates/santi-runtime/Cargo.toml /app/crates/santi-runtime/Cargo.toml
 COPY crates/santi-api/Cargo.toml /app/crates/santi-api/Cargo.toml
 COPY crates/santi-cli/Cargo.toml /app/crates/santi-cli/Cargo.toml
+COPY crates/santi-ebus/Cargo.toml /app/crates/santi-ebus/Cargo.toml
 COPY crates/santi-lock/Cargo.toml /app/crates/santi-lock/Cargo.toml
 COPY crates/santi-core/src/lib.rs /app/crates/santi-core/src/lib.rs
 COPY crates/santi-db/src/lib.rs /app/crates/santi-db/src/lib.rs
@@ -50,6 +51,7 @@ COPY crates/santi-runtime/src/lib.rs /app/crates/santi-runtime/src/lib.rs
 COPY crates/santi-api/src/lib.rs /app/crates/santi-api/src/lib.rs
 COPY crates/santi-api/src/main.rs /app/crates/santi-api/src/main.rs
 COPY crates/santi-cli/src/main.rs /app/crates/santi-cli/src/main.rs
+COPY crates/santi-ebus/src/lib.rs /app/crates/santi-ebus/src/lib.rs
 COPY crates/santi-lock/src/lib.rs /app/crates/santi-lock/src/lib.rs
 
 RUN --mount=type=cache,target=/root/.cargo/registry \
@@ -58,6 +60,7 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
 
 COPY crates/santi-api /app/crates/santi-api
 COPY crates/santi-cli /app/crates/santi-cli
+COPY crates/santi-ebus /app/crates/santi-ebus
 COPY crates/santi-core /app/crates/santi-core
 COPY crates/santi-db /app/crates/santi-db
 COPY crates/santi-lock /app/crates/santi-lock

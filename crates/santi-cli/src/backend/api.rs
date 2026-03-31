@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use futures::TryStreamExt;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
+use santi_core::hook::HookSpecSource;
 use tokio::time::sleep;
 
 use crate::{
@@ -14,7 +15,6 @@ use crate::{
     },
     config::Config,
 };
-use santi_runtime::hooks::HookSpecSource;
 
 #[derive(Clone)]
 pub struct ApiBackend {
@@ -25,6 +25,8 @@ pub struct ApiBackend {
 #[derive(Debug, Deserialize)]
 struct SessionResponse {
     id: String,
+    parent_session_id: Option<String>,
+    fork_point: Option<i64>,
     created_at: String,
 }
 
@@ -159,6 +161,8 @@ impl CliBackend for ApiBackend {
 
         Ok(CliSession {
             id: session.id,
+            parent_session_id: session.parent_session_id,
+            fork_point: session.fork_point,
             created_at: session.created_at,
         })
     }
@@ -182,6 +186,8 @@ impl CliBackend for ApiBackend {
 
         Ok(CliSession {
             id: session.id,
+            parent_session_id: session.parent_session_id,
+            fork_point: session.fork_point,
             created_at: session.created_at,
         })
     }

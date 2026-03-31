@@ -3,8 +3,10 @@ use std::{sync::Arc, time::Duration};
 use async_trait::async_trait;
 use futures::StreamExt;
 use santi_core::{
+    hook::{HookSpec, HookSpecSource},
     model::{message::MessagePart, runtime::Compact, session::SessionMessage, soul::Soul},
     port::{
+        ebus::SubscriberSetPort,
         lock::Lock, provider::Provider, session_ledger::SessionLedgerPort, soul::SoulPort,
         soul_runtime::SoulRuntimePort,
     },
@@ -14,12 +16,13 @@ use santi_db::{
     db::init_postgres,
 };
 use santi_lock::{RedisLockClient, RedisLockConfig};
+use santi_ebus::InMemorySubscriberSet;
 use santi_provider::openai_compatible::OpenAiCompatibleProvider;
 use santi_runtime::{
-    hooks::{load_hook_specs, HookRegistryHolder, HookSpecSource},
+    hooks::{compile_hook_specs, load_hook_specs, HookEvaluator},
     runtime::tools::ToolExecutorConfig,
     session::{
-        compact::SessionCompactService,
+        compact::{CompactSessionError, SessionCompactService},
         memory::SessionMemoryService,
         query::SessionQueryService,
         send::{SendSessionCommand, SendSessionError, SendSessionEvent, SessionSendService},
@@ -38,8 +41,6 @@ use crate::{
 #[derive(Clone)]
 pub struct LocalBackend {
     default_soul_id: String,
-    #[allow(dead_code)]
-    hook_registry: HookRegistryHolder,
     session_memory: Arc<SessionMemoryService>,
     session_compact: Arc<SessionCompactService>,
     session_query: Arc<SessionQueryService>,
@@ -90,12 +91,15 @@ impl LocalBackend {
             default_soul_id.clone(),
         ));
         let session_compact = Arc::new(SessionCompactService::new(
+            lock.clone(),
             session_ledger.clone(),
             soul_runtime.clone(),
             default_soul_id.clone(),
         ));
         let hook_specs = load_startup_hook_specs(config.hook_source.as_ref()).await?;
-        let hook_registry = HookRegistryHolder::from_specs(&hook_specs);
+        let ebus: Arc<dyn SubscriberSetPort<Arc<dyn HookEvaluator>>> =
+            Arc::new(InMemorySubscriberSet::<Arc<dyn HookEvaluator>>::new());
+        ebus.replace_all(compile_hook_specs(&hook_specs));
         let session_send = Arc::new(SessionSendService::new(
             config.openai_model.clone(),
             default_soul_id.clone(),
@@ -108,12 +112,11 @@ impl LocalBackend {
                 runtime_root: config.runtime_root,
                 execution_root: config.execution_root,
             },
-            hook_registry.clone(),
+            ebus,
         ));
 
         Ok(Self {
             default_soul_id,
-            hook_registry,
             session_memory,
             session_compact,
             session_query,
@@ -121,20 +124,15 @@ impl LocalBackend {
         })
     }
 
-    #[allow(dead_code)]
-    pub fn reload_hooks(&self, specs: &[santi_runtime::hooks::HookSpec]) -> usize {
-        self.hook_registry.reload_from_specs(specs)
-    }
-
     async fn reload_hook_source(&self, source: &HookSpecSource) -> Result<usize, String> {
         let specs = load_hook_specs(source).await?;
-        Ok(self.hook_registry.reload_from_specs(&specs))
+        Ok(self.session_send.replace_hooks(&specs))
     }
 }
 
 async fn load_startup_hook_specs(
     source: Option<&HookSpecSource>,
-) -> Result<Vec<santi_runtime::hooks::HookSpec>, String> {
+) -> Result<Vec<HookSpec>, String> {
     match source {
         Some(source) => load_hook_specs(source).await,
         None => Ok(Vec::new()),
@@ -157,6 +155,8 @@ impl CliBackend for LocalBackend {
             .map_err(BackendError::Other)?;
         Ok(CliSession {
             id: session.id,
+            parent_session_id: session.parent_session_id,
+            fork_point: session.fork_point,
             created_at: session.created_at,
         })
     }
@@ -170,6 +170,8 @@ impl CliBackend for LocalBackend {
             .ok_or(BackendError::NotFound)?;
         Ok(CliSession {
             id: session.id,
+            parent_session_id: session.parent_session_id,
+            fork_point: session.fork_point,
             created_at: session.created_at,
         })
     }
@@ -259,7 +261,7 @@ impl CliBackend for LocalBackend {
             .compact_session(&session_id, &summary)
             .await
             .map(map_compact)
-            .map_err(BackendError::Other)
+            .map_err(map_compact_error)
     }
 
     async fn reload_hooks(&self, source: HookSpecSource) -> Result<CliHookReload, BackendError> {
@@ -284,6 +286,16 @@ fn map_send_error(err: SendSessionError) -> BackendError {
         SendSessionError::Busy => BackendError::Busy,
         SendSessionError::NotFound => BackendError::NotFound,
         SendSessionError::Internal(message) => BackendError::Other(message),
+    }
+}
+
+fn map_compact_error(err: CompactSessionError) -> BackendError {
+    match err {
+        CompactSessionError::Busy => BackendError::Busy,
+        CompactSessionError::NotFound => BackendError::NotFound,
+        CompactSessionError::Invalid(message) | CompactSessionError::Internal(message) => {
+            BackendError::Other(message)
+        }
     }
 }
 

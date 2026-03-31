@@ -1,3 +1,4 @@
+pub mod ebus;
 pub mod lock;
 pub mod provider;
 pub mod session_ledger;

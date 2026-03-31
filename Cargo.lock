@@ -1809,6 +1809,7 @@ dependencies = [
  "reqwest",
  "santi-core",
  "santi-db",
+ "santi-ebus",
  "santi-lock",
  "santi-provider",
  "santi-runtime",
@@ -1836,6 +1837,7 @@ dependencies = [
  "reqwest",
  "santi-core",
  "santi-db",
+ "santi-ebus",
  "santi-lock",
  "santi-provider",
  "santi-runtime",
@@ -1871,6 +1873,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "santi-ebus"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "redis",
+ "santi-core",
+ "serde",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "santi-lock"
 version = "0.1.0"
 dependencies = [
@@ -1902,6 +1916,7 @@ name = "santi-runtime"
 version = "0.1.0"
 dependencies = [
  "async-stream",
+ "async-trait",
  "futures",
  "reqwest",
  "santi-core",
@@ -2718,6 +2733,7 @@ checksum = "a68d3c8f01c0cfa54a75291d83601161799e4a89a39e0929f4b0354d88757a37"
 dependencies = [
  "getrandom 0.4.2",
  "js-sys",
+ "sha1_smol",
  "wasm-bindgen",
 ]
 

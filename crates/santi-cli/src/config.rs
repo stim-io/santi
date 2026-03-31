@@ -1,7 +1,7 @@
 use std::{env, fs, path::PathBuf};
 
 use dirs::home_dir;
-use santi_runtime::hooks::{HookSpec, HookSpecSource};
+use santi_core::hook::{HookSpec, HookSpecSource};
 use serde::Deserialize;
 
 use crate::cli::{BackendKind, Cli};

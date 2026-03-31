@@ -5,12 +5,14 @@ use std::pin::Pin;
 
 use async_trait::async_trait;
 use futures::Stream;
-use santi_runtime::hooks::HookSpecSource;
+use santi_core::hook::HookSpecSource;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CliSession {
     pub id: String,
+    pub parent_session_id: Option<String>,
+    pub fork_point: Option<i64>,
     pub created_at: String,
 }
 

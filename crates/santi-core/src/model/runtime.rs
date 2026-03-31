@@ -19,6 +19,8 @@ pub struct SoulSession {
     pub provider_state: Option<ProviderState>,
     pub next_seq: i64,
     pub last_seen_session_seq: i64,
+    pub parent_soul_session_id: Option<String>,
+    pub fork_point: Option<i64>,
     pub created_at: String,
     pub updated_at: String,
 }

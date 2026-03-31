@@ -23,6 +23,10 @@ pub fn build_router(state: AppState) -> Router {
             post(handler::session::send_session),
         )
         .route(
+            "/api/v1/sessions/:id/fork",
+            post(handler::session::fork_session),
+        )
+        .route(
             "/api/v1/sessions/:id/compact",
             post(handler::session::compact_session),
         )

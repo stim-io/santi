@@ -4,12 +4,14 @@ use async_stream::try_stream;
 use futures::{Stream, StreamExt};
 use santi_core::{
     error::{Error, LockError},
+    hook::HookSpec,
     model::{
         message::{ActorType, MessageContent, MessagePart, MessageState},
         runtime::{AssemblyItem, AssemblyTarget, ProviderState, Turn, TurnTriggerType},
         session::SessionMessage,
     },
     port::{
+        ebus::SubscriberSetPort,
         lock::{Lock, LockGuard},
         provider::{Provider, ProviderEvent, ProviderFunctionCall, ProviderRequest},
         session_ledger::{AppendSessionMessage, SessionLedgerPort},
@@ -28,7 +30,7 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::{
-    hooks::{HookRegistryHolder, TurnCompletedHookInput},
+    hooks::{compile_hook_specs, HookEvaluator, TurnCompletedHookInput},
     runtime::{
         context::ToolRuntimeContext,
         prompt::render_runtime_instructions,
@@ -92,9 +94,10 @@ impl SessionSendService {
         provider: Arc<dyn Provider>,
         session_memory: SessionMemoryService,
         tool_config: ToolExecutorConfig,
-        hook_registry: HookRegistryHolder,
+        ebus: Arc<dyn SubscriberSetPort<Arc<dyn HookEvaluator>>>,
     ) -> Self {
         let compact_service = Arc::new(SessionCompactService::new(
+            lock.clone(),
             session_ledger.clone(),
             soul_runtime.clone(),
             default_soul_id.clone(),
@@ -107,8 +110,15 @@ impl SessionSendService {
             soul_runtime,
             provider,
             tools: Arc::new(ToolExecutor::new(session_memory, tool_config)),
-            hooks: Arc::new(HookRuntime::new(hook_registry, compact_service)),
+            hooks: Arc::new(HookRuntime::new(ebus, compact_service)),
         }
+    }
+
+    pub fn replace_hooks(&self, specs: &[HookSpec]) -> usize {
+        let subscribers = compile_hook_specs(specs);
+        let count = subscribers.len();
+        self.hooks.replace_subscribers(subscribers);
+        count
     }
 
     pub async fn start(

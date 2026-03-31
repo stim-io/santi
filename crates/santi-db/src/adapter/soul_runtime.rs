@@ -30,6 +30,14 @@ impl DbSoulRuntime {
     }
 }
 
+#[derive(sqlx::FromRow)]
+struct ParentSoulInfo {
+    soul_id: String,
+    session_memory: String,
+    next_seq: i64,
+    inherited_public_message_count: i64,
+}
+
 #[async_trait::async_trait]
 impl SoulRuntimePort for DbSoulRuntime {
     async fn get_or_create_soul_session(
@@ -51,6 +59,8 @@ impl SoulRuntimePort for DbSoulRuntime {
                 provider_state,
                 next_seq,
                 last_seen_session_seq,
+                parent_soul_session_id,
+                fork_point,
                 to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
                 to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at
             "#,
@@ -78,6 +88,8 @@ impl SoulRuntimePort for DbSoulRuntime {
                 provider_state,
                 next_seq,
                 last_seen_session_seq,
+                parent_soul_session_id,
+                fork_point,
                 to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
                 to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at
             FROM soul_sessions
@@ -140,6 +152,8 @@ impl SoulRuntimePort for DbSoulRuntime {
         Ok(Some(TurnContext {
             session: Session {
                 id: session_row.get("id"),
+                parent_session_id: None,
+                fork_point: None,
                 created_at: session_row.get("created_at"),
                 updated_at: session_row.get("updated_at"),
             },
@@ -172,6 +186,8 @@ impl SoulRuntimePort for DbSoulRuntime {
                 provider_state,
                 next_seq,
                 last_seen_session_seq,
+                parent_soul_session_id,
+                fork_point,
                 to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
                 to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at
             "#,
@@ -581,6 +597,178 @@ impl SoulRuntimePort for DbSoulRuntime {
         map_turn_row(&row)
     }
 
+    async fn get_soul_session_by_session_id(&self, session_id: &str) -> Result<Option<SoulSession>> {
+        let row = sqlx::query(
+            r#"
+            SELECT
+                id,
+                soul_id,
+                session_id,
+                session_memory,
+                provider_state,
+                next_seq,
+                last_seen_session_seq,
+                parent_soul_session_id,
+                fork_point,
+                to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
+                to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at
+            FROM soul_sessions
+            WHERE session_id = $1
+            LIMIT 1
+            "#,
+        )
+        .bind(session_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|err| Error::Internal {
+            message: format!("get_soul_session_by_session_id failed: {err}"),
+        })?;
+
+        row.map(|row| map_soul_session_row(&row)).transpose()
+    }
+
+    async fn fork_soul_session(
+        &self,
+        parent_soul_session_id: &str,
+        fork_point: i64,
+        new_soul_session_id: &str,
+        new_session_id: &str,
+    ) -> Result<SoulSession> {
+        let mut tx = self.pool.begin().await.map_err(|err| Error::Internal {
+            message: format!("fork tx begin failed: {err}"),
+        })?;
+
+        let parent_info: ParentSoulInfo = sqlx::query_as(
+            r#"
+            SELECT
+                ss.soul_id,
+                ss.session_memory,
+                ss.next_seq,
+                COALESCE((
+                    SELECT COUNT(*)
+                    FROM r_soul_session_messages rssm
+                    WHERE rssm.soul_session_id = ss.id
+                      AND rssm.target_type = 'message'
+                      AND rssm.soul_session_seq <= $2
+                ), 0) AS inherited_public_message_count
+            FROM soul_sessions ss
+            WHERE ss.id = $1
+            "#,
+        )
+        .bind(parent_soul_session_id)
+        .bind(fork_point)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|err| Error::Internal {
+            message: format!("fork parent lookup failed: {err}"),
+        })?;
+
+        if fork_point < 1 || fork_point >= parent_info.next_seq {
+            return Err(Error::InvalidInput {
+                message: format!("illegal fork_point {}: must satisfy 1 <= fork_point < {}", fork_point, parent_info.next_seq),
+            });
+        }
+
+        sqlx::query(
+            r#"
+            INSERT INTO sessions (id, parent_session_id, fork_point)
+            VALUES ($1, (
+                SELECT session_id FROM soul_sessions WHERE id = $2
+            ), $3)
+            "#,
+        )
+        .bind(new_session_id)
+        .bind(parent_soul_session_id)
+        .bind(fork_point)
+        .execute(&mut *tx)
+        .await
+        .map_err(|err| Error::Internal {
+            message: format!("fork session insert failed: {err}"),
+        })?;
+
+        let row = sqlx::query(
+            r#"
+            INSERT INTO soul_sessions (
+                id, soul_id, session_id, session_memory, provider_state, next_seq, 
+                last_seen_session_seq, parent_soul_session_id, fork_point, created_at, updated_at
+            )
+            VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8, NOW(), NOW())
+            RETURNING
+                id, soul_id, session_id, session_memory, provider_state, next_seq, 
+                last_seen_session_seq, parent_soul_session_id, fork_point,
+                to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
+                to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at
+            "#,
+        )
+        .bind(new_soul_session_id)
+        .bind(&parent_info.soul_id)
+        .bind(new_session_id)
+        .bind(&parent_info.session_memory)
+        .bind(fork_point + 1)
+        .bind(parent_info.inherited_public_message_count)
+        .bind(parent_soul_session_id)
+        .bind(fork_point)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|err| Error::Internal {
+            message: format!("fork soul_session insert failed: {err}"),
+        })?;
+
+        let new_soul_session = map_soul_session_row(&row)?;
+
+        sqlx::query(
+            r#"
+            WITH source_messages AS (
+                SELECT rssm.target_id AS message_id, rssm.soul_session_seq
+                FROM r_soul_session_messages rssm
+                WHERE rssm.soul_session_id = $1
+                  AND rssm.target_type = 'message'
+                  AND rssm.soul_session_seq <= $2
+                ORDER BY rssm.soul_session_seq
+            )
+            INSERT INTO r_session_messages (session_id, message_id, session_seq)
+            SELECT $3, message_id, ROW_NUMBER() OVER (ORDER BY soul_session_seq)
+            FROM source_messages
+            "#,
+        )
+        .bind(parent_soul_session_id)
+        .bind(fork_point)
+        .bind(new_session_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|err| Error::Internal {
+            message: format!("fork copy public refs failed: {err}"),
+        })?;
+
+        sqlx::query(
+            r#"
+            WITH source_refs AS (
+                SELECT target_type, target_id, soul_session_seq
+                FROM r_soul_session_messages 
+                WHERE soul_session_id = $1 AND soul_session_seq <= $2
+                ORDER BY soul_session_seq
+            )
+            INSERT INTO r_soul_session_messages (soul_session_id, target_type, target_id, soul_session_seq)
+            SELECT $3, target_type, target_id, ROW_NUMBER() OVER (ORDER BY soul_session_seq)
+            FROM source_refs
+            "#,
+        )
+        .bind(parent_soul_session_id)
+        .bind(fork_point)
+        .bind(new_soul_session_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|err| Error::Internal {
+            message: format!("fork copy refs failed: {err}"),
+        })?;
+
+        tx.commit().await.map_err(|err| Error::Internal {
+            message: format!("fork tx commit failed: {err}"),
+        })?;
+
+        Ok(new_soul_session)
+    }
+
     async fn list_assembly_items(
         &self,
         soul_session_id: &str,
@@ -864,6 +1052,8 @@ fn map_soul_session_row(row: &PgRow) -> Result<SoulSession> {
             .and_then(parse_provider_state),
         next_seq: row.get("next_seq"),
         last_seen_session_seq: row.get("last_seen_session_seq"),
+        parent_soul_session_id: row.try_get("parent_soul_session_id").ok(),
+        fork_point: row.try_get("fork_point").ok(),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     })

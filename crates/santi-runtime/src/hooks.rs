@@ -1,43 +1,10 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
+use std::sync::Arc;
+
+use santi_core::{
+    hook::{HookKind, HookPoint, HookSpec, HookSpecSource, RuntimeAction},
+    model::{runtime::AssemblyItem, runtime::SoulSession, runtime::Turn, session::Session, session::SessionMessage},
 };
-
-use santi_core::model::{
-    runtime::AssemblyItem, runtime::SoulSession, runtime::Turn, session::Session,
-    session::SessionMessage,
-};
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum HookPoint {
-    TurnCompleted,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum HookKind {
-    CompactThreshold,
-    CompactHandoff,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct HookSpec {
-    pub id: String,
-    pub enabled: bool,
-    pub hook_point: HookPoint,
-    pub kind: HookKind,
-    pub params: serde_json::Value,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "source", rename_all = "snake_case")]
-pub enum HookSpecSource {
-    Value { hooks: Vec<HookSpec> },
-    Path { path: String },
-    Url { url: String },
-}
+use serde::Deserialize;
 
 pub struct TurnCompletedHookInput<'a> {
     pub turn: &'a Turn,
@@ -47,104 +14,10 @@ pub struct TurnCompletedHookInput<'a> {
     pub assembly_tail: &'a [AssemblyItem],
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CompactReason {
-    Manual,
-    Threshold,
-    Handoff,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum RuntimeAction {
-    Compact {
-        session_id: String,
-        soul_session_id: String,
-        start_session_seq: i64,
-        end_session_seq: i64,
-        summary: String,
-        reason: CompactReason,
-        source_hook_id: String,
-        source_turn_id: String,
-    },
-    ForkReserved {
-        source_hook_id: String,
-        source_turn_id: String,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ActionStatus {
-    Executed,
-    Skipped,
-    Failed,
-}
-
-#[derive(Clone, Debug)]
-pub struct ActionRecord {
-    pub hook_id: String,
-    pub turn_id: String,
-    pub action_type: String,
-    pub status: ActionStatus,
-    pub result_ref: Option<String>,
-    pub error_text: Option<String>,
-}
-
 pub trait HookEvaluator: Send + Sync {
     fn id(&self) -> &str;
     fn hook_point(&self) -> HookPoint;
     fn evaluate_turn_completed(&self, input: TurnCompletedHookInput<'_>) -> Vec<RuntimeAction>;
-}
-
-#[derive(Clone, Default)]
-pub struct HookRegistry {
-    turn_completed: Arc<Vec<Arc<dyn HookEvaluator>>>,
-}
-
-#[derive(Clone, Default)]
-pub struct HookRegistryHolder {
-    current: Arc<RwLock<Arc<HookRegistry>>>,
-}
-
-impl HookRegistryHolder {
-    pub fn empty() -> Self {
-        Self {
-            current: Arc::new(RwLock::new(Arc::new(HookRegistry::empty()))),
-        }
-    }
-
-    pub fn from_specs(specs: &[HookSpec]) -> Self {
-        Self {
-            current: Arc::new(RwLock::new(Arc::new(HookRegistry::from_specs(specs)))),
-        }
-    }
-
-    pub fn snapshot(&self) -> Arc<HookRegistry> {
-        self.current
-            .read()
-            .expect("hook registry holder poisoned")
-            .clone()
-    }
-
-    pub fn replace_all(&self, specs: &[HookSpec]) {
-        let next = Arc::new(HookRegistry::from_specs(specs));
-        *self.current.write().expect("hook registry holder poisoned") = next;
-    }
-
-    pub fn reload_from_specs(&self, specs: &[HookSpec]) -> usize {
-        self.replace_all(specs);
-        self.snapshot().turn_completed().len()
-    }
-}
-
-impl HookSpecSource {
-    pub fn from_json_str(raw: &str) -> Result<Self, String> {
-        if let Ok(hooks) = serde_json::from_str::<Vec<HookSpec>>(raw) {
-            return Ok(HookSpecSource::Value { hooks });
-        }
-
-        serde_json::from_str::<HookSpecSource>(raw)
-            .map_err(|err| format!("parse hook source failed: {err}"))
-    }
 }
 
 pub async fn load_hook_specs(source: &HookSpecSource) -> Result<Vec<HookSpec>, String> {
@@ -181,44 +54,20 @@ pub async fn load_hook_specs(source: &HookSpecSource) -> Result<Vec<HookSpec>, S
     }
 }
 
-impl HookRegistry {
-    pub fn empty() -> Self {
-        Self::default()
-    }
-
-    pub fn from_specs(specs: &[HookSpec]) -> Self {
-        let mut grouped: HashMap<HookPoint, Vec<Arc<dyn HookEvaluator>>> = HashMap::new();
-        for spec in specs.iter().filter(|spec| spec.enabled) {
-            if let Some(evaluator) = compile_spec(spec) {
-                grouped.entry(spec.hook_point).or_default().push(evaluator);
-            }
-        }
-
-        Self {
-            turn_completed: Arc::new(
-                grouped
-                    .remove(&HookPoint::TurnCompleted)
-                    .unwrap_or_default(),
-            ),
-        }
-    }
-
-    pub fn turn_completed(&self) -> &[Arc<dyn HookEvaluator>] {
-        self.turn_completed.as_slice()
-    }
-
-    pub fn replace_all(&mut self, specs: &[HookSpec]) {
-        *self = Self::from_specs(specs);
-    }
+pub fn compile_hook_specs(specs: &[HookSpec]) -> Vec<Arc<dyn HookEvaluator>> {
+    specs
+        .iter()
+        .filter(|spec| spec.enabled)
+        .filter_map(compile_spec)
+        .collect()
 }
 
 fn compile_spec(spec: &HookSpec) -> Option<Arc<dyn HookEvaluator>> {
     match spec.kind {
         HookKind::CompactThreshold => CompactThresholdHook::from_spec(spec)
             .map(|hook| Arc::new(hook) as Arc<dyn HookEvaluator>),
-        HookKind::CompactHandoff => {
-            CompactHandoffHook::from_spec(spec).map(|hook| Arc::new(hook) as Arc<dyn HookEvaluator>)
-        }
+        HookKind::CompactHandoff => CompactHandoffHook::from_spec(spec)
+            .map(|hook| Arc::new(hook) as Arc<dyn HookEvaluator>),
     }
 }
 
@@ -260,9 +109,7 @@ impl HookEvaluator for CompactThresholdHook {
             .assembly_tail
             .iter()
             .filter_map(|item| match &item.target {
-                santi_core::model::runtime::AssemblyTarget::Compact(compact) => {
-                    Some(compact.end_session_seq)
-                }
+                santi_core::model::runtime::AssemblyTarget::Compact(compact) => Some(compact.end_session_seq),
                 _ => None,
             })
             .max()
@@ -271,16 +118,9 @@ impl HookEvaluator for CompactThresholdHook {
         let messages_since_last_compact = input
             .assembly_tail
             .iter()
-            .filter(|item| {
-                matches!(
-                    item.target,
-                    santi_core::model::runtime::AssemblyTarget::Message(_)
-                )
-            })
+            .filter(|item| matches!(item.target, santi_core::model::runtime::AssemblyTarget::Message(_)))
             .filter(|item| match &item.target {
-                santi_core::model::runtime::AssemblyTarget::Message(message) => {
-                    message.relation.session_seq > last_compact_end
-                }
+                santi_core::model::runtime::AssemblyTarget::Message(message) => message.relation.session_seq > last_compact_end,
                 _ => false,
             })
             .count();
@@ -309,7 +149,7 @@ impl HookEvaluator for CompactThresholdHook {
             start_session_seq,
             end_session_seq,
             summary,
-            reason: CompactReason::Threshold,
+            reason: santi_core::hook::CompactReason::Threshold,
             source_hook_id: self.id.clone(),
             source_turn_id: input.turn.id.clone(),
         }]
@@ -330,20 +170,13 @@ struct CompactHandoffHook {
 impl CompactHandoffHook {
     fn from_spec(spec: &HookSpec) -> Option<Self> {
         let params: CompactHandoffParams = serde_json::from_value(spec.params.clone()).ok()?;
-        Some(Self {
-            id: spec.id.clone(),
-            summary: params.summary,
-        })
+        Some(Self { id: spec.id.clone(), summary: params.summary })
     }
 }
 
 impl HookEvaluator for CompactHandoffHook {
-    fn id(&self) -> &str {
-        &self.id
-    }
-    fn hook_point(&self) -> HookPoint {
-        HookPoint::TurnCompleted
-    }
+    fn id(&self) -> &str { &self.id }
+    fn hook_point(&self) -> HookPoint { HookPoint::TurnCompleted }
     fn evaluate_turn_completed(&self, _input: TurnCompletedHookInput<'_>) -> Vec<RuntimeAction> {
         let _ = &self.summary;
         Vec::new()
@@ -353,10 +186,11 @@ impl HookEvaluator for CompactHandoffHook {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use santi_core::hook::{HookKind, HookPoint, HookSpec};
 
     #[test]
-    fn registry_compiles_enabled_specs() {
-        let registry = HookRegistry::from_specs(&[HookSpec {
+    fn compile_enabled_specs_into_subscribers() {
+        let subscribers = compile_hook_specs(&[HookSpec {
             id: "compact-threshold".to_string(),
             enabled: true,
             hook_point: HookPoint::TurnCompleted,
@@ -364,25 +198,7 @@ mod tests {
             params: serde_json::json!({"min_messages_since_last_compact": 3}),
         }]);
 
-        assert_eq!(registry.turn_completed().len(), 1);
-        assert_eq!(registry.turn_completed()[0].id(), "compact-threshold");
-    }
-
-    #[test]
-    fn holder_replaces_registry_atomically() {
-        let holder = HookRegistryHolder::empty();
-        assert_eq!(holder.snapshot().turn_completed().len(), 0);
-
-        holder.replace_all(&[HookSpec {
-            id: "compact-threshold".to_string(),
-            enabled: true,
-            hook_point: HookPoint::TurnCompleted,
-            kind: HookKind::CompactThreshold,
-            params: serde_json::json!({"min_messages_since_last_compact": 2}),
-        }]);
-
-        let snapshot = holder.snapshot();
-        assert_eq!(snapshot.turn_completed().len(), 1);
-        assert_eq!(snapshot.turn_completed()[0].id(), "compact-threshold");
+        assert_eq!(subscribers.len(), 1);
+        assert_eq!(subscribers[0].id(), "compact-threshold");
     }
 }

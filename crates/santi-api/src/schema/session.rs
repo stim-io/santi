@@ -11,6 +11,8 @@ use crate::model::{
 #[derive(Clone, Debug, Serialize, ToSchema)]
 pub struct SessionResponse {
     pub id: String,
+    pub parent_session_id: Option<String>,
+    pub fork_point: Option<i64>,
     pub created_at: String,
 }
 
@@ -50,6 +52,8 @@ impl From<Session> for SessionResponse {
     fn from(value: Session) -> Self {
         Self {
             id: value.id,
+            parent_session_id: value.parent_session_id,
+            fork_point: value.fork_point,
             created_at: value.created_at,
         }
     }
@@ -175,4 +179,17 @@ impl From<Compact> for SessionCompactResponse {
             created_at: value.created_at,
         }
     }
+}
+
+#[derive(Clone, Debug, serde::Deserialize, utoipa::ToSchema)]
+pub struct ForkRequest {
+    pub fork_point: i64,
+    pub request_id: String,
+}
+
+#[derive(Clone, Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct ForkResponse {
+    pub new_session_id: String,
+    pub parent_session_id: String,
+    pub fork_point: i64,
 }

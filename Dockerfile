@@ -1,72 +1,64 @@
 # syntax=docker/dockerfile:1.7
 
-FROM rust:1.88-bookworm
+FROM ghcr.io/perishcode/docker/santi-builder:v1 AS builder
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        bash \
-        ca-certificates \
-        gh \
-        git \
-        nodejs \
-        npm \
-    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
 
-RUN npm install -g pnpm
+COPY Cargo.toml Cargo.lock ./
+COPY crates/santi-core/Cargo.toml crates/santi-core/Cargo.toml
+COPY crates/santi-api/Cargo.toml crates/santi-api/Cargo.toml
+COPY crates/santi-cli/Cargo.toml crates/santi-cli/Cargo.toml
+COPY crates/santi-db/Cargo.toml crates/santi-db/Cargo.toml
+COPY crates/santi-ebus/Cargo.toml crates/santi-ebus/Cargo.toml
+COPY crates/santi-lock/Cargo.toml crates/santi-lock/Cargo.toml
+COPY crates/santi-provider/Cargo.toml crates/santi-provider/Cargo.toml
+COPY crates/santi-runtime/Cargo.toml crates/santi-runtime/Cargo.toml
 
-RUN ln -sf /usr/local/cargo/bin/cargo /usr/local/bin/cargo \
-    && ln -sf /usr/local/cargo/bin/rustc /usr/local/bin/rustc \
-    && ln -sf /usr/local/cargo/bin/rustup /usr/local/bin/rustup
+RUN mkdir -p \
+    crates/santi-core/src \
+    crates/santi-api/src \
+    crates/santi-cli/src \
+    crates/santi-db/src \
+    crates/santi-ebus/src \
+    crates/santi-lock/src \
+    crates/santi-provider/src \
+    crates/santi-runtime/src
 
-RUN mkdir -p /var/lib/santi/runtime /var/lib/santi /root/.cargo /root/target
+COPY crates/santi-core/src/lib.rs crates/santi-core/src/lib.rs
+COPY crates/santi-api/src/lib.rs crates/santi-api/src/lib.rs
+COPY crates/santi-api/src/main.rs crates/santi-api/src/main.rs
+COPY crates/santi-cli/src/main.rs crates/santi-cli/src/main.rs
+COPY crates/santi-db/src/lib.rs crates/santi-db/src/lib.rs
+COPY crates/santi-ebus/src/lib.rs crates/santi-ebus/src/lib.rs
+COPY crates/santi-lock/src/lib.rs crates/santi-lock/src/lib.rs
+COPY crates/santi-provider/src/lib.rs crates/santi-provider/src/lib.rs
+COPY crates/santi-runtime/src/lib.rs crates/santi-runtime/src/lib.rs
 
-WORKDIR /app/crates/santi-api
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo fetch --manifest-path crates/santi-api/Cargo.toml --locked
+
+COPY crates ./crates
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/tmp/cargo-target \
+    cargo build --locked --profile container-dev -p santi-api \
+    && mkdir -p /opt/artifacts \
+    && cp /tmp/cargo-target/container-dev/santi-api /opt/artifacts/santi-api
+
+FROM ghcr.io/perishcode/docker/santi-runtime:v1 AS runtime
 
 ENV HOME=/root \
-    PATH=/usr/local/cargo/bin:${PATH} \
-    CARGO_HOME=/root/.cargo \
-    CARGO_TARGET_DIR=/root/target \
-    CARGO_INCREMENTAL=1 \
     BIND_ADDR=0.0.0.0:8080 \
     SANTI_BASE_URL=http://127.0.0.1:8080 \
     DATABASE_URL=postgres://santi:santi@postgres:5432/santi?sslmode=disable \
     EXECUTION_ROOT=/app \
-    RUNTIME_ROOT=/var/lib/santi/runtime \
+    RUNTIME_ROOT=/runtime \
     RUST_LOG=santi_api=info
 
-COPY Cargo.toml /app/Cargo.toml
-COPY Cargo.lock /app/Cargo.lock
-COPY crates/santi-core/Cargo.toml /app/crates/santi-core/Cargo.toml
-COPY crates/santi-db/Cargo.toml /app/crates/santi-db/Cargo.toml
-COPY crates/santi-provider/Cargo.toml /app/crates/santi-provider/Cargo.toml
-COPY crates/santi-runtime/Cargo.toml /app/crates/santi-runtime/Cargo.toml
-COPY crates/santi-api/Cargo.toml /app/crates/santi-api/Cargo.toml
-COPY crates/santi-cli/Cargo.toml /app/crates/santi-cli/Cargo.toml
-COPY crates/santi-ebus/Cargo.toml /app/crates/santi-ebus/Cargo.toml
-COPY crates/santi-lock/Cargo.toml /app/crates/santi-lock/Cargo.toml
-COPY crates/santi-core/src/lib.rs /app/crates/santi-core/src/lib.rs
-COPY crates/santi-db/src/lib.rs /app/crates/santi-db/src/lib.rs
-COPY crates/santi-provider/src/lib.rs /app/crates/santi-provider/src/lib.rs
-COPY crates/santi-runtime/src/lib.rs /app/crates/santi-runtime/src/lib.rs
-COPY crates/santi-api/src/lib.rs /app/crates/santi-api/src/lib.rs
-COPY crates/santi-api/src/main.rs /app/crates/santi-api/src/main.rs
-COPY crates/santi-cli/src/main.rs /app/crates/santi-cli/src/main.rs
-COPY crates/santi-ebus/src/lib.rs /app/crates/santi-ebus/src/lib.rs
-COPY crates/santi-lock/src/lib.rs /app/crates/santi-lock/src/lib.rs
-
-RUN --mount=type=cache,target=/root/.cargo/registry \
-    --mount=type=cache,target=/root/.cargo/git \
-    cargo fetch --manifest-path /app/crates/santi-api/Cargo.toml --locked
-
-COPY crates/santi-api /app/crates/santi-api
-COPY crates/santi-cli /app/crates/santi-cli
-COPY crates/santi-ebus /app/crates/santi-ebus
-COPY crates/santi-core /app/crates/santi-core
-COPY crates/santi-db /app/crates/santi-db
-COPY crates/santi-lock /app/crates/santi-lock
-COPY crates/santi-provider /app/crates/santi-provider
-COPY crates/santi-runtime /app/crates/santi-runtime
+COPY --from=builder /opt/artifacts/santi-api /usr/local/bin/santi-api
 
 EXPOSE 8080
 
-CMD ["cargo", "run", "--manifest-path", "/app/crates/santi-api/Cargo.toml"]
+CMD ["santi-api"]

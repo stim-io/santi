@@ -16,12 +16,21 @@ Usually another local stack is still holding the port.
 
 Common ports:
 
-- `15432`
 - `18081`
 - `18082`
-- `16379`
 
 Check:
 
 1. `docker ps --format '{{.Names}} {{.Ports}}'`
 2. stop the conflicting stack
+
+## how do I inspect postgres or redis now that they are not host-exposed?
+
+Use `docker compose exec`.
+
+Examples:
+
+1. `docker compose exec postgres pg_isready -U santi -d santi`
+2. `docker compose exec postgres psql -U santi -d santi -c 'select 1;'`
+3. `docker compose exec redis redis-cli ping`
+4. `docker compose exec redis redis-cli info clients`

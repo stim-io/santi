@@ -38,6 +38,7 @@ docker compose exec redis redis-cli info server
 
 - install: `./scripts/cli/setup.sh`
 - reset: `./scripts/cli/reset.sh`
+- stable local smoke should go through installed `santi-cli`, not root-level curl wrappers
 - top-level commands default to the configured backend
 - backend selection priority: `--backend` > `SANTI_CLI_BACKEND` > `config.json` > default `local`
 - explicit API compatibility form: `santi-cli api ...`
@@ -94,6 +95,16 @@ printf '[{"id":"auto-compact-threshold","enabled":true,"hook_point":"turn_comple
 # path/url modes for the same reload entrypoint
 printf '{"source":"path","path":"/app/tmp/hooks.json"}' | santi-cli --backend api admin hooks reload
 printf '{"source":"url","url":"http://host.docker.internal:18765/hooks.json"}' | santi-cli --backend api admin hooks reload
+```
+
+Preferred smoke sequence:
+
+```bash
+docker compose up -d --build
+SANTI_CLI_BACKEND=api ./scripts/cli/setup.sh
+santi-cli health
+santi-cli chat 'hello'
+printf 'compact summary' | santi-cli session compact <session_id>
 ```
 
 ## Rule

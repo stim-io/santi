@@ -18,4 +18,4 @@ The first target is the session main path:
 
 These checks are intended to hit the real local stack instead of mocking the provider.
 
-Despite the legacy directory name, this is not the project's stable end-to-end truth. The shared root compose plus `scripts/smoke/*` are the primary local entrypoints.
+Despite the legacy directory name, this is not the project's stable end-to-end truth. The shared root compose plus installed `santi-cli` are the primary local entrypoints.

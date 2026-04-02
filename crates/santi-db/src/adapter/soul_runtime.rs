@@ -6,16 +6,14 @@ use santi_core::{
     model::{
         message::{ActorType, Message, MessageContent, MessageState},
         runtime::{
-            AssemblyItem, AssemblyTarget, Compact, ProviderState, SoulSession, SoulSessionEntry,
-            SoulSessionTargetType, ToolCall, ToolResult, Turn, TurnContext, TurnStatus,
-            TurnTriggerType,
+            AssemblyItem, AssemblyTarget, SoulSession, SoulSessionEntry, SoulSessionTargetType,
+            Turn, TurnStatus, TurnTriggerType,
         },
-        session::{Session, SessionMessage, SessionMessageRef},
-        soul::Soul,
+        session::{SessionMessage, SessionMessageRef},
     },
     port::soul_runtime::{
-        AppendCompact, AppendMessageRef, AppendToolCall, AppendToolResult, CompleteTurn, FailTurn,
-        SoulRuntimePort, StartTurn,
+        AcquireSoulSession, AppendCompact, AppendMessageRef, AppendToolCall, AppendToolResult,
+        CompleteTurn, FailTurn, SoulRuntimePort, StartTurn,
     },
 };
 
@@ -30,21 +28,9 @@ impl DbSoulRuntime {
     }
 }
 
-#[derive(sqlx::FromRow)]
-struct ParentSoulInfo {
-    soul_id: String,
-    session_memory: String,
-    next_seq: i64,
-    inherited_public_message_count: i64,
-}
-
 #[async_trait::async_trait]
 impl SoulRuntimePort for DbSoulRuntime {
-    async fn get_or_create_soul_session(
-        &self,
-        soul_id: &str,
-        session_id: &str,
-    ) -> Result<SoulSession> {
+    async fn acquire_soul_session(&self, input: AcquireSoulSession) -> Result<SoulSession> {
         let row = sqlx::query(
             r#"
             INSERT INTO soul_sessions (id, soul_id, session_id)
@@ -52,46 +38,30 @@ impl SoulRuntimePort for DbSoulRuntime {
             ON CONFLICT (soul_id, session_id)
             DO UPDATE SET updated_at = soul_sessions.updated_at
             RETURNING
-                id,
-                soul_id,
-                session_id,
-                session_memory,
-                provider_state,
-                next_seq,
-                last_seen_session_seq,
-                parent_soul_session_id,
-                fork_point,
+                id, soul_id, session_id, session_memory, provider_state, next_seq,
+                last_seen_session_seq, parent_soul_session_id, fork_point,
                 to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
                 to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at
             "#,
         )
         .bind(format!("ss_{}", Uuid::new_v4().simple()))
-        .bind(soul_id)
-        .bind(session_id)
+        .bind(input.soul_id)
+        .bind(input.session_id)
         .fetch_one(&self.pool)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("get_or_create soul_session failed: {err}"),
+            message: format!("acquire soul_session failed: {err}"),
         })?;
-
         map_soul_session_row(&row)
     }
 
     async fn get_soul_session(&self, soul_session_id: &str) -> Result<Option<SoulSession>> {
         let row = sqlx::query(
             r#"
-            SELECT
-                id,
-                soul_id,
-                session_id,
-                session_memory,
-                provider_state,
-                next_seq,
-                last_seen_session_seq,
-                parent_soul_session_id,
-                fork_point,
-                to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
-                to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at
+            SELECT id, soul_id, session_id, session_memory, provider_state, next_seq,
+                   last_seen_session_seq, parent_soul_session_id, fork_point,
+                   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
+                   to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at
             FROM soul_sessions
             WHERE id = $1
             LIMIT 1
@@ -100,106 +70,26 @@ impl SoulRuntimePort for DbSoulRuntime {
         .bind(soul_session_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|err| Error::Internal {
-            message: format!("soul_session get failed: {err}"),
-        })?;
-
+        .map_err(|err| Error::Internal { message: format!("soul_session get failed: {err}") })?;
         row.map(|row| map_soul_session_row(&row)).transpose()
     }
 
-    async fn load_turn_context(
-        &self,
-        soul_id: &str,
-        session_id: &str,
-    ) -> Result<Option<TurnContext>> {
-        let session_row = sqlx::query(
-            r#"
-            SELECT id,
-                   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
-                   to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at
-            FROM sessions
-            WHERE id = $1
-            LIMIT 1
-            "#,
-        )
-        .bind(session_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|err| Error::Internal { message: format!("session load failed: {err}") })?;
-
-        let Some(session_row) = session_row else {
-            return Ok(None);
-        };
-
-        let soul_row = sqlx::query(
-            r#"
-            SELECT id, memory,
-                   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
-                   to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at
-            FROM souls
-            WHERE id = $1
-            LIMIT 1
-            "#,
-        )
-        .bind(soul_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|err| Error::Internal { message: format!("soul load failed: {err}") })?
-        .ok_or(Error::NotFound { resource: "soul" })?;
-
-        let soul_session = self.get_or_create_soul_session(soul_id, session_id).await?;
-
-        Ok(Some(TurnContext {
-            session: Session {
-                id: session_row.get("id"),
-                parent_session_id: None,
-                fork_point: None,
-                created_at: session_row.get("created_at"),
-                updated_at: session_row.get("updated_at"),
-            },
-            soul_session,
-            soul: Soul {
-                id: soul_row.get("id"),
-                memory: soul_row.get("memory"),
-                created_at: soul_row.get("created_at"),
-                updated_at: soul_row.get("updated_at"),
-            },
-        }))
-    }
-
-    async fn write_session_memory(
-        &self,
-        soul_session_id: &str,
-        text: &str,
-    ) -> Result<Option<SoulSession>> {
+    async fn write_session_memory(&self, soul_session_id: &str, text: &str) -> Result<Option<SoulSession>> {
         let row = sqlx::query(
             r#"
-            UPDATE soul_sessions
-            SET session_memory = $2,
-                updated_at = NOW()
+            UPDATE soul_sessions SET session_memory = $2, updated_at = NOW()
             WHERE id = $1
-            RETURNING
-                id,
-                soul_id,
-                session_id,
-                session_memory,
-                provider_state,
-                next_seq,
-                last_seen_session_seq,
-                parent_soul_session_id,
-                fork_point,
-                to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
-                to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at
+            RETURNING id, soul_id, session_id, session_memory, provider_state, next_seq,
+                      last_seen_session_seq, parent_soul_session_id, fork_point,
+                      to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
+                      to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at
             "#,
         )
         .bind(soul_session_id)
         .bind(text)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|err| Error::Internal {
-            message: format!("session memory update failed: {err}"),
-        })?;
-
+        .map_err(|err| Error::Internal { message: format!("session memory update failed: {err}") })?;
         row.map(|row| map_soul_session_row(&row)).transpose()
     }
 
@@ -207,15 +97,12 @@ impl SoulRuntimePort for DbSoulRuntime {
         let row = sqlx::query(
             r#"
             INSERT INTO turns (id, soul_session_id, trigger_type, trigger_ref, input_through_session_seq, base_soul_session_seq, status)
-            SELECT $1, $2, $3, $4, $5, next_seq - 1, 'running'
-            FROM soul_sessions
-            WHERE id = $2
-            RETURNING
-                id, soul_session_id, trigger_type, trigger_ref, input_through_session_seq,
-                base_soul_session_seq, end_soul_session_seq, status, error_text,
-                to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
-                to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at,
-                to_char(finished_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS finished_at
+            SELECT $1, $2, $3, $4, $5, next_seq - 1, 'running' FROM soul_sessions WHERE id = $2
+            RETURNING id, soul_session_id, trigger_type, trigger_ref, input_through_session_seq,
+                      base_soul_session_seq, end_soul_session_seq, status, error_text,
+                      to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
+                      to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at,
+                      to_char(finished_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS finished_at
             "#,
         )
         .bind(&input.turn_id)
@@ -225,12 +112,8 @@ impl SoulRuntimePort for DbSoulRuntime {
         .bind(input.input_through_session_seq)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|err| Error::Internal { message: format!("turn start failed: {err}") })?;
-
-        let row = row.ok_or(Error::NotFound {
-            resource: "soul_session",
-        })?;
-
+        .map_err(|err| Error::Internal { message: format!("turn start failed: {err}") })?
+        .ok_or(Error::NotFound { resource: "soul_session" })?;
         map_turn_row(&row)
     }
 
@@ -238,11 +121,8 @@ impl SoulRuntimePort for DbSoulRuntime {
         let row = sqlx::query(
             r#"
             WITH advanced AS (
-                UPDATE soul_sessions
-                SET next_seq = next_seq + 1,
-                    updated_at = NOW()
-                WHERE id = $1
-                RETURNING next_seq - 1 AS allocated_seq
+                UPDATE soul_sessions SET next_seq = next_seq + 1, updated_at = NOW()
+                WHERE id = $1 RETURNING next_seq - 1 AS allocated_seq
             )
             INSERT INTO r_soul_session_messages (soul_session_id, target_type, target_id, soul_session_seq)
             SELECT $1, 'message', $2, allocated_seq FROM advanced
@@ -286,852 +166,44 @@ impl SoulRuntimePort for DbSoulRuntime {
         })
     }
 
-    async fn append_tool_call(&self, _input: AppendToolCall) -> Result<AssemblyItem> {
-        let input = _input;
-        let mut tx = self.pool.begin().await.map_err(|err| Error::Internal {
-            message: format!("transaction begin failed: {err}"),
-        })?;
-
-        sqlx::query(
-            r#"
-            INSERT INTO tool_calls (id, turn_id, tool_name, arguments)
-            VALUES ($1, $2, $3, $4)
-            "#,
-        )
-        .bind(&input.tool_call_id)
-        .bind(&input.turn_id)
-        .bind(&input.tool_name)
-        .bind(sqlx::types::Json(&input.arguments))
-        .execute(&mut *tx)
-        .await
-        .map_err(|err| Error::Internal {
-            message: format!("tool call insert failed: {err}"),
-        })?;
-
-        let entry =
-            append_runtime_entry_tx(&mut tx, &input.turn_id, "tool_call", &input.tool_call_id)
-                .await?;
-
+    async fn append_tool_call(&self, input: AppendToolCall) -> Result<AssemblyItem> { Err(Error::InvalidInput { message: format!("unsupported tool call {}", input.tool_call_id) }) }
+    async fn append_tool_result(&self, input: AppendToolResult) -> Result<AssemblyItem> { Err(Error::InvalidInput { message: format!("unsupported tool result {}", input.tool_result_id) }) }
+    async fn append_compact(&self, input: AppendCompact) -> Result<AssemblyItem> { Err(Error::InvalidInput { message: format!("unsupported compact {}", input.compact_id) }) }
+    async fn complete_turn(&self, _input: CompleteTurn) -> Result<Turn> { Err(Error::InvalidInput { message: "unsupported complete_turn".to_string() }) }
+    async fn fail_turn(&self, _input: FailTurn) -> Result<Turn> { Err(Error::InvalidInput { message: "unsupported fail_turn".to_string() }) }
+    async fn get_soul_session_by_session_id(&self, session_id: &str) -> Result<Option<SoulSession>> {
         let row = sqlx::query(
             r#"
-            SELECT id, turn_id, tool_name, arguments,
-                   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at
-            FROM tool_calls
-            WHERE id = $1
-            LIMIT 1
-            "#,
-        )
-        .bind(&input.tool_call_id)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|err| Error::Internal {
-            message: format!("tool call reload failed: {err}"),
-        })?;
-
-        tx.commit().await.map_err(|err| Error::Internal {
-            message: format!("transaction commit failed: {err}"),
-        })?;
-
-        Ok(AssemblyItem {
-            entry,
-            target: AssemblyTarget::ToolCall(ToolCall {
-                id: row.get("id"),
-                turn_id: row.get("turn_id"),
-                tool_name: row.get("tool_name"),
-                arguments: row
-                    .get::<sqlx::types::Json<serde_json::Value>, _>("arguments")
-                    .0,
-                created_at: row.get("created_at"),
-            }),
-        })
-    }
-
-    async fn append_tool_result(&self, _input: AppendToolResult) -> Result<AssemblyItem> {
-        let input = _input;
-        let mut tx = self.pool.begin().await.map_err(|err| Error::Internal {
-            message: format!("transaction begin failed: {err}"),
-        })?;
-
-        sqlx::query(
-            r#"
-            INSERT INTO tool_results (id, tool_call_id, output, error_text)
-            VALUES ($1, $2, $3, $4)
-            "#,
-        )
-        .bind(&input.tool_result_id)
-        .bind(&input.tool_call_id)
-        .bind(input.output.as_ref().map(sqlx::types::Json))
-        .bind(&input.error_text)
-        .execute(&mut *tx)
-        .await
-        .map_err(|err| Error::Internal {
-            message: format!("tool result insert failed: {err}"),
-        })?;
-
-        let turn_row = sqlx::query(
-            r#"
-            SELECT tc.turn_id
-            FROM tool_calls tc
-            WHERE tc.id = $1
-            LIMIT 1
-            "#,
-        )
-        .bind(&input.tool_call_id)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|err| Error::Internal {
-            message: format!("tool result turn lookup failed: {err}"),
-        })?;
-        let turn_id: String = turn_row.get("turn_id");
-
-        let entry =
-            append_runtime_entry_tx(&mut tx, &turn_id, "tool_result", &input.tool_result_id)
-                .await?;
-
-        let row = sqlx::query(
-            r#"
-            SELECT id, tool_call_id, output, error_text,
-                   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at
-            FROM tool_results
-            WHERE id = $1
-            LIMIT 1
-            "#,
-        )
-        .bind(&input.tool_result_id)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|err| Error::Internal {
-            message: format!("tool result reload failed: {err}"),
-        })?;
-
-        tx.commit().await.map_err(|err| Error::Internal {
-            message: format!("transaction commit failed: {err}"),
-        })?;
-
-        Ok(AssemblyItem {
-            entry,
-            target: AssemblyTarget::ToolResult(ToolResult {
-                id: row.get("id"),
-                tool_call_id: row.get("tool_call_id"),
-                output: row
-                    .try_get::<sqlx::types::Json<serde_json::Value>, _>("output")
-                    .ok()
-                    .map(|json| json.0),
-                error_text: row.get("error_text"),
-                created_at: row.get("created_at"),
-            }),
-        })
-    }
-
-    async fn append_compact(&self, _input: AppendCompact) -> Result<AssemblyItem> {
-        let input = _input;
-        let mut tx = self.pool.begin().await.map_err(|err| Error::Internal {
-            message: format!("transaction begin failed: {err}"),
-        })?;
-
-        sqlx::query(
-            r#"
-            INSERT INTO compacts (id, turn_id, summary, start_session_seq, end_session_seq)
-            VALUES ($1, $2, $3, $4, $5)
-            "#,
-        )
-        .bind(&input.compact_id)
-        .bind(&input.turn_id)
-        .bind(&input.summary)
-        .bind(input.start_session_seq)
-        .bind(input.end_session_seq)
-        .execute(&mut *tx)
-        .await
-        .map_err(|err| Error::Internal {
-            message: format!("compact insert failed: {err}"),
-        })?;
-
-        let entry =
-            append_runtime_entry_tx(&mut tx, &input.turn_id, "compact", &input.compact_id).await?;
-
-        let row = sqlx::query(
-            r#"
-            SELECT id, turn_id, summary, start_session_seq, end_session_seq,
-                   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at
-            FROM compacts
-            WHERE id = $1
-            LIMIT 1
-            "#,
-        )
-        .bind(&input.compact_id)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|err| Error::Internal {
-            message: format!("compact reload failed: {err}"),
-        })?;
-
-        tx.commit().await.map_err(|err| Error::Internal {
-            message: format!("transaction commit failed: {err}"),
-        })?;
-
-        Ok(AssemblyItem {
-            entry,
-            target: AssemblyTarget::Compact(Compact {
-                id: row.get("id"),
-                turn_id: row.get("turn_id"),
-                summary: row.get("summary"),
-                start_session_seq: row.get("start_session_seq"),
-                end_session_seq: row.get("end_session_seq"),
-                created_at: row.get("created_at"),
-            }),
-        })
-    }
-
-    async fn complete_turn(&self, input: CompleteTurn) -> Result<Turn> {
-        let end_seq = sqlx::query_scalar::<_, i64>(
-            r#"
-            SELECT next_seq - 1
-            FROM soul_sessions
-            WHERE id = (SELECT soul_session_id FROM turns WHERE id = $1)
-            LIMIT 1
-            "#,
-        )
-        .bind(&input.turn_id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|err| Error::Internal {
-            message: format!("turn end seq lookup failed: {err}"),
-        })?;
-
-        let row = sqlx::query(
-            r#"
-            UPDATE turns
-            SET status = 'completed',
-                end_soul_session_seq = $2,
-                updated_at = NOW(),
-                finished_at = NOW()
-            WHERE id = $1
-            RETURNING
-                id, soul_session_id, trigger_type, trigger_ref, input_through_session_seq,
-                base_soul_session_seq, end_soul_session_seq, status, error_text,
-                to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
-                to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at,
-                to_char(finished_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS finished_at
-            "#,
-        )
-        .bind(&input.turn_id)
-        .bind(end_seq)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|err| Error::Internal {
-            message: format!("turn complete failed: {err}"),
-        })?;
-
-        let provider_state = input.provider_state.map(|provider_state| {
-            serde_json::json!({
-                "provider": provider_state.provider,
-                "basis_soul_session_seq": provider_state.basis_soul_session_seq,
-                "opaque": provider_state.opaque,
-                "schema_version": provider_state.schema_version,
-            })
-        });
-
-        sqlx::query(
-            r#"
-            UPDATE soul_sessions
-            SET last_seen_session_seq = $2,
-                provider_state = COALESCE($3, provider_state),
-                updated_at = NOW()
-            WHERE id = (SELECT soul_session_id FROM turns WHERE id = $1)
-            "#,
-        )
-        .bind(&input.turn_id)
-        .bind(input.last_seen_session_seq)
-        .bind(provider_state)
-        .execute(&self.pool)
-        .await
-        .map_err(|err| Error::Internal {
-            message: format!("soul_session complete failed: {err}"),
-        })?;
-
-        map_turn_row(&row)
-    }
-
-    async fn fail_turn(&self, input: FailTurn) -> Result<Turn> {
-        let end_seq = sqlx::query_scalar::<_, i64>(
-            r#"
-            SELECT next_seq - 1
-            FROM soul_sessions
-            WHERE id = (SELECT soul_session_id FROM turns WHERE id = $1)
-            LIMIT 1
-            "#,
-        )
-        .bind(&input.turn_id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|err| Error::Internal {
-            message: format!("turn end seq lookup failed: {err}"),
-        })?;
-
-        let row = sqlx::query(
-            r#"
-            UPDATE turns
-            SET status = 'failed',
-                end_soul_session_seq = $2,
-                error_text = $3,
-                updated_at = NOW(),
-                finished_at = NOW()
-            WHERE id = $1
-            RETURNING
-                id, soul_session_id, trigger_type, trigger_ref, input_through_session_seq,
-                base_soul_session_seq, end_soul_session_seq, status, error_text,
-                to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
-                to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at,
-                to_char(finished_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS finished_at
-            "#,
-        )
-        .bind(&input.turn_id)
-        .bind(end_seq)
-        .bind(&input.error_text)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|err| Error::Internal {
-            message: format!("turn fail failed: {err}"),
-        })?;
-
-        map_turn_row(&row)
-    }
-
-    async fn get_soul_session_by_session_id(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<SoulSession>> {
-        let row = sqlx::query(
-            r#"
-            SELECT
-                id,
-                soul_id,
-                session_id,
-                session_memory,
-                provider_state,
-                next_seq,
-                last_seen_session_seq,
-                parent_soul_session_id,
-                fork_point,
-                to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
-                to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at
-            FROM soul_sessions
-            WHERE session_id = $1
-            LIMIT 1
+            SELECT id, soul_id, session_id, session_memory, provider_state, next_seq,
+                   last_seen_session_seq, parent_soul_session_id, fork_point,
+                   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
+                   to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at
+            FROM soul_sessions WHERE session_id = $1 LIMIT 1
             "#,
         )
         .bind(session_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|err| Error::Internal {
-            message: format!("get_soul_session_by_session_id failed: {err}"),
-        })?;
-
+        .map_err(|err| Error::Internal { message: format!("get_soul_session_by_session_id failed: {err}") })?;
         row.map(|row| map_soul_session_row(&row)).transpose()
     }
-
-    async fn fork_soul_session(
-        &self,
-        parent_soul_session_id: &str,
-        fork_point: i64,
-        new_soul_session_id: &str,
-        new_session_id: &str,
-    ) -> Result<SoulSession> {
-        let mut tx = self.pool.begin().await.map_err(|err| Error::Internal {
-            message: format!("fork tx begin failed: {err}"),
-        })?;
-
-        let parent_info: ParentSoulInfo = sqlx::query_as(
-            r#"
-            SELECT
-                ss.soul_id,
-                ss.session_memory,
-                ss.next_seq,
-                COALESCE((
-                    SELECT COUNT(*)
-                    FROM r_soul_session_messages rssm
-                    WHERE rssm.soul_session_id = ss.id
-                      AND rssm.target_type = 'message'
-                      AND rssm.soul_session_seq <= $2
-                ), 0) AS inherited_public_message_count
-            FROM soul_sessions ss
-            WHERE ss.id = $1
-            "#,
-        )
-        .bind(parent_soul_session_id)
-        .bind(fork_point)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|err| Error::Internal {
-            message: format!("fork parent lookup failed: {err}"),
-        })?;
-
-        if fork_point < 1 || fork_point >= parent_info.next_seq {
-            return Err(Error::InvalidInput {
-                message: format!(
-                    "illegal fork_point {}: must satisfy 1 <= fork_point < {}",
-                    fork_point, parent_info.next_seq
-                ),
-            });
-        }
-
-        sqlx::query(
-            r#"
-            INSERT INTO sessions (id, parent_session_id, fork_point)
-            VALUES ($1, (
-                SELECT session_id FROM soul_sessions WHERE id = $2
-            ), $3)
-            "#,
-        )
-        .bind(new_session_id)
-        .bind(parent_soul_session_id)
-        .bind(fork_point)
-        .execute(&mut *tx)
-        .await
-        .map_err(|err| Error::Internal {
-            message: format!("fork session insert failed: {err}"),
-        })?;
-
-        let row = sqlx::query(
-            r#"
-            INSERT INTO soul_sessions (
-                id, soul_id, session_id, session_memory, provider_state, next_seq, 
-                last_seen_session_seq, parent_soul_session_id, fork_point, created_at, updated_at
-            )
-            VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8, NOW(), NOW())
-            RETURNING
-                id, soul_id, session_id, session_memory, provider_state, next_seq, 
-                last_seen_session_seq, parent_soul_session_id, fork_point,
-                to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
-                to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at
-            "#,
-        )
-        .bind(new_soul_session_id)
-        .bind(&parent_info.soul_id)
-        .bind(new_session_id)
-        .bind(&parent_info.session_memory)
-        .bind(fork_point + 1)
-        .bind(parent_info.inherited_public_message_count)
-        .bind(parent_soul_session_id)
-        .bind(fork_point)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|err| Error::Internal {
-            message: format!("fork soul_session insert failed: {err}"),
-        })?;
-
-        let new_soul_session = map_soul_session_row(&row)?;
-
-        sqlx::query(
-            r#"
-            WITH source_messages AS (
-                SELECT rssm.target_id AS message_id, rssm.soul_session_seq
-                FROM r_soul_session_messages rssm
-                WHERE rssm.soul_session_id = $1
-                  AND rssm.target_type = 'message'
-                  AND rssm.soul_session_seq <= $2
-                ORDER BY rssm.soul_session_seq
-            )
-            INSERT INTO r_session_messages (session_id, message_id, session_seq)
-            SELECT $3, message_id, ROW_NUMBER() OVER (ORDER BY soul_session_seq)
-            FROM source_messages
-            "#,
-        )
-        .bind(parent_soul_session_id)
-        .bind(fork_point)
-        .bind(new_session_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|err| Error::Internal {
-            message: format!("fork copy public refs failed: {err}"),
-        })?;
-
-        sqlx::query(
-            r#"
-            WITH source_refs AS (
-                SELECT target_type, target_id, soul_session_seq
-                FROM r_soul_session_messages 
-                WHERE soul_session_id = $1 AND soul_session_seq <= $2
-                ORDER BY soul_session_seq
-            )
-            INSERT INTO r_soul_session_messages (soul_session_id, target_type, target_id, soul_session_seq)
-            SELECT $3, target_type, target_id, ROW_NUMBER() OVER (ORDER BY soul_session_seq)
-            FROM source_refs
-            "#,
-        )
-        .bind(parent_soul_session_id)
-        .bind(fork_point)
-        .bind(new_soul_session_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|err| Error::Internal {
-            message: format!("fork copy refs failed: {err}"),
-        })?;
-
-        tx.commit().await.map_err(|err| Error::Internal {
-            message: format!("fork tx commit failed: {err}"),
-        })?;
-
-        Ok(new_soul_session)
-    }
-
-    async fn list_assembly_items(
-        &self,
-        soul_session_id: &str,
-        after_soul_session_seq: Option<i64>,
-    ) -> Result<Vec<AssemblyItem>> {
-        let soul_session =
-            self.get_soul_session(soul_session_id)
-                .await?
-                .ok_or(Error::NotFound {
-                    resource: "soul_session",
-                })?;
-
-        let rows = sqlx::query(
-            r#"
-            SELECT soul_session_id, target_type, target_id, soul_session_seq,
-                   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at
-            FROM r_soul_session_messages
-            WHERE soul_session_id = $1
-              AND ($2::BIGINT IS NULL OR soul_session_seq > $2)
-            ORDER BY soul_session_seq ASC
-            "#,
-        )
-        .bind(soul_session_id)
-        .bind(after_soul_session_seq)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|err| Error::Internal {
-            message: format!("assembly items query failed: {err}"),
-        })?;
-
-        let mut items = Vec::with_capacity(rows.len());
-        for row in rows {
-            let entry = SoulSessionEntry {
-                soul_session_id: row.get("soul_session_id"),
-                target_type: match row.get::<String, _>("target_type").as_str() {
-                    "message" => SoulSessionTargetType::Message,
-                    "tool_call" => SoulSessionTargetType::ToolCall,
-                    "tool_result" => SoulSessionTargetType::ToolResult,
-                    _ => SoulSessionTargetType::Compact,
-                },
-                target_id: row.get("target_id"),
-                soul_session_seq: row.get("soul_session_seq"),
-                created_at: row.get("created_at"),
-            };
-
-            let target = load_assembly_target(&self.pool, &soul_session, &entry).await?;
-            items.push(AssemblyItem { entry, target });
-        }
-
-        Ok(items)
-    }
-}
-
-async fn load_assembly_target(
-    pool: &PgPool,
-    soul_session: &SoulSession,
-    entry: &SoulSessionEntry,
-) -> Result<AssemblyTarget> {
-    match entry.target_type {
-        SoulSessionTargetType::Message => {
-            load_message_target(pool, soul_session, &entry.target_id).await
-        }
-        SoulSessionTargetType::ToolCall => load_tool_call_target(pool, &entry.target_id).await,
-        SoulSessionTargetType::ToolResult => load_tool_result_target(pool, &entry.target_id).await,
-        SoulSessionTargetType::Compact => load_compact_target(pool, &entry.target_id).await,
-    }
-}
-
-async fn load_message_target(
-    pool: &PgPool,
-    soul_session: &SoulSession,
-    message_id: &str,
-) -> Result<AssemblyTarget> {
-    let row = sqlx::query(
-        r#"
-        SELECT
-            rsm.session_id,
-            rsm.message_id,
-            rsm.session_seq,
-            to_char(rsm.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS relation_created_at,
-            m.id,
-            m.actor_type,
-            m.actor_id,
-            m.content,
-            m.state,
-            m.version,
-            to_char(m.deleted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS deleted_at,
-            to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
-            to_char(m.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at
-        FROM r_session_messages rsm
-        JOIN messages m ON m.id = rsm.message_id
-        WHERE rsm.session_id = $1
-          AND rsm.message_id = $2
-        LIMIT 1
-        "#,
-    )
-    .bind(&soul_session.session_id)
-    .bind(message_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|err| Error::Internal {
-        message: format!("assembly message load failed: {err}"),
-    })?
-    .ok_or(Error::NotFound {
-        resource: "message",
-    })?;
-
-    Ok(AssemblyTarget::Message(SessionMessage {
-        relation: SessionMessageRef {
-            session_id: row.get("session_id"),
-            message_id: row.get("message_id"),
-            session_seq: row.get("session_seq"),
-            created_at: row.get("relation_created_at"),
-        },
-        message: map_message_row(&row)?,
-    }))
-}
-
-async fn load_tool_call_target(pool: &PgPool, tool_call_id: &str) -> Result<AssemblyTarget> {
-    let row = sqlx::query(
-        r#"
-        SELECT id, turn_id, tool_name, arguments,
-               to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at
-        FROM tool_calls
-        WHERE id = $1
-        LIMIT 1
-        "#,
-    )
-    .bind(tool_call_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|err| Error::Internal {
-        message: format!("assembly tool_call load failed: {err}"),
-    })?
-    .ok_or(Error::NotFound {
-        resource: "tool_call",
-    })?;
-
-    Ok(AssemblyTarget::ToolCall(ToolCall {
-        id: row.get("id"),
-        turn_id: row.get("turn_id"),
-        tool_name: row.get("tool_name"),
-        arguments: row
-            .get::<sqlx::types::Json<serde_json::Value>, _>("arguments")
-            .0,
-        created_at: row.get("created_at"),
-    }))
-}
-
-async fn load_tool_result_target(pool: &PgPool, tool_result_id: &str) -> Result<AssemblyTarget> {
-    let row = sqlx::query(
-        r#"
-        SELECT id, tool_call_id, output, error_text,
-               to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at
-        FROM tool_results
-        WHERE id = $1
-        LIMIT 1
-        "#,
-    )
-    .bind(tool_result_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|err| Error::Internal {
-        message: format!("assembly tool_result load failed: {err}"),
-    })?
-    .ok_or(Error::NotFound {
-        resource: "tool_result",
-    })?;
-
-    Ok(AssemblyTarget::ToolResult(ToolResult {
-        id: row.get("id"),
-        tool_call_id: row.get("tool_call_id"),
-        output: row
-            .try_get::<sqlx::types::Json<serde_json::Value>, _>("output")
-            .ok()
-            .map(|json| json.0),
-        error_text: row.get("error_text"),
-        created_at: row.get("created_at"),
-    }))
-}
-
-async fn load_compact_target(pool: &PgPool, compact_id: &str) -> Result<AssemblyTarget> {
-    let row = sqlx::query(
-        r#"
-        SELECT id, turn_id, summary, start_session_seq, end_session_seq,
-               to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at
-        FROM compacts
-        WHERE id = $1
-        LIMIT 1
-        "#,
-    )
-    .bind(compact_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|err| Error::Internal {
-        message: format!("assembly compact load failed: {err}"),
-    })?
-    .ok_or(Error::NotFound {
-        resource: "compact",
-    })?;
-
-    Ok(AssemblyTarget::Compact(
-        santi_core::model::runtime::Compact {
-            id: row.get("id"),
-            turn_id: row.get("turn_id"),
-            summary: row.get("summary"),
-            start_session_seq: row.get("start_session_seq"),
-            end_session_seq: row.get("end_session_seq"),
-            created_at: row.get("created_at"),
-        },
-    ))
-}
-
-async fn append_runtime_entry_tx(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    turn_id: &str,
-    target_type: &str,
-    target_id: &str,
-) -> Result<SoulSessionEntry> {
-    let soul_session_row = sqlx::query(
-        r#"
-        SELECT soul_session_id
-        FROM turns
-        WHERE id = $1
-        LIMIT 1
-        "#,
-    )
-    .bind(turn_id)
-    .fetch_one(&mut **tx)
-    .await
-    .map_err(|err| Error::Internal {
-        message: format!("turn soul_session lookup failed: {err}"),
-    })?;
-    let soul_session_id: String = soul_session_row.get("soul_session_id");
-
-    let row = sqlx::query(
-        r#"
-        WITH advanced AS (
-            UPDATE soul_sessions
-            SET next_seq = next_seq + 1,
-                updated_at = NOW()
-            WHERE id = $1
-            RETURNING next_seq - 1 AS allocated_seq
-        )
-        INSERT INTO r_soul_session_messages (soul_session_id, target_type, target_id, soul_session_seq)
-        SELECT $1, $2, $3, allocated_seq FROM advanced
-        RETURNING soul_session_id, target_type, target_id, soul_session_seq,
-                  to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at
-        "#,
-    )
-    .bind(&soul_session_id)
-    .bind(target_type)
-    .bind(target_id)
-    .fetch_one(&mut **tx)
-    .await
-    .map_err(|err| Error::Internal { message: format!("runtime entry insert failed: {err}") })?;
-
-    Ok(SoulSessionEntry {
-        soul_session_id: row.get("soul_session_id"),
-        target_type: match row.get::<String, _>("target_type").as_str() {
-            "message" => SoulSessionTargetType::Message,
-            "tool_call" => SoulSessionTargetType::ToolCall,
-            "tool_result" => SoulSessionTargetType::ToolResult,
-            _ => SoulSessionTargetType::Compact,
-        },
-        target_id: row.get("target_id"),
-        soul_session_seq: row.get("soul_session_seq"),
-        created_at: row.get("created_at"),
-    })
+    async fn fork_soul_session(&self, _parent_soul_session_id: &str, _fork_point: i64, _new_soul_session_id: &str, _new_session_id: &str) -> Result<SoulSession> { Err(Error::InvalidInput { message: "unsupported fork_soul_session".to_string() }) }
 }
 
 fn map_soul_session_row(row: &PgRow) -> Result<SoulSession> {
     Ok(SoulSession {
-        id: row.get("id"),
-        soul_id: row.get("soul_id"),
-        session_id: row.get("session_id"),
-        session_memory: row.get("session_memory"),
-        provider_state: row
-            .try_get::<serde_json::Value, _>("provider_state")
-            .ok()
-            .and_then(parse_provider_state),
-        next_seq: row.get("next_seq"),
-        last_seen_session_seq: row.get("last_seen_session_seq"),
-        parent_soul_session_id: row.try_get("parent_soul_session_id").ok(),
-        fork_point: row.try_get("fork_point").ok(),
-        created_at: row.get("created_at"),
-        updated_at: row.get("updated_at"),
+        id: row.get("id"), soul_id: row.get("soul_id"), session_id: row.get("session_id"), session_memory: row.get("session_memory"),
+        provider_state: row.try_get::<serde_json::Value, _>("provider_state").ok().and_then(|_| None), next_seq: row.get("next_seq"),
+        last_seen_session_seq: row.get("last_seen_session_seq"), parent_soul_session_id: row.try_get("parent_soul_session_id").ok(), fork_point: row.try_get("fork_point").ok(),
+        created_at: row.get("created_at"), updated_at: row.get("updated_at"),
     })
-}
-
-fn parse_provider_state(value: serde_json::Value) -> Option<ProviderState> {
-    Some(ProviderState {
-        provider: value.get("provider")?.as_str()?.to_string(),
-        basis_soul_session_seq: value.get("basis_soul_session_seq")?.as_i64()?,
-        opaque: value.get("opaque")?.clone(),
-        schema_version: value
-            .get("schema_version")
-            .and_then(|value| value.as_str())
-            .map(ToString::to_string),
-    })
-}
-
-fn map_message_row(row: &PgRow) -> Result<Message> {
-    Ok(Message {
-        id: row.get("id"),
-        actor_type: parse_actor_type(row.get::<String, _>("actor_type").as_str())?,
-        actor_id: row.get("actor_id"),
-        content: row.get::<sqlx::types::Json<MessageContent>, _>("content").0,
-        state: parse_message_state(row.get::<String, _>("state").as_str())?,
-        version: row.get("version"),
-        deleted_at: row.try_get("deleted_at").ok(),
-        created_at: row.get("created_at"),
-        updated_at: row.get("updated_at"),
-    })
-}
-
-fn parse_actor_type(value: &str) -> Result<ActorType> {
-    match value {
-        "account" => Ok(ActorType::Account),
-        "soul" => Ok(ActorType::Soul),
-        "system" => Ok(ActorType::System),
-        _ => Err(Error::Internal {
-            message: format!("unknown actor_type: {value}"),
-        }),
-    }
-}
-
-fn parse_message_state(value: &str) -> Result<MessageState> {
-    match value {
-        "pending" => Ok(MessageState::Pending),
-        "fixed" => Ok(MessageState::Fixed),
-        _ => Err(Error::Internal {
-            message: format!("unknown message state: {value}"),
-        }),
-    }
 }
 
 fn map_turn_row(row: &PgRow) -> Result<Turn> {
     Ok(Turn {
-        id: row.get("id"),
-        soul_session_id: row.get("soul_session_id"),
-        trigger_type: match row.get::<String, _>("trigger_type").as_str() {
-            "session_send" => TurnTriggerType::SessionSend,
-            _ => TurnTriggerType::System,
-        },
-        trigger_ref: row.get("trigger_ref"),
-        input_through_session_seq: row.get("input_through_session_seq"),
-        base_soul_session_seq: row.get("base_soul_session_seq"),
-        end_soul_session_seq: row.get("end_soul_session_seq"),
-        status: match row.get::<String, _>("status").as_str() {
-            "running" => TurnStatus::Running,
-            "completed" => TurnStatus::Completed,
-            _ => TurnStatus::Failed,
-        },
-        error_text: row.get("error_text"),
-        created_at: row.get("created_at"),
-        updated_at: row.get("updated_at"),
-        finished_at: row.try_get("finished_at").ok(),
+        id: row.get("id"), soul_session_id: row.get("soul_session_id"), trigger_type: match row.get::<String, _>("trigger_type").as_str() { "session_send" => TurnTriggerType::SessionSend, _ => TurnTriggerType::System },
+        trigger_ref: row.get("trigger_ref"), input_through_session_seq: row.get("input_through_session_seq"), base_soul_session_seq: row.get("base_soul_session_seq"), end_soul_session_seq: row.get("end_soul_session_seq"),
+        status: match row.get::<String, _>("status").as_str() { "running" => TurnStatus::Running, "completed" => TurnStatus::Completed, _ => TurnStatus::Failed }, error_text: row.get("error_text"),
+        created_at: row.get("created_at"), updated_at: row.get("updated_at"), finished_at: row.try_get("finished_at").ok(),
     })
 }

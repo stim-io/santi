@@ -61,22 +61,10 @@ impl SessionQueryService {
             .get_soul_session_by_session_id(session_id)
             .await
             .map_err(render_error)?;
-        let Some(soul_session) = soul_session else {
+        let Some(_soul_session) = soul_session else {
             return Ok(vec![]);
         };
-
-        let items = self
-            .soul_runtime
-            .list_assembly_items(&soul_session.id, None)
-            .await
-            .map_err(render_error)?;
-        Ok(items
-            .into_iter()
-            .filter_map(|item| match item.target {
-                santi_core::model::runtime::AssemblyTarget::Compact(compact) => Some(compact),
-                _ => None,
-            })
-            .collect())
+        Ok(vec![])
     }
 
     pub async fn get_default_soul(&self) -> Result<Option<Soul>, String> {

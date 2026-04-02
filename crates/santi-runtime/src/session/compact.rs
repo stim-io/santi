@@ -7,7 +7,7 @@ use santi_core::{
     port::{
         lock::Lock,
         session_ledger::SessionLedgerPort,
-        soul_runtime::{AppendCompact, SoulRuntimePort, StartTurn},
+        soul_runtime::{AcquireSoulSession, AppendCompact, SoulRuntimePort, StartTurn},
     },
 };
 use uuid::Uuid;
@@ -105,25 +105,11 @@ impl SessionCompactService {
 
         let soul_session = self
             .soul_runtime
-            .get_or_create_soul_session(&self.default_soul_id, &session.id)
+            .acquire_soul_session(AcquireSoulSession { soul_id: self.default_soul_id.clone(), session_id: session.id.clone() })
             .await
             .map_err(render_error)?;
 
-        let assembly_items = self
-            .soul_runtime
-            .list_assembly_items(&soul_session.id, None)
-            .await
-            .map_err(render_error)?;
-
-        let start_session_seq = assembly_items
-            .iter()
-            .filter_map(|item| match &item.target {
-                AssemblyTarget::Compact(compact) => Some(compact.end_session_seq),
-                _ => None,
-            })
-            .max()
-            .map(|seq| seq + 1)
-            .unwrap_or(1);
+        let start_session_seq = 1;
 
         let start_session_seq = request.start_session_seq.unwrap_or(start_session_seq);
         let end_session_seq = request.end_session_seq.unwrap_or(computed_end_session_seq);
@@ -241,6 +227,12 @@ mod tests {
         ) -> santi_core::error::Result<Option<santi_core::model::session::Session>> {
             unreachable!()
         }
+        async fn get_message(
+            &self,
+            _message_id: &str,
+        ) -> santi_core::error::Result<Option<santi_core::model::session::SessionMessage>> {
+            unreachable!()
+        }
         async fn list_messages(
             &self,
             _session_id: &str,
@@ -266,10 +258,9 @@ mod tests {
 
     #[async_trait::async_trait]
     impl SoulRuntimePort for UnusedSoulRuntime {
-        async fn get_or_create_soul_session(
+        async fn acquire_soul_session(
             &self,
-            _soul_id: &str,
-            _session_id: &str,
+            _input: santi_core::port::soul_runtime::AcquireSoulSession,
         ) -> santi_core::error::Result<santi_core::model::runtime::SoulSession> {
             unreachable!()
         }
@@ -277,13 +268,6 @@ mod tests {
             &self,
             _soul_session_id: &str,
         ) -> santi_core::error::Result<Option<santi_core::model::runtime::SoulSession>> {
-            unreachable!()
-        }
-        async fn load_turn_context(
-            &self,
-            _soul_id: &str,
-            _session_id: &str,
-        ) -> santi_core::error::Result<Option<santi_core::model::runtime::TurnContext>> {
             unreachable!()
         }
         async fn write_session_memory(
@@ -348,13 +332,6 @@ mod tests {
             _new_soul_session_id: &str,
             _new_session_id: &str,
         ) -> santi_core::error::Result<santi_core::model::runtime::SoulSession> {
-            unreachable!()
-        }
-        async fn list_assembly_items(
-            &self,
-            _soul_session_id: &str,
-            _after_soul_session_seq: Option<i64>,
-        ) -> santi_core::error::Result<Vec<santi_core::model::runtime::AssemblyItem>> {
             unreachable!()
         }
     }

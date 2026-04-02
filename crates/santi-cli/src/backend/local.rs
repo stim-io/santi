@@ -12,7 +12,7 @@ use santi_core::{
     },
 };
 use santi_db::{
-    adapter::{
+    adapter::postgres::{
         effect_ledger::DbEffectLedger, session_ledger::DbSessionLedger, soul::DbSoul,
         soul_runtime::DbSoulRuntime,
     },

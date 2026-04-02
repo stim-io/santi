@@ -1,5 +1,5 @@
 use santi_api::schema::session::SessionResponse;
-use santi_db::adapter::{local_session_store::LocalSessionStore, local_soul_store::LocalSoulStore};
+use santi_db::adapter::local::{session_store::LocalSessionStore, soul_store::LocalSoulStore};
 
 #[tokio::test]
 async fn local_session_create_and_get_round_trip() {

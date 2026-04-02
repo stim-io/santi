@@ -11,7 +11,7 @@ use santi_core::{
     },
     port::effect_ledger::EffectLedgerPort,
 };
-use santi_db::adapter::local_session_fork_compact::{
+use santi_db::adapter::local::session_fork_compact::{
     LocalCompactError, LocalForkError, LocalSessionForkCompactStore,
 };
 use santi_runtime::hooks::{compile_hook_specs, load_hook_specs, HookEvaluator};

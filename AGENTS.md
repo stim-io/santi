@@ -17,6 +17,16 @@ Detailed system thinking belongs in `docs/`, not here.
 - Explore external projects only when needed by the current task.
 - Sync back only durable knowledge that affects product, architecture, safety, or operating decisions.
 - Prefer a small number of stable primitives over early abstraction growth.
+- Keep core traits narrow: define only the atomic boundary capabilities runtime truly depends on.
+- If an interface can be recomposed from lower-level atomic operations with near-zero quality loss, keep it out of the core trait and implement that composition in runtime instead.
+- When the local optimum is already known, prefer the fastest direct refactor over compatibility-preserving transition layers.
+- Drop obsolete structure quickly: do not preserve backward compatibility inside `santi/` unless the user explicitly asks for it.
+- Do not carry shims, aliases, or temporary adapter layers longer than needed for one focused refactor step.
+- Prefer end-state-first refactors: move directly toward the target boundary instead of stretching work across many compatibility phases.
+- Use full-path smoke validation to correct course quickly after invasive refactors; prefer fast end-to-end verification over elaborate backward-compat scaffolding.
+- `core` defines the atomic boundary traits required by runtime.
+- `middleware` implements those core traits through adapters.
+- `runtime` composes those traits and owns orchestration, concurrency, and business composition.
 - `session` is the public shared ledger container and a work unit, not a security boundary.
 - HTTP capabilities are currently open; `scope` / `tenant` comes later.
 - `soul_dir` and `session_dir` are normal directories used as unified agent resource spaces.
@@ -42,6 +52,7 @@ Detailed system thinking belongs in `docs/`, not here.
 - `AGENTS.md`: stable constraints and file index
 - `docs/system-model.md`: top-level runtime model overview and design principles
 - `docs/runtime-primitives.md`: current core object model and primitive definitions
+- `docs/layer-responsibility-analogy.md`: durable analogy for core/runtime/middleware responsibility boundaries
 - `docs/lifecycle.md`: soul/session lifecycle and fork hook model
 - `docs/hook-reload-boundary.md`: runtime boundary for hook source inputs and whole-set reload
 - `docs/dev-environment.md`: local development baseline and smoke entrypoints
@@ -54,6 +65,15 @@ Detailed system thinking belongs in `docs/`, not here.
 - `docs/composition-root.md`: composition root rules for the single `santi` HTTP host, mode assembly, and crate refactor constraints
 - `docs/local-mode.md`: local mode assembly, storage, and single-process rules for the `santi` internal local runtime
 - `docs/local-adaptor-first-pass.md`: first-pass local adaptor boundary and minimal persistence/locking stance for incremental local mode work
+- `docs/runtime-ports-db-adapters-boundary.md`: boundary between runtime-facing ports and db adapter ownership
+- `docs/port-contract-audit.md`: current port-width audit and contract pressure inventory
+- `docs/port-contract-layering-draft.md`: layering guidance for port placement and composition
+- `docs/soul-runtime-port-tightening-plan.md`: narrowing plan for `SoulRuntimePort` toward atomic hot-path capabilities
+- `docs/soul-runtime-port-capability-matrix.md`: capability matrix for core vs optional `SoulRuntimePort` operations
+- `docs/soul-runtime-port-ledger.md`: caller inventory and pressure map for current `SoulRuntimePort` methods
+- `docs/soul-runtime-port-do-not-split-zones.md`: method groups that must stay together while narrowing the contract
+- `docs/soul-runtime-port-reshaping-sequence-baseline.md`: sequencing rules for narrowing before any trait split
+- `docs/SoulRuntimePort-no-go-list.md`: disallowed refactor moves while the contract is still unsettled
 - `docs/service-config-and-bootstrap.md`: startup config precedence, mode requirements, and fail-fast bootstrap boundary for `santi`
 - `docs/http-api-contract.md`: minimal stable `/api/v1` HTTP contract for the current resource set
 - `docs/meta-and-error-schema.md`: shared success meta and error schema for HTTP, CLI, and local mode

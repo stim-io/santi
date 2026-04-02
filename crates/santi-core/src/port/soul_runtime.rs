@@ -3,9 +3,15 @@ use serde_json::Value;
 use crate::{
     error::Result,
     model::runtime::{
-        AssemblyItem, ProviderState, SoulSession, Turn, TurnContext, TurnTriggerType,
+        AssemblyItem, ProviderState, SoulSession, Turn, TurnTriggerType,
     },
 };
+
+#[derive(Clone, Debug)]
+pub struct AcquireSoulSession {
+    pub soul_id: String,
+    pub session_id: String,
+}
 
 #[derive(Clone, Debug)]
 pub struct StartTurn {
@@ -62,17 +68,8 @@ pub struct FailTurn {
 
 #[async_trait::async_trait]
 pub trait SoulRuntimePort: Send + Sync {
-    async fn get_or_create_soul_session(
-        &self,
-        soul_id: &str,
-        session_id: &str,
-    ) -> Result<SoulSession>;
+    async fn acquire_soul_session(&self, input: AcquireSoulSession) -> Result<SoulSession>;
     async fn get_soul_session(&self, soul_session_id: &str) -> Result<Option<SoulSession>>;
-    async fn load_turn_context(
-        &self,
-        soul_id: &str,
-        session_id: &str,
-    ) -> Result<Option<TurnContext>>;
     async fn write_session_memory(
         &self,
         soul_session_id: &str,
@@ -95,10 +92,4 @@ pub trait SoulRuntimePort: Send + Sync {
         new_soul_session_id: &str,
         new_session_id: &str,
     ) -> Result<SoulSession>;
-
-    async fn list_assembly_items(
-        &self,
-        soul_session_id: &str,
-        after_soul_session_seq: Option<i64>,
-    ) -> Result<Vec<AssemblyItem>>;
 }

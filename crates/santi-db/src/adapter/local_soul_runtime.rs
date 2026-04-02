@@ -6,13 +6,8 @@ use santi_core::{
     error::{Error, Result},
     model::{
         message::{ActorType, Message, MessageContent, MessagePart, MessageState},
-        runtime::{
-            AssemblyItem, AssemblyTarget, SoulSession, Turn, TurnContext, TurnStatus,
-            TurnTriggerType,
-        },
-        session::Session,
+        runtime::{AssemblyItem, AssemblyTarget, SoulSession, Turn, TurnStatus, TurnTriggerType},
         session::{SessionMessage, SessionMessageRef},
-        soul::Soul,
     },
     port::soul_runtime::{
         AppendCompact, AppendMessageRef, AppendToolCall, AppendToolResult, CompleteTurn, FailTurn,
@@ -179,13 +174,12 @@ impl LocalSoulRuntime {
 
 #[async_trait::async_trait]
 impl SoulRuntimePort for LocalSoulRuntime {
-    async fn get_or_create_soul_session(
+    async fn acquire_soul_session(
         &self,
-        soul_id: &str,
-        session_id: &str,
+        input: santi_core::port::soul_runtime::AcquireSoulSession,
     ) -> Result<SoulSession> {
-        self.ensure_soul_session(soul_id, session_id).await?;
-        self.fetch_soul_session_by_session_id(session_id)
+        self.ensure_soul_session(&input.soul_id, &input.session_id).await?;
+        self.fetch_soul_session_by_session_id(&input.session_id)
             .await?
             .ok_or(Error::NotFound {
                 resource: "local_soul_session",
@@ -196,64 +190,6 @@ impl SoulRuntimePort for LocalSoulRuntime {
         self.fetch_soul_session_by_id(soul_session_id).await
     }
 
-    async fn load_turn_context(
-        &self,
-        soul_id: &str,
-        session_id: &str,
-    ) -> Result<Option<TurnContext>> {
-        let session_row = sqlx::query(
-            r#"SELECT id, parent_session_id, fork_point, created_at, updated_at
-               FROM sessions
-               WHERE id = ?1
-               LIMIT 1"#,
-        )
-        .bind(session_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|err| Error::Internal {
-            message: format!("local session load failed: {err}"),
-        })?;
-
-        let Some(session_row) = session_row else {
-            return Ok(None);
-        };
-
-        let soul_row = sqlx::query(
-            r#"SELECT id, memory, created_at, updated_at
-               FROM souls
-               WHERE id = ?1
-               LIMIT 1"#,
-        )
-        .bind(soul_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|err| Error::Internal {
-            message: format!("local soul load failed: {err}"),
-        })?;
-
-        let Some(soul_row) = soul_row else {
-            return Ok(None);
-        };
-
-        let soul_session = self.get_or_create_soul_session(soul_id, session_id).await?;
-
-        Ok(Some(TurnContext {
-            session: Session {
-                id: session_row.get("id"),
-                parent_session_id: session_row.try_get("parent_session_id").ok(),
-                fork_point: session_row.try_get("fork_point").ok(),
-                created_at: session_row.get("created_at"),
-                updated_at: session_row.get("updated_at"),
-            },
-            soul_session,
-            soul: Soul {
-                id: soul_row.get("id"),
-                memory: soul_row.get("memory"),
-                created_at: soul_row.get("created_at"),
-                updated_at: soul_row.get("updated_at"),
-            },
-        }))
-    }
 
     async fn write_session_memory(
         &self,
@@ -479,53 +415,6 @@ impl SoulRuntimePort for LocalSoulRuntime {
         _new_session_id: &str,
     ) -> Result<SoulSession> {
         Err(Self::unsupported("fork soul_session"))
-    }
-
-    async fn list_assembly_items(
-        &self,
-        _soul_session_id: &str,
-        _after_soul_session_seq: Option<i64>,
-    ) -> Result<Vec<AssemblyItem>> {
-        let rows = sqlx::query(
-            r#"SELECT i.soul_session_id, i.target_type, i.target_id, i.soul_session_seq, i.created_at,
-                      m.id AS message_id, m.session_id, m.session_seq, m.actor_type, m.actor_id, m.content_text, m.state, m.created_at AS message_created_at
-               FROM local_soul_session_items i
-               LEFT JOIN session_messages m ON i.target_type = 'message' AND m.id = i.target_id
-               WHERE i.soul_session_id = ?1 AND (?2 IS NULL OR i.soul_session_seq > ?2)
-               ORDER BY i.soul_session_seq ASC, i.created_at ASC"#,
-        )
-        .bind(_soul_session_id)
-        .bind(_after_soul_session_seq)
-        .bind(_after_soul_session_seq)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|err| Error::Internal {
-            message: format!("local assembly item list failed: {err}"),
-        })?;
-
-        let mut items = Vec::new();
-        for row in rows {
-            let target_type = row.get::<String, _>("target_type");
-            match target_type.as_str() {
-                "message" => items.push(AssemblyItem {
-                    entry: santi_core::model::runtime::SoulSessionEntry {
-                        soul_session_id: row.get("soul_session_id"),
-                        target_type: santi_core::model::runtime::SoulSessionTargetType::Message,
-                        target_id: row.get("target_id"),
-                        soul_session_seq: row.get("soul_session_seq"),
-                        created_at: row.get("created_at"),
-                    },
-                    target: AssemblyTarget::Message(map_session_message_row(row)?),
-                }),
-                other => {
-                    return Err(Error::Internal {
-                        message: format!("unsupported local assembly target_type: {other}"),
-                    })
-                }
-            }
-        }
-
-        Ok(items)
     }
 }
 

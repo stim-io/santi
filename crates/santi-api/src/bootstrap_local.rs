@@ -1,10 +1,9 @@
 use std::{fs::OpenOptions, sync::Arc};
 
-use santi_db::adapter::{
-    local_effect_ledger::LocalEffectLedger,
-    local_session_fork_compact::LocalSessionForkCompactStore,
-    local_session_store::LocalSessionStore, local_soul_runtime::LocalSoulRuntime,
-    local_soul_store::LocalSoulStore,
+use santi_db::adapter::local::{
+    effect_ledger::LocalEffectLedger, session_fork_compact::LocalSessionForkCompactStore,
+    session_store::LocalSessionStore, soul_runtime::LocalSoulRuntime,
+    soul_store::LocalSoulStore,
 };
 use santi_ebus::InMemorySubscriberSet;
 use santi_lock::InProcessLock;

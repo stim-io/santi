@@ -195,10 +195,9 @@ mod tests {
 
     #[async_trait::async_trait]
     impl SoulRuntimePort for FakeSoulRuntime {
-        async fn get_or_create_soul_session(
+        async fn acquire_soul_session(
             &self,
-            _soul_id: &str,
-            _session_id: &str,
+            _input: santi_core::port::soul_runtime::AcquireSoulSession,
         ) -> santi_core::error::Result<SoulSession> {
             unimplemented!()
         }
@@ -208,14 +207,6 @@ mod tests {
             _soul_session_id: &str,
         ) -> santi_core::error::Result<Option<SoulSession>> {
             Ok(None)
-        }
-
-        async fn load_turn_context(
-            &self,
-            _soul_id: &str,
-            _session_id: &str,
-        ) -> santi_core::error::Result<Option<santi_core::model::runtime::TurnContext>> {
-            unimplemented!()
         }
 
         async fn write_session_memory(
@@ -321,13 +312,6 @@ mod tests {
             })
         }
 
-        async fn list_assembly_items(
-            &self,
-            _soul_session_id: &str,
-            _after_soul_session_seq: Option<i64>,
-        ) -> santi_core::error::Result<Vec<santi_core::model::runtime::AssemblyItem>> {
-            unimplemented!()
-        }
     }
 
     fn parent_session() -> SoulSession {

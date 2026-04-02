@@ -115,6 +115,16 @@ async fn handle_session_command(
                 .map_err(output::render_error)?;
             output::render_json(&session)?;
         }
+        SessionCommand::Fork {
+            session_id,
+            fork_point,
+        } => {
+            let session = backend
+                .fork_session(session_id, fork_point)
+                .await
+                .map_err(output::render_error)?;
+            output::render_json(&session)?;
+        }
         SessionCommand::Send {
             session_id,
             raw,
@@ -141,6 +151,24 @@ async fn handle_session_command(
                 .map_err(output::render_error)?;
             output::render_json(&compact)?;
         }
+        SessionCommand::Compacts { session_id, raw } => {
+            let compacts = backend
+                .list_compacts(session_id)
+                .await
+                .map_err(output::render_error)?;
+            if raw {
+                output::render_json(&compacts)?;
+            } else {
+                output::render_compacts(&compacts)?;
+            }
+        }
+        SessionCommand::Effects { session_id } => {
+            let effects = backend
+                .list_session_effects(session_id)
+                .await
+                .map_err(output::render_error)?;
+            output::render_session_effects(&effects.effects);
+        }
         SessionCommand::Messages { session_id } => {
             let messages = backend
                 .list_messages(session_id)
@@ -149,6 +177,13 @@ async fn handle_session_command(
             output::render_messages(messages)?;
         }
         SessionCommand::Memory { command } => match command {
+            SessionMemoryCommand::Get { session_id } => {
+                let memory = backend
+                    .get_session_memory(session_id)
+                    .await
+                    .map_err(output::render_error)?;
+                output::render_json(&memory)?;
+            }
             SessionMemoryCommand::Set { session_id } => {
                 let text = output::read_stdin().await?;
                 let memory = backend

@@ -1,4 +1,9 @@
 pub mod effect_ledger;
+pub mod local_effect_ledger;
+pub mod local_session_fork_compact;
+pub mod local_session_store;
+pub mod local_soul_runtime;
+pub mod local_soul_store;
 pub mod session_ledger;
 pub mod soul;
 pub mod soul_runtime;

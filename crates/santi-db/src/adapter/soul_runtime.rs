@@ -597,7 +597,10 @@ impl SoulRuntimePort for DbSoulRuntime {
         map_turn_row(&row)
     }
 
-    async fn get_soul_session_by_session_id(&self, session_id: &str) -> Result<Option<SoulSession>> {
+    async fn get_soul_session_by_session_id(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SoulSession>> {
         let row = sqlx::query(
             r#"
             SELECT
@@ -665,7 +668,10 @@ impl SoulRuntimePort for DbSoulRuntime {
 
         if fork_point < 1 || fork_point >= parent_info.next_seq {
             return Err(Error::InvalidInput {
-                message: format!("illegal fork_point {}: must satisfy 1 <= fork_point < {}", fork_point, parent_info.next_seq),
+                message: format!(
+                    "illegal fork_point {}: must satisfy 1 <= fork_point < {}",
+                    fork_point, parent_info.next_seq
+                ),
             });
         }
 

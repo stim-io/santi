@@ -43,6 +43,16 @@ impl SessionMemoryService {
             .map_err(render_error)
     }
 
+    pub async fn get_session_memory(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SoulSession>, String> {
+        self.soul_runtime
+            .get_soul_session_by_session_id(session_id)
+            .await
+            .map_err(render_error)
+    }
+
     pub async fn write_soul_memory(
         &self,
         soul_id: &str,

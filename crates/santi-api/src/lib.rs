@@ -1,8 +1,11 @@
 pub mod app;
+pub mod bootstrap;
+pub mod bootstrap_local;
 pub mod config;
 pub mod handler;
 pub mod model;
 pub mod openapi;
 pub mod schema;
 pub mod state;
+pub mod surface;
 pub mod telemetry;

@@ -70,6 +70,16 @@ impl From<SoulSession> for SessionMemoryResponse {
     }
 }
 
+impl SessionMemoryResponse {
+    pub fn new(id: String, memory: String, updated_at: String) -> Self {
+        Self {
+            id,
+            memory,
+            updated_at,
+        }
+    }
+}
+
 impl From<Soul> for SoulResponse {
     fn from(value: Soul) -> Self {
         Self {
@@ -120,6 +130,11 @@ pub struct SessionCompactResponse {
     pub start_session_seq: i64,
     pub end_session_seq: i64,
     pub created_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub struct SessionCompactsResponse {
+    pub compacts: Vec<SessionCompactResponse>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, ToSchema)]
@@ -224,6 +239,14 @@ impl From<Compact> for SessionCompactResponse {
             start_session_seq: value.start_session_seq,
             end_session_seq: value.end_session_seq,
             created_at: value.created_at,
+        }
+    }
+}
+
+impl SessionCompactsResponse {
+    pub fn from_compacts(compacts: Vec<Compact>) -> Self {
+        Self {
+            compacts: compacts.into_iter().map(Into::into).collect(),
         }
     }
 }

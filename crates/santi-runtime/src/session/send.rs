@@ -38,11 +38,8 @@ use crate::{
         tools::{ToolExecutor, ToolExecutorConfig},
     },
     session::{
-        compact::SessionCompactService,
-        effect::SessionEffectService,
-        fork::SessionForkService,
-        hook_runtime::HookRuntime,
-        memory::SessionMemoryService,
+        compact::SessionCompactService, effect::SessionEffectService, fork::SessionForkService,
+        hook_runtime::HookRuntime, memory::SessionMemoryService,
     },
 };
 
@@ -195,7 +192,9 @@ impl SessionSendService {
         let hooks = self.hooks.clone();
         let request = TurnExecutionRequest {
             session_id: cmd.session_id,
-            input: TurnInput::UserText { text: cmd.user_content },
+            input: TurnInput::UserText {
+                text: cmd.user_content,
+            },
             emit_events: true,
             run_hooks: true,
         };

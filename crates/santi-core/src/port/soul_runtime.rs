@@ -85,7 +85,8 @@ pub trait SoulRuntimePort: Send + Sync {
     async fn append_compact(&self, input: AppendCompact) -> Result<AssemblyItem>;
     async fn complete_turn(&self, input: CompleteTurn) -> Result<Turn>;
     async fn fail_turn(&self, input: FailTurn) -> Result<Turn>;
-    async fn get_soul_session_by_session_id(&self, session_id: &str) -> Result<Option<SoulSession>>;
+    async fn get_soul_session_by_session_id(&self, session_id: &str)
+        -> Result<Option<SoulSession>>;
 
     async fn fork_soul_session(
         &self,

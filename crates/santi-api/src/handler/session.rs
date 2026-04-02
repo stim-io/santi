@@ -5,9 +5,6 @@ use axum::{
     Json,
 };
 use futures::StreamExt;
-use santi_runtime::session::compact::CompactSessionError;
-use santi_runtime::session::fork::{ForkError, ForkResult};
-use santi_runtime::session::send::{SendSessionCommand, SendSessionError, SendSessionEvent};
 use std::convert::Infallible;
 
 use crate::{
@@ -15,8 +12,9 @@ use crate::{
     schema::{
         common::ErrorResponse,
         session::{
-            ForkRequest, ForkResponse, SessionCompactRequest, SessionCompactResponse, SessionMemoryRequest,
-            SessionEffectsResponse, SessionMemoryResponse, SessionMessagesResponse, SessionResponse,
+            ForkRequest, ForkResponse, SessionCompactRequest, SessionCompactResponse,
+            SessionCompactsResponse, SessionEffectsResponse, SessionMemoryRequest,
+            SessionMemoryResponse, SessionMessagesResponse, SessionResponse,
             SessionSendContentPart, SessionSendRequest, SoulMemoryRequest, SoulMemoryResponse,
             SoulResponse,
         },
@@ -34,13 +32,9 @@ use crate::{
     )
 )]
 pub async fn create_session(State(state): State<AppState>) -> impl IntoResponse {
-    match state.session_query().create_session().await {
+    match state.session_api().create_session().await {
         Ok(session) => (StatusCode::CREATED, Json(SessionResponse::from(session))).into_response(),
-        Err(err) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new(err)),
-        )
-            .into_response(),
+        Err(err) => err.into_error_response().into_response(),
     }
 }
 
@@ -60,18 +54,9 @@ pub async fn get_session(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    match state.session_query().get_session(&id).await {
-        Ok(Some(session)) => (StatusCode::OK, Json(SessionResponse::from(session))).into_response(),
-        Ok(None) => (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new("session not found")),
-        )
-            .into_response(),
-        Err(err) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new(err)),
-        )
-            .into_response(),
+    match state.session_api().get_session(&id).await {
+        Ok(session) => (StatusCode::OK, Json(SessionResponse::from(session))).into_response(),
+        Err(err) => err.into_error_response().into_response(),
     }
 }
 
@@ -91,35 +76,13 @@ pub async fn list_session_messages(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    match state.session_query().get_session(&id).await {
-        Ok(Some(_)) => {}
-        Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("session not found")),
-            )
-                .into_response();
-        }
-        Err(err) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(err)),
-            )
-                .into_response();
-        }
-    }
-
-    match state.session_query().list_session_messages(&id).await {
+    match state.session_api().list_session_messages(&id).await {
         Ok(messages) => (
             StatusCode::OK,
             Json(SessionMessagesResponse::from_messages(messages)),
         )
             .into_response(),
-        Err(err) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new(err)),
-        )
-            .into_response(),
+        Err(err) => err.into_error_response().into_response(),
     }
 }
 
@@ -139,35 +102,61 @@ pub async fn list_session_effects(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    match state.session_query().get_session(&id).await {
-        Ok(Some(_)) => {}
-        Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("session not found")),
-            )
-                .into_response();
-        }
-        Err(err) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(err)),
-            )
-                .into_response();
-        }
-    }
-
-    match state.effect_ledger().list_effects(&id).await {
+    match state.session_api().list_session_effects(&id).await {
         Ok(effects) => (
             StatusCode::OK,
             Json(SessionEffectsResponse::from_effects(effects)),
         )
             .into_response(),
-        Err(err) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new(format!("{err:?}"))),
+        Err(err) => err.into_error_response().into_response(),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/sessions/{id}/compacts",
+    tag = "session",
+    params(
+        ("id" = String, Path, description = "Session id")
+    ),
+    responses(
+        (status = 200, description = "Session compacts", body = SessionCompactsResponse),
+        (status = 404, description = "Session not found", body = ErrorResponse)
+    )
+)]
+pub async fn list_session_compacts(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match state.session_api().list_session_compacts(&id).await {
+        Ok(compacts) => (
+            StatusCode::OK,
+            Json(SessionCompactsResponse::from_compacts(compacts)),
         )
             .into_response(),
+        Err(err) => err.into_error_response().into_response(),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/sessions/{id}/memory",
+    tag = "session",
+    params(
+        ("id" = String, Path, description = "Session id")
+    ),
+    responses(
+        (status = 200, description = "Session memory found", body = SessionMemoryResponse),
+        (status = 404, description = "Session not found", body = ErrorResponse)
+    )
+)]
+pub async fn get_session_memory(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match state.session_api().get_session_memory(&id).await {
+        Ok(memory) => (StatusCode::OK, Json(memory)).into_response(),
+        Err(err) => err.into_error_response().into_response(),
     }
 }
 
@@ -190,23 +179,12 @@ pub async fn set_session_memory(
     Json(request): Json<SessionMemoryRequest>,
 ) -> impl IntoResponse {
     match state
-        .session_memory()
-        .write_session_memory(&id, &request.text)
+        .session_api()
+        .set_session_memory(&id, &request.text)
         .await
     {
-        Ok(Some(session)) => {
-            (StatusCode::OK, Json(SessionMemoryResponse::from(session))).into_response()
-        }
-        Ok(None) => (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new("session not found")),
-        )
-            .into_response(),
-        Err(err) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new(err)),
-        )
-            .into_response(),
+        Ok(memory) => (StatusCode::OK, Json(memory)).into_response(),
+        Err(err) => err.into_error_response().into_response(),
     }
 }
 
@@ -220,18 +198,9 @@ pub async fn set_session_memory(
     )
 )]
 pub async fn get_default_soul(State(state): State<AppState>) -> impl IntoResponse {
-    match state.session_query().get_default_soul().await {
-        Ok(Some(soul)) => (StatusCode::OK, Json(SoulResponse::from(soul))).into_response(),
-        Ok(None) => (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new("soul not found")),
-        )
-            .into_response(),
-        Err(err) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new(err)),
-        )
-            .into_response(),
+    match state.soul_api().get_default_soul().await {
+        Ok(soul) => (StatusCode::OK, Json(SoulResponse::from(soul))).into_response(),
+        Err(err) => err.into_error_response().into_response(),
     }
 }
 
@@ -250,21 +219,12 @@ pub async fn set_default_soul_memory(
     Json(request): Json<SoulMemoryRequest>,
 ) -> impl IntoResponse {
     match state
-        .session_memory()
-        .write_soul_memory("soul_default", &request.text)
+        .soul_api()
+        .set_default_soul_memory(&request.text)
         .await
     {
-        Ok(Some(soul)) => (StatusCode::OK, Json(SoulMemoryResponse::from(soul))).into_response(),
-        Ok(None) => (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new("soul not found")),
-        )
-            .into_response(),
-        Err(err) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new(err)),
-        )
-            .into_response(),
+        Ok(soul) => (StatusCode::OK, Json(SoulMemoryResponse::from(soul))).into_response(),
+        Err(err) => err.into_error_response().into_response(),
     }
 }
 
@@ -295,58 +255,27 @@ pub async fn send_session(
         .collect::<Vec<_>>()
         .join("\n\n");
 
-    let stream = match state
-        .session_send()
-        .start(SendSessionCommand {
-            session_id: id,
-            user_content,
-        })
-        .await
-    {
+    let stream = match state.session_api().send_session(&id, user_content).await {
         Ok(stream) => stream,
-        Err(SendSessionError::Busy) => {
-            return (
-                StatusCode::CONFLICT,
-                Json(ErrorResponse::new("session send already in progress")),
-            )
-                .into_response();
-        }
-        Err(SendSessionError::NotFound) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("session not found")),
-            )
-                .into_response();
-        }
-        Err(SendSessionError::Internal(err)) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(err)),
-            )
-                .into_response();
-        }
+        Err(err) => return err.into_error_response().into_response(),
     };
 
     let stream = stream
         .map(move |result| match result {
             Ok(event) => Ok::<_, Infallible>(match event {
-                SendSessionEvent::OutputTextDelta(text) => {
+                SessionStreamEvent::OutputTextDelta(text) => {
                     encode_session_sse_event(SessionStreamEvent::OutputTextDelta(text))
                 }
-                SendSessionEvent::Completed => {
+                SessionStreamEvent::Completed => {
                     encode_session_sse_event(SessionStreamEvent::Completed)
                 }
             }),
-            Err(err) => Ok::<_, Infallible>(
-                axum::response::sse::Event::default().data(
-                    serde_json::to_string(&ErrorResponse::new(match err {
-                        SendSessionError::Busy => "session send already in progress".to_string(),
-                        SendSessionError::NotFound => "session not found".to_string(),
-                        SendSessionError::Internal(message) => message,
-                    }))
-                    .unwrap_or_else(|_| "{\"error\":{\"message\":\"internal error\"}}".to_string()),
-                ),
-            ),
+            Err(err) => Ok::<_, Infallible>(axum::response::sse::Event::default().data(
+                serde_json::to_string(&err.into_error_response().1 .0).unwrap_or_else(|_| {
+                    "{\"error\":{\"code\":\"internal_error\",\"message\":\"internal error\"}}"
+                        .to_string()
+                }),
+            )),
         })
         .chain(futures::stream::once(async {
             Ok::<_, Infallible>(done_event())
@@ -376,34 +305,13 @@ pub async fn fork_session(
     Path(id): Path<String>,
     Json(req): Json<ForkRequest>,
 ) -> impl IntoResponse {
-    match state.session_fork().fork_session(id, req.fork_point, req.request_id).await {
-        Ok(res) => (
-            StatusCode::CREATED,
-            Json(ForkResponse::from_result(res)),
-        )
-            .into_response(),
-        Err(err) => match err {
-            ForkError::Busy => (
-                StatusCode::CONFLICT,
-                Json(ErrorResponse::new("session fork already in progress")),
-            )
-                .into_response(),
-            ForkError::ParentNotFound => (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::new("parent session not found")),
-            )
-                .into_response(),
-            ForkError::InvalidForkPoint(message) => (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse::new(message)),
-            )
-                .into_response(),
-            ForkError::Internal(message) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(message)),
-            )
-                .into_response(),
-        },
+    match state
+        .session_api()
+        .fork_session(&id, req.fork_point, req.request_id)
+        .await
+    {
+        Ok(res) => (StatusCode::CREATED, Json(ForkResponse::from_result(res))).into_response(),
+        Err(err) => err.into_error_response().into_response(),
     }
 }
 
@@ -426,36 +334,19 @@ pub async fn compact_session(
     Json(request): Json<SessionCompactRequest>,
 ) -> impl IntoResponse {
     match state
-        .session_compact()
+        .session_api()
         .compact_session(&id, &request.summary)
         .await
     {
         Ok(compact) => {
             (StatusCode::OK, Json(SessionCompactResponse::from(compact))).into_response()
         }
-        Err(CompactSessionError::Busy) => (
-            StatusCode::CONFLICT,
-            Json(ErrorResponse::new("session compact already in progress")),
-        )
-            .into_response(),
-        Err(CompactSessionError::NotFound) => (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse::new("session not found")),
-        )
-            .into_response(),
-        Err(CompactSessionError::Invalid(message)) => {
-            (StatusCode::BAD_REQUEST, Json(ErrorResponse::new(message))).into_response()
-        }
-        Err(CompactSessionError::Internal(message)) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse::new(message)),
-        )
-            .into_response(),
+        Err(err) => err.into_error_response().into_response(),
     }
 }
 
 impl ForkResponse {
-    fn from_result(value: ForkResult) -> Self {
+    fn from_result(value: santi_runtime::session::fork::ForkResult) -> Self {
         Self {
             new_session_id: value.new_session_id,
             parent_session_id: value.parent_session_id,

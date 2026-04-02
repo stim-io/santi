@@ -87,6 +87,11 @@ pub enum SessionCommand {
     Get {
         session_id: String,
     },
+    Fork {
+        session_id: String,
+        #[arg(long = "fork-point")]
+        fork_point: i64,
+    },
     Send {
         session_id: String,
         #[arg(long)]
@@ -95,6 +100,14 @@ pub enum SessionCommand {
         wait: bool,
     },
     Compact {
+        session_id: String,
+    },
+    Compacts {
+        session_id: String,
+        #[arg(long)]
+        raw: bool,
+    },
+    Effects {
         session_id: String,
     },
     Messages {
@@ -108,6 +121,7 @@ pub enum SessionCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum SessionMemoryCommand {
+    Get { session_id: String },
     Set { session_id: String },
 }
 

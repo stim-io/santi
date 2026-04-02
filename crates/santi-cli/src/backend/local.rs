@@ -4,11 +4,11 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use santi_core::{
     hook::{HookSpec, HookSpecSource},
+    model::effect::SessionEffect,
     model::{message::MessagePart, runtime::Compact, session::SessionMessage, soul::Soul},
     port::{
-        ebus::SubscriberSetPort, effect_ledger::EffectLedgerPort,
-        lock::Lock, provider::Provider, session_ledger::SessionLedgerPort, soul::SoulPort,
-        soul_runtime::SoulRuntimePort,
+        ebus::SubscriberSetPort, effect_ledger::EffectLedgerPort, lock::Lock, provider::Provider,
+        session_ledger::SessionLedgerPort, soul::SoulPort, soul_runtime::SoulRuntimePort,
     },
 };
 use santi_db::{
@@ -18,14 +18,15 @@ use santi_db::{
     },
     db::init_postgres,
 };
-use santi_lock::{RedisLockClient, RedisLockConfig};
 use santi_ebus::InMemorySubscriberSet;
+use santi_lock::{RedisLockClient, RedisLockConfig};
 use santi_provider::openai_compatible::OpenAiCompatibleProvider;
 use santi_runtime::{
     hooks::{compile_hook_specs, load_hook_specs, HookEvaluator},
     runtime::tools::ToolExecutorConfig,
     session::{
         compact::{CompactSessionError, SessionCompactService},
+        fork::{ForkError, SessionForkService},
         memory::SessionMemoryService,
         query::SessionQueryService,
         send::{SendSessionCommand, SendSessionError, SendSessionEvent, SessionSendService},
@@ -36,7 +37,8 @@ use tokio::time::sleep;
 use crate::{
     backend::{
         BackendError, CliBackend, CliCompact, CliHealth, CliHookReload, CliMemoryRecord,
-        CliMessage, CliSession, CliSoul, SendEvent, SendStream,
+        CliMessage, CliSession, CliSessionEffect, CliSessionEffects, CliSoul, ForkedCliSession,
+        SendEvent, SendStream,
     },
     config::Config,
 };
@@ -46,6 +48,8 @@ pub struct LocalBackend {
     default_soul_id: String,
     session_memory: Arc<SessionMemoryService>,
     session_compact: Arc<SessionCompactService>,
+    effect_ledger: Arc<dyn EffectLedgerPort>,
+    session_fork: Arc<SessionForkService>,
     session_query: Arc<SessionQueryService>,
     session_send: Arc<SessionSendService>,
 }
@@ -92,6 +96,7 @@ impl LocalBackend {
         let session_query = Arc::new(SessionQueryService::new(
             session_ledger.clone(),
             soul_port,
+            soul_runtime.clone(),
             default_soul_id.clone(),
         ));
         let session_compact = Arc::new(SessionCompactService::new(
@@ -104,18 +109,15 @@ impl LocalBackend {
         let ebus: Arc<dyn SubscriberSetPort<Arc<dyn HookEvaluator>>> =
             Arc::new(InMemorySubscriberSet::<Arc<dyn HookEvaluator>>::new());
         ebus.replace_all(compile_hook_specs(&hook_specs));
-        let session_fork = Arc::new(santi_runtime::session::fork::SessionForkService::new(
-            lock.clone(),
-            soul_runtime.clone(),
-        ));
+        let session_fork = Arc::new(SessionForkService::new(lock.clone(), soul_runtime.clone()));
         let session_send = Arc::new(SessionSendService::new(
             config.openai_model.clone(),
             default_soul_id.clone(),
             lock,
             session_ledger,
             soul_runtime,
-            effect_ledger,
-            session_fork,
+            effect_ledger.clone(),
+            session_fork.clone(),
             provider,
             session_memory.as_ref().clone(),
             ToolExecutorConfig {
@@ -129,6 +131,8 @@ impl LocalBackend {
             default_soul_id,
             session_memory,
             session_compact,
+            effect_ledger,
+            session_fork,
             session_query,
             session_send,
         })
@@ -140,9 +144,7 @@ impl LocalBackend {
     }
 }
 
-async fn load_startup_hook_specs(
-    source: Option<&HookSpecSource>,
-) -> Result<Vec<HookSpec>, String> {
+async fn load_startup_hook_specs(source: Option<&HookSpecSource>) -> Result<Vec<HookSpec>, String> {
     match source {
         Some(source) => load_hook_specs(source).await,
         None => Ok(Vec::new()),
@@ -162,7 +164,7 @@ impl CliBackend for LocalBackend {
             .session_query
             .create_session()
             .await
-            .map_err(BackendError::Other)?;
+            .map_err(|err| BackendError::Other(format!("{err:?}")))?;
         Ok(CliSession {
             id: session.id,
             parent_session_id: session.parent_session_id,
@@ -183,6 +185,42 @@ impl CliBackend for LocalBackend {
             parent_session_id: session.parent_session_id,
             fork_point: session.fork_point,
             created_at: session.created_at,
+        })
+    }
+
+    async fn fork_session(
+        &self,
+        session_id: String,
+        fork_point: i64,
+    ) -> Result<ForkedCliSession, BackendError> {
+        let request_id = format!("cli-fork-{session_id}-{fork_point}");
+        let forked = self
+            .session_fork
+            .fork_session(session_id.clone(), fork_point, request_id)
+            .await
+            .map_err(map_fork_error)?;
+
+        Ok(ForkedCliSession {
+            id: forked.new_session_id,
+            parent_session_id: forked.parent_session_id,
+            fork_point: forked.fork_point,
+        })
+    }
+
+    async fn get_session_memory(
+        &self,
+        session_id: String,
+    ) -> Result<CliMemoryRecord, BackendError> {
+        let soul_session = self
+            .session_memory
+            .get_session_memory(&session_id)
+            .await
+            .map_err(BackendError::Other)?
+            .ok_or(BackendError::NotFound)?;
+        Ok(CliMemoryRecord {
+            id: soul_session.id,
+            memory: soul_session.session_memory,
+            updated_at: soul_session.updated_at,
         })
     }
 
@@ -274,6 +312,29 @@ impl CliBackend for LocalBackend {
             .map_err(map_compact_error)
     }
 
+    async fn list_compacts(&self, session_id: String) -> Result<Vec<CliCompact>, BackendError> {
+        let compacts = self
+            .session_query
+            .list_session_compacts(&session_id)
+            .await
+            .map_err(|err| BackendError::Other(format!("{err:?}")))?;
+        Ok(compacts.into_iter().map(map_compact).collect())
+    }
+
+    async fn list_session_effects(
+        &self,
+        session_id: String,
+    ) -> Result<CliSessionEffects, BackendError> {
+        let effects = self
+            .effect_ledger
+            .list_effects(&session_id)
+            .await
+            .map_err(|err| BackendError::Other(format!("{err:?}")))?;
+        Ok(CliSessionEffects {
+            effects: effects.into_iter().map(map_session_effect).collect(),
+        })
+    }
+
     async fn reload_hooks(&self, source: HookSpecSource) -> Result<CliHookReload, BackendError> {
         Ok(CliHookReload {
             hook_count: self
@@ -304,6 +365,16 @@ fn map_compact_error(err: CompactSessionError) -> BackendError {
         CompactSessionError::Busy => BackendError::Busy,
         CompactSessionError::NotFound => BackendError::NotFound,
         CompactSessionError::Invalid(message) | CompactSessionError::Internal(message) => {
+            BackendError::Other(message)
+        }
+    }
+}
+
+fn map_fork_error(err: ForkError) -> BackendError {
+    match err {
+        ForkError::Busy => BackendError::Busy,
+        ForkError::ParentNotFound => BackendError::NotFound,
+        ForkError::InvalidForkPoint(message) | ForkError::Internal(message) => {
             BackendError::Other(message)
         }
     }
@@ -359,5 +430,21 @@ fn map_compact(compact: Compact) -> CliCompact {
         start_session_seq: compact.start_session_seq,
         end_session_seq: compact.end_session_seq,
         created_at: compact.created_at,
+    }
+}
+
+fn map_session_effect(effect: SessionEffect) -> CliSessionEffect {
+    CliSessionEffect {
+        id: effect.id,
+        session_id: effect.session_id,
+        effect_type: effect.effect_type,
+        idempotency_key: effect.idempotency_key,
+        status: effect.status,
+        source_hook_id: effect.source_hook_id,
+        source_turn_id: effect.source_turn_id,
+        result_ref: effect.result_ref,
+        error_text: effect.error_text,
+        created_at: effect.created_at,
+        updated_at: effect.updated_at,
     }
 }

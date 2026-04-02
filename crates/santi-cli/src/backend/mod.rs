@@ -17,6 +17,13 @@ pub struct CliSession {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ForkedCliSession {
+    pub id: String,
+    pub parent_session_id: String,
+    pub fork_point: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CliHealth {
     pub status: String,
 }
@@ -44,6 +51,26 @@ pub struct CliCompact {
     pub start_session_seq: i64,
     pub end_session_seq: i64,
     pub created_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CliSessionEffects {
+    pub effects: Vec<CliSessionEffect>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CliSessionEffect {
+    pub id: String,
+    pub session_id: String,
+    pub effect_type: String,
+    pub idempotency_key: String,
+    pub status: String,
+    pub source_hook_id: String,
+    pub source_turn_id: String,
+    pub result_ref: Option<String>,
+    pub error_text: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -87,6 +114,11 @@ pub trait CliBackend: Send + Sync {
     async fn health(&self) -> Result<CliHealth, BackendError>;
     async fn create_session(&self) -> Result<CliSession, BackendError>;
     async fn get_session(&self, session_id: String) -> Result<CliSession, BackendError>;
+    async fn fork_session(
+        &self,
+        session_id: String,
+        fork_point: i64,
+    ) -> Result<ForkedCliSession, BackendError>;
     async fn send_session(
         &self,
         session_id: String,
@@ -101,10 +133,17 @@ pub trait CliBackend: Send + Sync {
         session_id: String,
         text: String,
     ) -> Result<CliMemoryRecord, BackendError>;
+    async fn get_session_memory(&self, session_id: String)
+        -> Result<CliMemoryRecord, BackendError>;
     async fn compact_session(
         &self,
         session_id: String,
         summary: String,
     ) -> Result<CliCompact, BackendError>;
+    async fn list_compacts(&self, session_id: String) -> Result<Vec<CliCompact>, BackendError>;
+    async fn list_session_effects(
+        &self,
+        session_id: String,
+    ) -> Result<CliSessionEffects, BackendError>;
     async fn reload_hooks(&self, source: HookSpecSource) -> Result<CliHookReload, BackendError>;
 }

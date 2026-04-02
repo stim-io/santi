@@ -31,6 +31,7 @@ pub struct ApplyMessageEvent {
 pub trait SessionLedgerPort: Send + Sync {
     async fn create_session(&self, session_id: &str) -> Result<Session>;
     async fn get_session(&self, session_id: &str) -> Result<Option<Session>>;
+    async fn get_message(&self, message_id: &str) -> Result<Option<SessionMessage>>;
     async fn list_messages(
         &self,
         session_id: &str,

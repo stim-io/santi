@@ -47,12 +47,20 @@ impl ForkExecutor for SessionForkService {
 
 #[async_trait::async_trait]
 trait SeededSendExecutor: Send + Sync {
-    async fn seeded_send(&self, session_id: String, seed_text: String) -> Result<String, SendSessionError>;
+    async fn seeded_send(
+        &self,
+        session_id: String,
+        seed_text: String,
+    ) -> Result<String, SendSessionError>;
 }
 
 #[async_trait::async_trait]
 impl SeededSendExecutor for SessionTurnService {
-    async fn seeded_send(&self, session_id: String, seed_text: String) -> Result<String, SendSessionError> {
+    async fn seeded_send(
+        &self,
+        session_id: String,
+        seed_text: String,
+    ) -> Result<String, SendSessionError> {
         self.execute(
             TurnExecutionRequest {
                 session_id,
@@ -115,7 +123,9 @@ impl SessionEffectService {
             }
 
             let rerun = self.run_fork_handoff(&request).await;
-            return self.finish_effect(existing.id, existing.result_ref, rerun).await;
+            return self
+                .finish_effect(existing.id, existing.result_ref, rerun)
+                .await;
         }
 
         let effect_id = format!("effect_{}", Uuid::new_v4().simple());
@@ -135,11 +145,18 @@ impl SessionEffectService {
             .await
             .map_err(render_core_error)?;
 
-        self.finish_effect(effect_id, created.result_ref, self.run_fork_handoff(&request).await)
-            .await
+        self.finish_effect(
+            effect_id,
+            created.result_ref,
+            self.run_fork_handoff(&request).await,
+        )
+        .await
     }
 
-    async fn run_fork_handoff(&self, request: &ForkHandoffEffectRequest) -> Result<String, (Option<String>, String)> {
+    async fn run_fork_handoff(
+        &self,
+        request: &ForkHandoffEffectRequest,
+    ) -> Result<String, (Option<String>, String)> {
         let fork_result = self
             .fork_service
             .fork_session(
@@ -154,9 +171,17 @@ impl SessionEffectService {
             .map_err(|err| (None, render_fork_error(err)))?;
 
         self.seeded_send
-            .seeded_send(fork_result.new_session_id.clone(), request.seed_text.clone())
+            .seeded_send(
+                fork_result.new_session_id.clone(),
+                request.seed_text.clone(),
+            )
             .await
-            .map_err(|err| (Some(fork_result.new_session_id.clone()), render_send_error(err)))?;
+            .map_err(|err| {
+                (
+                    Some(fork_result.new_session_id.clone()),
+                    render_send_error(err),
+                )
+            })?;
 
         Ok(fork_result.new_session_id)
     }
@@ -198,7 +223,9 @@ fn render_core_error(err: Error) -> String {
     match err {
         Error::NotFound { resource } => format!("{resource} not found"),
         Error::Busy { resource } => format!("{resource} busy"),
-        Error::InvalidInput { message } | Error::Upstream { message } | Error::Internal { message } => message,
+        Error::InvalidInput { message }
+        | Error::Upstream { message }
+        | Error::Internal { message } => message,
     }
 }
 
@@ -227,7 +254,9 @@ mod tests {
         port::effect_ledger::{CreateSessionEffect, EffectLedgerPort, UpdateSessionEffect},
     };
 
-    use super::{ForkError, ForkHandoffEffectRequest, ForkResult, SeededSendExecutor, SessionEffectService};
+    use super::{
+        ForkError, ForkHandoffEffectRequest, ForkResult, SeededSendExecutor, SessionEffectService,
+    };
     use crate::session::send::SendSessionError;
 
     #[derive(Default)]
@@ -238,15 +267,26 @@ mod tests {
 
     #[async_trait::async_trait]
     impl EffectLedgerPort for FakeLedger {
-        async fn list_effects(&self, _session_id: &str) -> santi_core::error::Result<Vec<SessionEffect>> {
+        async fn list_effects(
+            &self,
+            _session_id: &str,
+        ) -> santi_core::error::Result<Vec<SessionEffect>> {
             Ok(Vec::new())
         }
 
-        async fn get_effect(&self, _session_id: &str, _effect_type: &str, _idempotency_key: &str) -> santi_core::error::Result<Option<SessionEffect>> {
+        async fn get_effect(
+            &self,
+            _session_id: &str,
+            _effect_type: &str,
+            _idempotency_key: &str,
+        ) -> santi_core::error::Result<Option<SessionEffect>> {
             Ok(None)
         }
 
-        async fn create_effect(&self, input: CreateSessionEffect) -> santi_core::error::Result<SessionEffect> {
+        async fn create_effect(
+            &self,
+            input: CreateSessionEffect,
+        ) -> santi_core::error::Result<SessionEffect> {
             let effect = SessionEffect {
                 id: input.effect_id,
                 session_id: input.session_id,
@@ -264,7 +304,10 @@ mod tests {
             Ok(effect)
         }
 
-        async fn update_effect(&self, input: UpdateSessionEffect) -> santi_core::error::Result<Option<SessionEffect>> {
+        async fn update_effect(
+            &self,
+            input: UpdateSessionEffect,
+        ) -> santi_core::error::Result<Option<SessionEffect>> {
             let effect = SessionEffect {
                 id: input.effect_id,
                 session_id: "sess_parent".to_string(),
@@ -287,7 +330,12 @@ mod tests {
 
     #[async_trait::async_trait]
     impl super::ForkExecutor for FakeFork {
-        async fn fork_session(&self, parent_session_id: String, fork_point: i64, _request_id: String) -> Result<ForkResult, ForkError> {
+        async fn fork_session(
+            &self,
+            parent_session_id: String,
+            fork_point: i64,
+            _request_id: String,
+        ) -> Result<ForkResult, ForkError> {
             Ok(ForkResult {
                 new_session_id: "sess_child".to_string(),
                 parent_session_id,
@@ -300,7 +348,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl SeededSendExecutor for FailingSeededSend {
-        async fn seeded_send(&self, _session_id: String, _seed_text: String) -> Result<String, SendSessionError> {
+        async fn seeded_send(
+            &self,
+            _session_id: String,
+            _seed_text: String,
+        ) -> Result<String, SendSessionError> {
             Err(SendSessionError::Internal("seed failed".to_string()))
         }
     }

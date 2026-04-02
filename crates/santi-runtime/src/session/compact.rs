@@ -7,7 +7,7 @@ use santi_core::{
     port::{
         lock::Lock,
         session_ledger::SessionLedgerPort,
-        soul_runtime::{AppendCompact, SoulRuntimePort, StartTurn},
+        soul_runtime::{AcquireSoulSession, AppendCompact, SoulRuntimePort, StartTurn},
     },
 };
 use uuid::Uuid;
@@ -99,29 +99,17 @@ impl SessionCompactService {
         let computed_end_session_seq = messages
             .last()
             .map(|message| message.relation.session_seq)
-            .ok_or_else(|| CompactSessionError::Invalid("cannot compact empty session".to_string()))?;
+            .ok_or_else(|| {
+                CompactSessionError::Invalid("cannot compact empty session".to_string())
+            })?;
 
         let soul_session = self
             .soul_runtime
-            .get_or_create_soul_session(&self.default_soul_id, &session.id)
+            .acquire_soul_session(AcquireSoulSession { soul_id: self.default_soul_id.clone(), session_id: session.id.clone() })
             .await
             .map_err(render_error)?;
 
-        let assembly_items = self
-            .soul_runtime
-            .list_assembly_items(&soul_session.id, None)
-            .await
-            .map_err(render_error)?;
-
-        let start_session_seq = assembly_items
-            .iter()
-            .filter_map(|item| match &item.target {
-                AssemblyTarget::Compact(compact) => Some(compact.end_session_seq),
-                _ => None,
-            })
-            .max()
-            .map(|seq| seq + 1)
-            .unwrap_or(1);
+        let start_session_seq = 1;
 
         let start_session_seq = request.start_session_seq.unwrap_or(start_session_seq);
         let end_session_seq = request.end_session_seq.unwrap_or(computed_end_session_seq);
@@ -227,31 +215,125 @@ mod tests {
 
     #[async_trait::async_trait]
     impl SessionLedgerPort for UnusedLedger {
-        async fn create_session(&self, _session_id: &str) -> santi_core::error::Result<santi_core::model::session::Session> { unreachable!() }
-        async fn get_session(&self, _session_id: &str) -> santi_core::error::Result<Option<santi_core::model::session::Session>> { unreachable!() }
-        async fn list_messages(&self, _session_id: &str, _after_session_seq: Option<i64>) -> santi_core::error::Result<Vec<santi_core::model::session::SessionMessage>> { unreachable!() }
-        async fn append_message(&self, _input: santi_core::port::session_ledger::AppendSessionMessage) -> santi_core::error::Result<santi_core::model::session::SessionMessage> { unreachable!() }
-        async fn apply_message_event(&self, _input: santi_core::port::session_ledger::ApplyMessageEvent) -> santi_core::error::Result<santi_core::model::session::SessionMessage> { unreachable!() }
+        async fn create_session(
+            &self,
+            _session_id: &str,
+        ) -> santi_core::error::Result<santi_core::model::session::Session> {
+            unreachable!()
+        }
+        async fn get_session(
+            &self,
+            _session_id: &str,
+        ) -> santi_core::error::Result<Option<santi_core::model::session::Session>> {
+            unreachable!()
+        }
+        async fn get_message(
+            &self,
+            _message_id: &str,
+        ) -> santi_core::error::Result<Option<santi_core::model::session::SessionMessage>> {
+            unreachable!()
+        }
+        async fn list_messages(
+            &self,
+            _session_id: &str,
+            _after_session_seq: Option<i64>,
+        ) -> santi_core::error::Result<Vec<santi_core::model::session::SessionMessage>> {
+            unreachable!()
+        }
+        async fn append_message(
+            &self,
+            _input: santi_core::port::session_ledger::AppendSessionMessage,
+        ) -> santi_core::error::Result<santi_core::model::session::SessionMessage> {
+            unreachable!()
+        }
+        async fn apply_message_event(
+            &self,
+            _input: santi_core::port::session_ledger::ApplyMessageEvent,
+        ) -> santi_core::error::Result<santi_core::model::session::SessionMessage> {
+            unreachable!()
+        }
     }
 
     struct UnusedSoulRuntime;
 
     #[async_trait::async_trait]
     impl SoulRuntimePort for UnusedSoulRuntime {
-        async fn get_or_create_soul_session(&self, _soul_id: &str, _session_id: &str) -> santi_core::error::Result<santi_core::model::runtime::SoulSession> { unreachable!() }
-        async fn get_soul_session(&self, _soul_session_id: &str) -> santi_core::error::Result<Option<santi_core::model::runtime::SoulSession>> { unreachable!() }
-        async fn load_turn_context(&self, _soul_id: &str, _session_id: &str) -> santi_core::error::Result<Option<santi_core::model::runtime::TurnContext>> { unreachable!() }
-        async fn write_session_memory(&self, _soul_session_id: &str, _text: &str) -> santi_core::error::Result<Option<santi_core::model::runtime::SoulSession>> { unreachable!() }
-        async fn start_turn(&self, _input: santi_core::port::soul_runtime::StartTurn) -> santi_core::error::Result<santi_core::model::runtime::Turn> { unreachable!() }
-        async fn append_message_ref(&self, _input: santi_core::port::soul_runtime::AppendMessageRef) -> santi_core::error::Result<santi_core::model::runtime::AssemblyItem> { unreachable!() }
-        async fn append_tool_call(&self, _input: santi_core::port::soul_runtime::AppendToolCall) -> santi_core::error::Result<santi_core::model::runtime::AssemblyItem> { unreachable!() }
-        async fn append_tool_result(&self, _input: santi_core::port::soul_runtime::AppendToolResult) -> santi_core::error::Result<santi_core::model::runtime::AssemblyItem> { unreachable!() }
-        async fn append_compact(&self, _input: santi_core::port::soul_runtime::AppendCompact) -> santi_core::error::Result<santi_core::model::runtime::AssemblyItem> { unreachable!() }
-        async fn complete_turn(&self, _input: santi_core::port::soul_runtime::CompleteTurn) -> santi_core::error::Result<santi_core::model::runtime::Turn> { unreachable!() }
-        async fn fail_turn(&self, _input: santi_core::port::soul_runtime::FailTurn) -> santi_core::error::Result<santi_core::model::runtime::Turn> { unreachable!() }
-        async fn get_soul_session_by_session_id(&self, _session_id: &str) -> santi_core::error::Result<Option<santi_core::model::runtime::SoulSession>> { unreachable!() }
-        async fn fork_soul_session(&self, _parent_soul_session_id: &str, _fork_point: i64, _new_soul_session_id: &str, _new_session_id: &str) -> santi_core::error::Result<santi_core::model::runtime::SoulSession> { unreachable!() }
-        async fn list_assembly_items(&self, _soul_session_id: &str, _after_soul_session_seq: Option<i64>) -> santi_core::error::Result<Vec<santi_core::model::runtime::AssemblyItem>> { unreachable!() }
+        async fn acquire_soul_session(
+            &self,
+            _input: santi_core::port::soul_runtime::AcquireSoulSession,
+        ) -> santi_core::error::Result<santi_core::model::runtime::SoulSession> {
+            unreachable!()
+        }
+        async fn get_soul_session(
+            &self,
+            _soul_session_id: &str,
+        ) -> santi_core::error::Result<Option<santi_core::model::runtime::SoulSession>> {
+            unreachable!()
+        }
+        async fn write_session_memory(
+            &self,
+            _soul_session_id: &str,
+            _text: &str,
+        ) -> santi_core::error::Result<Option<santi_core::model::runtime::SoulSession>> {
+            unreachable!()
+        }
+        async fn start_turn(
+            &self,
+            _input: santi_core::port::soul_runtime::StartTurn,
+        ) -> santi_core::error::Result<santi_core::model::runtime::Turn> {
+            unreachable!()
+        }
+        async fn append_message_ref(
+            &self,
+            _input: santi_core::port::soul_runtime::AppendMessageRef,
+        ) -> santi_core::error::Result<santi_core::model::runtime::AssemblyItem> {
+            unreachable!()
+        }
+        async fn append_tool_call(
+            &self,
+            _input: santi_core::port::soul_runtime::AppendToolCall,
+        ) -> santi_core::error::Result<santi_core::model::runtime::AssemblyItem> {
+            unreachable!()
+        }
+        async fn append_tool_result(
+            &self,
+            _input: santi_core::port::soul_runtime::AppendToolResult,
+        ) -> santi_core::error::Result<santi_core::model::runtime::AssemblyItem> {
+            unreachable!()
+        }
+        async fn append_compact(
+            &self,
+            _input: santi_core::port::soul_runtime::AppendCompact,
+        ) -> santi_core::error::Result<santi_core::model::runtime::AssemblyItem> {
+            unreachable!()
+        }
+        async fn complete_turn(
+            &self,
+            _input: santi_core::port::soul_runtime::CompleteTurn,
+        ) -> santi_core::error::Result<santi_core::model::runtime::Turn> {
+            unreachable!()
+        }
+        async fn fail_turn(
+            &self,
+            _input: santi_core::port::soul_runtime::FailTurn,
+        ) -> santi_core::error::Result<santi_core::model::runtime::Turn> {
+            unreachable!()
+        }
+        async fn get_soul_session_by_session_id(
+            &self,
+            _session_id: &str,
+        ) -> santi_core::error::Result<Option<santi_core::model::runtime::SoulSession>> {
+            unreachable!()
+        }
+        async fn fork_soul_session(
+            &self,
+            _parent_soul_session_id: &str,
+            _fork_point: i64,
+            _new_soul_session_id: &str,
+            _new_session_id: &str,
+        ) -> santi_core::error::Result<santi_core::model::runtime::SoulSession> {
+            unreachable!()
+        }
     }
 
     #[tokio::test]

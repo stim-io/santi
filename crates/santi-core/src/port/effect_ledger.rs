@@ -1,7 +1,4 @@
-use crate::{
-    error::Result,
-    model::effect::SessionEffect,
-};
+use crate::{error::Result, model::effect::SessionEffect};
 
 #[derive(Clone, Debug)]
 pub struct CreateSessionEffect {

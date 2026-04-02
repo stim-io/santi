@@ -17,8 +17,8 @@ use santi_core::{
         provider::{Provider, ProviderEvent, ProviderFunctionCall, ProviderRequest},
         session_ledger::{AppendSessionMessage, SessionLedgerPort},
         soul_runtime::{
-            AppendMessageRef, AppendToolCall, AppendToolResult, CompleteTurn, FailTurn,
-            SoulRuntimePort, StartTurn,
+            AcquireSoulSession, AppendMessageRef, AppendToolCall, AppendToolResult, CompleteTurn,
+            FailTurn, SoulRuntimePort, StartTurn,
         },
     },
     provider::ProviderInputMessage,
@@ -38,11 +38,8 @@ use crate::{
         tools::{ToolExecutor, ToolExecutorConfig},
     },
     session::{
-        compact::SessionCompactService,
-        effect::SessionEffectService,
-        fork::SessionForkService,
-        hook_runtime::HookRuntime,
-        memory::SessionMemoryService,
+        compact::SessionCompactService, effect::SessionEffectService, fork::SessionForkService,
+        hook_runtime::HookRuntime, memory::SessionMemoryService,
     },
 };
 
@@ -122,6 +119,37 @@ struct StartupContext {
     runtime_context: ToolRuntimeContext,
 }
 
+async fn build_assembly_items(
+    session_ledger: Arc<dyn SessionLedgerPort>,
+    soul_session_id: &str,
+) -> Result<Vec<AssemblyItem>, SendSessionError> {
+    let session_messages = session_ledger
+        .list_messages(soul_session_id, None)
+        .await
+        .map_err(map_core_error)?;
+    let mut items = Vec::new();
+    for message in session_messages {
+        let Some(message) = session_ledger
+            .get_message(&message.message.id)
+            .await
+            .map_err(map_core_error)?
+        else {
+            continue;
+        };
+        items.push(AssemblyItem {
+            entry: santi_core::model::runtime::SoulSessionEntry {
+                soul_session_id: soul_session_id.to_string(),
+                target_type: santi_core::model::runtime::SoulSessionTargetType::Message,
+                target_id: message.message.id.clone(),
+                soul_session_seq: message.relation.session_seq,
+                created_at: message.relation.created_at.clone(),
+            },
+            target: AssemblyTarget::Message(message),
+        });
+    }
+    Ok(items)
+}
+
 impl SessionSendService {
     pub fn new(
         model: String,
@@ -195,7 +223,9 @@ impl SessionSendService {
         let hooks = self.hooks.clone();
         let request = TurnExecutionRequest {
             session_id: cmd.session_id,
-            input: TurnInput::UserText { text: cmd.user_content },
+            input: TurnInput::UserText {
+                text: cmd.user_content,
+            },
             emit_events: true,
             run_hooks: true,
         };
@@ -276,19 +306,13 @@ async fn run_turn_startup(
     soul_runtime: Arc<dyn SoulRuntimePort>,
     tools: Arc<ToolExecutor>,
 ) -> Result<StartupContext, SendSessionError> {
-    let session = session_ledger
-        .get_session(&request.session_id)
-        .await
-        .map_err(map_core_error)?
-        .ok_or(SendSessionError::NotFound)?;
-
     let soul_session = soul_runtime
-        .get_or_create_soul_session(default_soul_id, &request.session_id)
+        .acquire_soul_session(AcquireSoulSession { soul_id: default_soul_id.to_string(), session_id: request.session_id.clone() })
         .await
         .map_err(map_core_error)?;
 
-    let turn_context = soul_runtime
-        .load_turn_context(default_soul_id, &request.session_id)
+    let session = session_ledger
+        .get_session(&request.session_id)
         .await
         .map_err(map_core_error)?
         .ok_or(SendSessionError::NotFound)?;
@@ -321,18 +345,15 @@ async fn run_turn_startup(
         .await
         .map_err(map_core_error)?;
 
-    let assembly = soul_runtime
-        .list_assembly_items(&soul_session.id, None)
-        .await
-        .map_err(map_core_error)?;
-
+    let assembly = build_assembly_items(session_ledger.clone(), &soul_session.id)
+        .await?;
     let provider_input = assembly_to_provider_input(&assembly);
-    let runtime_context = tools.build_context(&request.session_id, &turn_context.soul.id);
+    let runtime_context = tools.build_context(&request.session_id, &soul_session.soul_id);
     let core_prompt = build_runtime_prompt(RuntimePromptSource {
         session_id: Some(request.session_id.clone()),
-        soul_id: Some(turn_context.soul.id.clone()),
-        soul_memory: Some(turn_context.soul.memory.clone()),
-        session_memory: Some(turn_context.soul_session.session_memory.clone()),
+        soul_id: Some(soul_session.soul_id.clone()),
+        soul_memory: None,
+        session_memory: Some(soul_session.session_memory.clone()),
         request_instructions: None,
     });
     let instructions = render_runtime_instructions(&core_prompt, &runtime_context, &tools);
@@ -382,7 +403,7 @@ async fn run_turn_worker(
         request.clone(),
         model,
         provider,
-        session_ledger,
+        session_ledger.clone(),
         soul_runtime.clone(),
         tools,
         startup,
@@ -412,10 +433,8 @@ async fn run_turn_worker(
                         .await
                         .map_err(map_core_error)?
                     {
-                        let assembly = soul_runtime
-                            .list_assembly_items(&output.soul_session_id, None)
-                            .await
-                            .map_err(map_core_error)?;
+                        let assembly = build_assembly_items(session_ledger.clone(), &output.soul_session_id)
+                            .await?;
 
                         let _ = hooks
                             .run_turn_completed(TurnCompletedHookInput {

@@ -10,6 +10,7 @@ use crate::{handler, openapi::ApiDoc, state::AppState};
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/api/v1/health", get(handler::health::health))
+        .route("/api/v1/meta", get(handler::meta::meta))
         .route("/api/v1/admin/hooks", put(handler::admin::reload_hooks))
         .route("/api/v1/soul", get(handler::session::get_default_soul))
         .route(
@@ -32,7 +33,7 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route(
             "/api/v1/sessions/:id/memory",
-            put(handler::session::set_session_memory),
+            get(handler::session::get_session_memory).put(handler::session::set_session_memory),
         )
         .route(
             "/api/v1/sessions/:id/messages",
@@ -41,6 +42,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/sessions/:id/effects",
             get(handler::session::list_session_effects),
+        )
+        .route(
+            "/api/v1/sessions/:id/compacts",
+            get(handler::session::list_session_compacts),
         )
         .merge(SwaggerUi::new("/api/docs").url("/api/openapi.json", ApiDoc::openapi()))
         .with_state(state)

@@ -2,10 +2,7 @@ use std::sync::Arc;
 
 use santi_core::{
     error::{Error, LockError},
-    port::{
-        lock::Lock,
-        soul_runtime::SoulRuntimePort,
-    },
+    port::{lock::Lock, soul_runtime::SoulRuntimePort},
 };
 use uuid::Uuid;
 
@@ -31,14 +28,8 @@ pub enum ForkError {
 }
 
 impl SessionForkService {
-    pub fn new(
-        lock: Arc<dyn Lock>,
-        soul_runtime: Arc<dyn SoulRuntimePort>,
-    ) -> Self {
-        Self {
-            lock,
-            soul_runtime,
-        }
+    pub fn new(lock: Arc<dyn Lock>, soul_runtime: Arc<dyn SoulRuntimePort>) -> Self {
+        Self { lock, soul_runtime }
     }
 
     pub async fn fork_session(
@@ -48,11 +39,7 @@ impl SessionForkService {
         request_id: String,
     ) -> std::result::Result<ForkResult, ForkError> {
         let lock_key = format!("lock:session_send:{}", parent_session_id);
-        let guard = self
-            .lock
-            .acquire(&lock_key)
-            .await
-            .map_err(map_lock_error)?;
+        let guard = self.lock.acquire(&lock_key).await.map_err(map_lock_error)?;
 
         let parent_soul_session = self
             .soul_runtime
@@ -62,7 +49,10 @@ impl SessionForkService {
             .ok_or(ForkError::ParentNotFound)?;
 
         let namespace = Uuid::NAMESPACE_OID;
-        let hash_input = format!("santi_fork:{}:{}:{}", parent_session_id, fork_point, request_id);
+        let hash_input = format!(
+            "santi_fork:{}:{}:{}",
+            parent_session_id, fork_point, request_id
+        );
         let new_session_id = format!(
             "sess_{}",
             Uuid::new_v5(&namespace, hash_input.as_bytes()).simple()
@@ -205,24 +195,18 @@ mod tests {
 
     #[async_trait::async_trait]
     impl SoulRuntimePort for FakeSoulRuntime {
-        async fn get_or_create_soul_session(
+        async fn acquire_soul_session(
             &self,
-            _soul_id: &str,
-            _session_id: &str,
+            _input: santi_core::port::soul_runtime::AcquireSoulSession,
         ) -> santi_core::error::Result<SoulSession> {
             unimplemented!()
         }
 
-        async fn get_soul_session(&self, _soul_session_id: &str) -> santi_core::error::Result<Option<SoulSession>> {
-            Ok(None)
-        }
-
-        async fn load_turn_context(
+        async fn get_soul_session(
             &self,
-            _soul_id: &str,
-            _session_id: &str,
-        ) -> santi_core::error::Result<Option<santi_core::model::runtime::TurnContext>> {
-            unimplemented!()
+            _soul_session_id: &str,
+        ) -> santi_core::error::Result<Option<SoulSession>> {
+            Ok(None)
         }
 
         async fn write_session_memory(
@@ -233,35 +217,59 @@ mod tests {
             unimplemented!()
         }
 
-        async fn start_turn(&self, _input: StartTurn) -> santi_core::error::Result<santi_core::model::runtime::Turn> {
+        async fn start_turn(
+            &self,
+            _input: StartTurn,
+        ) -> santi_core::error::Result<santi_core::model::runtime::Turn> {
             unimplemented!()
         }
 
-        async fn append_message_ref(&self, _input: AppendMessageRef) -> santi_core::error::Result<santi_core::model::runtime::AssemblyItem> {
+        async fn append_message_ref(
+            &self,
+            _input: AppendMessageRef,
+        ) -> santi_core::error::Result<santi_core::model::runtime::AssemblyItem> {
             unimplemented!()
         }
 
-        async fn append_tool_call(&self, _input: AppendToolCall) -> santi_core::error::Result<santi_core::model::runtime::AssemblyItem> {
+        async fn append_tool_call(
+            &self,
+            _input: AppendToolCall,
+        ) -> santi_core::error::Result<santi_core::model::runtime::AssemblyItem> {
             unimplemented!()
         }
 
-        async fn append_tool_result(&self, _input: AppendToolResult) -> santi_core::error::Result<santi_core::model::runtime::AssemblyItem> {
+        async fn append_tool_result(
+            &self,
+            _input: AppendToolResult,
+        ) -> santi_core::error::Result<santi_core::model::runtime::AssemblyItem> {
             unimplemented!()
         }
 
-        async fn append_compact(&self, _input: AppendCompact) -> santi_core::error::Result<santi_core::model::runtime::AssemblyItem> {
+        async fn append_compact(
+            &self,
+            _input: AppendCompact,
+        ) -> santi_core::error::Result<santi_core::model::runtime::AssemblyItem> {
             unimplemented!()
         }
 
-        async fn complete_turn(&self, _input: CompleteTurn) -> santi_core::error::Result<santi_core::model::runtime::Turn> {
+        async fn complete_turn(
+            &self,
+            _input: CompleteTurn,
+        ) -> santi_core::error::Result<santi_core::model::runtime::Turn> {
             unimplemented!()
         }
 
-        async fn fail_turn(&self, _input: FailTurn) -> santi_core::error::Result<santi_core::model::runtime::Turn> {
+        async fn fail_turn(
+            &self,
+            _input: FailTurn,
+        ) -> santi_core::error::Result<santi_core::model::runtime::Turn> {
             unimplemented!()
         }
 
-        async fn get_soul_session_by_session_id(&self, session_id: &str) -> santi_core::error::Result<Option<SoulSession>> {
+        async fn get_soul_session_by_session_id(
+            &self,
+            session_id: &str,
+        ) -> santi_core::error::Result<Option<SoulSession>> {
             if let Some(existing_child) = &self.existing_child {
                 if existing_child.session_id == session_id {
                     return Ok(Some(existing_child.clone()));
@@ -304,13 +312,6 @@ mod tests {
             })
         }
 
-        async fn list_assembly_items(
-            &self,
-            _soul_session_id: &str,
-            _after_soul_session_seq: Option<i64>,
-        ) -> santi_core::error::Result<Vec<santi_core::model::runtime::AssemblyItem>> {
-            unimplemented!()
-        }
     }
 
     fn parent_session() -> SoulSession {
@@ -337,11 +338,7 @@ mod tests {
             soul_id: "soul_default".to_string(),
             session_id: format!(
                 "sess_{}",
-                Uuid::new_v5(
-                    &Uuid::NAMESPACE_OID,
-                    b"santi_fork:sess_parent:3:req_1"
-                )
-                .simple()
+                Uuid::new_v5(&Uuid::NAMESPACE_OID, b"santi_fork:sess_parent:3:req_1").simple()
             ),
             session_memory: "memory".to_string(),
             provider_state: None,
@@ -352,7 +349,10 @@ mod tests {
             created_at: "now".to_string(),
             updated_at: "now".to_string(),
         };
-        let runtime = Arc::new(FakeSoulRuntime::new(Some(parent), Some(existing_child.clone())));
+        let runtime = Arc::new(FakeSoulRuntime::new(
+            Some(parent),
+            Some(existing_child.clone()),
+        ));
         let service = SessionForkService::new(Arc::new(FakeLock::default()), runtime.clone());
 
         let result = service

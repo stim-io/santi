@@ -137,6 +137,13 @@ First-pass payloads:
 
 ## Soul Runtime
 
+Boundary note:
+
+- core defines the atomic boundary traits required by runtime and does not model `db / ebus / lock`
+- middleware implements those core traits through adapters
+- runtime owns orchestration / concurrency / business composition on top of those traits
+- `get_or_create` is normalized as a sanctioned high-frequency domain atom named `acquire`; it is not lock semantics
+
 ### `soul_sessions`
 
 - `id`
@@ -217,6 +224,10 @@ Current stance:
 - runtime artifacts created during execution belong to that `turn`
 - failure belongs on the `turn`, not on public messages
 - first pass does not model cancellation, retry state, or a separate persisted `run` object
+- keep the lifecycle split as `start_turn` / `complete_turn` / `fail_turn`; do not unify them under a `mark_turn` abstraction
+- `load_turn_context` is not a stable contract surface; decompose it into `get_session` + `get_soul` + `acquire_soul_session`, with runtime assembling `TurnContext`
+- `list_assembly_items` is not a stable contract surface; decompose it into `list_soul_session_entries` plus per-target getters (`message` / `tool_call` / `tool_result` / `compact`), with runtime assembling `AssemblyItem`
+- do not introduce `resolve_assembly_target`
 
 Minimal field semantics:
 

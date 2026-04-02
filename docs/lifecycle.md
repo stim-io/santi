@@ -15,12 +15,15 @@
 
 - runtime container for one `soul × session`
 - owns `session_memory`, provider continuity, and runtime frontier state
+- runtime owns orchestration / concurrency; core stays out of `db / ebus / lock` modeling
 
 ## `turn`
 
 - one execution attempt for one `soul_session`
 - contains runtime tool activity
 - completes with the final public assistant message, or fails on the turn itself
+- keep the lifecycle split as `start_turn` / `complete_turn` / `fail_turn`
+- do not collapse turn lifecycle into a single `mark_turn` abstraction
 
 ## Hooks
 

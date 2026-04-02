@@ -4,14 +4,15 @@ use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::TryStreamExt;
 use reqwest::{Client, StatusCode};
-use serde::{Deserialize, Serialize};
 use santi_core::hook::HookSpecSource;
+use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 
 use crate::{
     backend::{
         BackendError, CliBackend, CliCompact, CliHealth, CliHookReload, CliMemoryRecord,
-        CliMessage, CliSession, CliSoul, SendEvent, SendStream,
+        CliMessage, CliSession, CliSessionEffect, CliSessionEffects, CliSoul, ForkedCliSession,
+        SendEvent, SendStream,
     },
     config::Config,
 };
@@ -31,8 +32,25 @@ struct SessionResponse {
 }
 
 #[derive(Debug, Deserialize)]
+struct ForkResponse {
+    new_session_id: String,
+    parent_session_id: String,
+    fork_point: i64,
+}
+
+#[derive(Debug, Deserialize)]
 struct SessionMessagesResponse {
     messages: Vec<CliMessage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SessionEffectsResponse {
+    effects: Vec<CliSessionEffect>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SessionCompactsResponse {
+    compacts: Vec<CliCompact>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -189,6 +207,38 @@ impl CliBackend for ApiBackend {
             parent_session_id: session.parent_session_id,
             fork_point: session.fork_point,
             created_at: session.created_at,
+        })
+    }
+
+    async fn fork_session(
+        &self,
+        session_id: String,
+        fork_point: i64,
+    ) -> Result<ForkedCliSession, BackendError> {
+        let response = self
+            .client
+            .post(self.endpoint(&format!("/api/v1/sessions/{session_id}/fork")))
+            .json(&serde_json::json!({
+                "fork_point": fork_point,
+                "request_id": format!("cli-fork-{session_id}-{fork_point}"),
+            }))
+            .send()
+            .await
+            .map_err(|err| BackendError::Other(err.to_string()))?;
+
+        if !response.status().is_success() {
+            return Err(map_error_response(response).await);
+        }
+
+        let body = response
+            .json::<ForkResponse>()
+            .await
+            .map_err(|err| BackendError::Other(err.to_string()))?;
+
+        Ok(ForkedCliSession {
+            id: body.new_session_id,
+            parent_session_id: body.parent_session_id,
+            fork_point: body.fork_point,
         })
     }
 
@@ -363,6 +413,32 @@ impl CliBackend for ApiBackend {
         })
     }
 
+    async fn get_session_memory(
+        &self,
+        session_id: String,
+    ) -> Result<CliMemoryRecord, BackendError> {
+        let response = self
+            .client
+            .get(self.endpoint(&format!("/api/v1/sessions/{session_id}/memory")))
+            .send()
+            .await
+            .map_err(|err| BackendError::Other(err.to_string()))?;
+
+        if !response.status().is_success() {
+            return Err(map_error_response(response).await);
+        }
+
+        let body = response
+            .json::<MemoryResponse>()
+            .await
+            .map_err(|err| BackendError::Other(err.to_string()))?;
+        Ok(CliMemoryRecord {
+            id: body.id,
+            memory: body.memory,
+            updated_at: body.updated_at,
+        })
+    }
+
     async fn compact_session(
         &self,
         session_id: String,
@@ -384,6 +460,49 @@ impl CliBackend for ApiBackend {
             .json::<CliCompact>()
             .await
             .map_err(|err| BackendError::Other(err.to_string()))
+    }
+
+    async fn list_compacts(&self, session_id: String) -> Result<Vec<CliCompact>, BackendError> {
+        let response = self
+            .client
+            .get(self.endpoint(&format!("/api/v1/sessions/{session_id}/compacts")))
+            .send()
+            .await
+            .map_err(|err| BackendError::Other(err.to_string()))?;
+
+        if !response.status().is_success() {
+            return Err(map_error_response(response).await);
+        }
+
+        let body = response
+            .json::<SessionCompactsResponse>()
+            .await
+            .map_err(|err| BackendError::Other(err.to_string()))?;
+        Ok(body.compacts)
+    }
+
+    async fn list_session_effects(
+        &self,
+        session_id: String,
+    ) -> Result<CliSessionEffects, BackendError> {
+        let response = self
+            .client
+            .get(self.endpoint(&format!("/api/v1/sessions/{session_id}/effects")))
+            .send()
+            .await
+            .map_err(|err| BackendError::Other(err.to_string()))?;
+
+        if !response.status().is_success() {
+            return Err(map_error_response(response).await);
+        }
+
+        let body = response
+            .json::<SessionEffectsResponse>()
+            .await
+            .map_err(|err| BackendError::Other(err.to_string()))?;
+        Ok(CliSessionEffects {
+            effects: body.effects,
+        })
     }
 
     async fn reload_hooks(&self, source: HookSpecSource) -> Result<CliHookReload, BackendError> {

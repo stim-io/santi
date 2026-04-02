@@ -51,7 +51,11 @@ impl RedisEbusClient {
         })
     }
 
-    pub async fn publish_signal(&self, topic: &str, payload: &str) -> Result<(), redis::RedisError> {
+    pub async fn publish_signal(
+        &self,
+        topic: &str,
+        payload: &str,
+    ) -> Result<(), redis::RedisError> {
         let mut conn = self.client.get_multiplexed_async_connection().await?;
         let channel = match &self.config.channel_prefix {
             Some(prefix) => format!("{prefix}:{topic}"),

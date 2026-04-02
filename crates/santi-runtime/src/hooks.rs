@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use santi_core::{
     hook::{HookKind, HookPoint, HookSpec, HookSpecSource, RuntimeAction},
-    model::{runtime::AssemblyItem, runtime::SoulSession, runtime::Turn, runtime::TurnTriggerType, session::Session, session::SessionMessage},
+    model::{
+        runtime::AssemblyItem, runtime::SoulSession, runtime::Turn, runtime::TurnTriggerType,
+        session::Session, session::SessionMessage,
+    },
 };
 use serde::Deserialize;
 
@@ -66,8 +69,9 @@ fn compile_spec(spec: &HookSpec) -> Option<Arc<dyn HookEvaluator>> {
     match spec.kind {
         HookKind::CompactThreshold => CompactThresholdHook::from_spec(spec)
             .map(|hook| Arc::new(hook) as Arc<dyn HookEvaluator>),
-        HookKind::CompactHandoff => CompactHandoffHook::from_spec(spec)
-            .map(|hook| Arc::new(hook) as Arc<dyn HookEvaluator>),
+        HookKind::CompactHandoff => {
+            CompactHandoffHook::from_spec(spec).map(|hook| Arc::new(hook) as Arc<dyn HookEvaluator>)
+        }
         HookKind::ForkHandoffThreshold => ForkHandoffThresholdHook::from_spec(spec)
             .map(|hook| Arc::new(hook) as Arc<dyn HookEvaluator>),
     }
@@ -111,7 +115,9 @@ impl HookEvaluator for CompactThresholdHook {
             .assembly_tail
             .iter()
             .filter_map(|item| match &item.target {
-                santi_core::model::runtime::AssemblyTarget::Compact(compact) => Some(compact.end_session_seq),
+                santi_core::model::runtime::AssemblyTarget::Compact(compact) => {
+                    Some(compact.end_session_seq)
+                }
                 _ => None,
             })
             .max()
@@ -120,9 +126,16 @@ impl HookEvaluator for CompactThresholdHook {
         let messages_since_last_compact = input
             .assembly_tail
             .iter()
-            .filter(|item| matches!(item.target, santi_core::model::runtime::AssemblyTarget::Message(_)))
+            .filter(|item| {
+                matches!(
+                    item.target,
+                    santi_core::model::runtime::AssemblyTarget::Message(_)
+                )
+            })
             .filter(|item| match &item.target {
-                santi_core::model::runtime::AssemblyTarget::Message(message) => message.relation.session_seq > last_compact_end,
+                santi_core::model::runtime::AssemblyTarget::Message(message) => {
+                    message.relation.session_seq > last_compact_end
+                }
                 _ => false,
             })
             .count();
@@ -178,13 +191,20 @@ struct CompactHandoffHook {
 impl CompactHandoffHook {
     fn from_spec(spec: &HookSpec) -> Option<Self> {
         let params: CompactHandoffParams = serde_json::from_value(spec.params.clone()).ok()?;
-        Some(Self { id: spec.id.clone(), summary: params.summary })
+        Some(Self {
+            id: spec.id.clone(),
+            summary: params.summary,
+        })
     }
 }
 
 impl HookEvaluator for CompactHandoffHook {
-    fn id(&self) -> &str { &self.id }
-    fn hook_point(&self) -> HookPoint { HookPoint::TurnCompleted }
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn hook_point(&self) -> HookPoint {
+        HookPoint::TurnCompleted
+    }
     fn evaluate_turn_completed(&self, _input: TurnCompletedHookInput<'_>) -> Vec<RuntimeAction> {
         let _ = &self.summary;
         Vec::new()
@@ -200,7 +220,8 @@ struct ForkHandoffThresholdHook {
 
 impl ForkHandoffThresholdHook {
     fn from_spec(spec: &HookSpec) -> Option<Self> {
-        let params: ForkHandoffThresholdParams = serde_json::from_value(spec.params.clone()).ok()?;
+        let params: ForkHandoffThresholdParams =
+            serde_json::from_value(spec.params.clone()).ok()?;
         Some(Self {
             id: spec.id.clone(),
             min_messages_since_last_compact: params.min_messages_since_last_compact,
@@ -232,7 +253,9 @@ impl HookEvaluator for ForkHandoffThresholdHook {
             .assembly_tail
             .iter()
             .filter_map(|item| match &item.target {
-                santi_core::model::runtime::AssemblyTarget::Compact(compact) => Some(compact.end_session_seq),
+                santi_core::model::runtime::AssemblyTarget::Compact(compact) => {
+                    Some(compact.end_session_seq)
+                }
                 _ => None,
             })
             .max()
@@ -241,9 +264,16 @@ impl HookEvaluator for ForkHandoffThresholdHook {
         let messages_since_last_compact = input
             .assembly_tail
             .iter()
-            .filter(|item| matches!(item.target, santi_core::model::runtime::AssemblyTarget::Message(_)))
+            .filter(|item| {
+                matches!(
+                    item.target,
+                    santi_core::model::runtime::AssemblyTarget::Message(_)
+                )
+            })
             .filter(|item| match &item.target {
-                santi_core::model::runtime::AssemblyTarget::Message(message) => message.relation.session_seq > last_compact_end,
+                santi_core::model::runtime::AssemblyTarget::Message(message) => {
+                    message.relation.session_seq > last_compact_end
+                }
                 _ => false,
             })
             .count();

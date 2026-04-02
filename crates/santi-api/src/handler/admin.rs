@@ -22,8 +22,12 @@ pub async fn reload_hooks(
     State(state): State<AppState>,
     Json(request): Json<HookReloadRequest>,
 ) -> impl IntoResponse {
-    match state.reload_hooks_from_source(request.source.into()).await {
+    match state
+        .admin_api()
+        .reload_hooks_from_source(request.source.into())
+        .await
+    {
         Ok(hook_count) => (StatusCode::OK, Json(HookReloadResponse { hook_count })).into_response(),
-        Err(err) => (StatusCode::BAD_REQUEST, Json(ErrorResponse::new(err))).into_response(),
+        Err(err) => err.into_error_response().into_response(),
     }
 }

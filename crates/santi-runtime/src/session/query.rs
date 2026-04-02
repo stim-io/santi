@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use santi_core::{
     error::Error,
-    model::{session::Session, session::SessionMessage, soul::Soul},
-    port::{session_ledger::SessionLedgerPort, soul::SoulPort},
+    model::{runtime::Compact, session::Session, session::SessionMessage, soul::Soul},
+    port::{session_ledger::SessionLedgerPort, soul::SoulPort, soul_runtime::SoulRuntimePort},
 };
 use uuid::Uuid;
 
@@ -11,6 +11,7 @@ use uuid::Uuid;
 pub struct SessionQueryService {
     session_ledger: Arc<dyn SessionLedgerPort>,
     soul_port: Arc<dyn SoulPort>,
+    soul_runtime: Arc<dyn SoulRuntimePort>,
     default_soul_id: String,
 }
 
@@ -18,11 +19,13 @@ impl SessionQueryService {
     pub fn new(
         session_ledger: Arc<dyn SessionLedgerPort>,
         soul_port: Arc<dyn SoulPort>,
+        soul_runtime: Arc<dyn SoulRuntimePort>,
         default_soul_id: String,
     ) -> Self {
         Self {
             session_ledger,
             soul_port,
+            soul_runtime,
             default_soul_id,
         }
     }
@@ -50,6 +53,18 @@ impl SessionQueryService {
             .list_messages(session_id, None)
             .await
             .map_err(render_error)
+    }
+
+    pub async fn list_session_compacts(&self, session_id: &str) -> Result<Vec<Compact>, String> {
+        let soul_session = self
+            .soul_runtime
+            .get_soul_session_by_session_id(session_id)
+            .await
+            .map_err(render_error)?;
+        let Some(_soul_session) = soul_session else {
+            return Ok(vec![]);
+        };
+        Ok(vec![])
     }
 
     pub async fn get_default_soul(&self) -> Result<Option<Soul>, String> {

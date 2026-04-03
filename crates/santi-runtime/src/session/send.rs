@@ -311,7 +311,10 @@ async fn run_turn_startup(
     tools: Arc<ToolExecutor>,
 ) -> Result<StartupContext, SendSessionError> {
     let soul_session = soul_runtime
-        .acquire_soul_session(AcquireSoulSession { soul_id: default_soul_id.to_string(), session_id: request.session_id.clone() })
+        .acquire_soul_session(AcquireSoulSession {
+            soul_id: default_soul_id.to_string(),
+            session_id: request.session_id.clone(),
+        })
         .await
         .map_err(map_core_error)?;
 
@@ -349,8 +352,8 @@ async fn run_turn_startup(
         .await
         .map_err(map_core_error)?;
 
-    let assembly = build_assembly_items(session_ledger.clone(), &session.id, &soul_session.id)
-        .await?;
+    let assembly =
+        build_assembly_items(session_ledger.clone(), &session.id, &soul_session.id).await?;
     let provider_input = assembly_to_provider_input(&assembly);
     let runtime_context = tools.build_context(&request.session_id, &soul_session.soul_id);
     let core_prompt = build_runtime_prompt(RuntimePromptSource {
@@ -442,7 +445,7 @@ async fn run_turn_worker(
                             &output.session.id,
                             &output.soul_session_id,
                         )
-                            .await?;
+                        .await?;
 
                         let _ = hooks
                             .run_turn_completed(TurnCompletedHookInput {

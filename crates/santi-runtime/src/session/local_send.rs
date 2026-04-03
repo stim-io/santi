@@ -66,7 +66,10 @@ impl LocalSessionSendService {
         let turn_result: Result<(), LocalSendError> = if let Ok(trigger_message) = &append_result {
             let soul_session = self
                 .soul_runtime
-                .acquire_soul_session(santi_core::port::soul_runtime::AcquireSoulSession { soul_id: "soul_default".to_string(), session_id: session_id.to_string() })
+                .acquire_soul_session(santi_core::port::soul_runtime::AcquireSoulSession {
+                    soul_id: "soul_default".to_string(),
+                    session_id: session_id.to_string(),
+                })
                 .await
                 .map_err(map_error)?;
             self.soul_runtime

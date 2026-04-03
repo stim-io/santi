@@ -7,7 +7,7 @@ santi-core
   - models
   - ports
 
-santi-db / santi-lock
+santi-db / santi-ebus / santi-lock
   - infrastructure adapters
 
 santi-runtime

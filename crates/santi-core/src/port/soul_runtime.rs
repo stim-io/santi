@@ -2,9 +2,7 @@ use serde_json::Value;
 
 use crate::{
     error::Result,
-    model::runtime::{
-        AssemblyItem, ProviderState, SoulSession, Turn, TurnTriggerType,
-    },
+    model::runtime::{AssemblyItem, ProviderState, SoulSession, Turn, TurnTriggerType},
 };
 
 #[derive(Clone, Debug)]
@@ -72,6 +70,4 @@ pub trait SoulRuntimePort: Send + Sync {
     async fn append_tool_result(&self, input: AppendToolResult) -> Result<AssemblyItem>;
     async fn complete_turn(&self, input: CompleteTurn) -> Result<Turn>;
     async fn fail_turn(&self, input: FailTurn) -> Result<Turn>;
-    async fn get_soul_session_by_session_id(&self, session_id: &str)
-        -> Result<Option<SoulSession>>;
 }

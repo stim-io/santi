@@ -1,7 +1,4 @@
-use crate::{
-    error::Result,
-    model::runtime::AssemblyItem,
-};
+use crate::{error::Result, model::runtime::AssemblyItem};
 
 #[derive(Clone, Debug)]
 pub struct AppendCompact {

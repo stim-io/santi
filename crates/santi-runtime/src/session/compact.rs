@@ -109,7 +109,10 @@ impl SessionCompactService {
 
         let soul_session = self
             .soul_runtime
-            .acquire_soul_session(AcquireSoulSession { soul_id: self.default_soul_id.clone(), session_id: session.id.clone() })
+            .acquire_soul_session(AcquireSoulSession {
+                soul_id: self.default_soul_id.clone(),
+                session_id: session.id.clone(),
+            })
             .await
             .map_err(render_error)?;
 

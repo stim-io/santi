@@ -8,13 +8,16 @@ use santi_core::{
     model::{
         message::{ActorType, Message, MessageContent, MessagePart, MessageState},
         runtime::{
-            AssemblyItem, AssemblyTarget, Compact, ProviderState, SoulSession,
-            SoulSessionEntry, SoulSessionTargetType, ToolCall, ToolResult, Turn, TurnStatus,
-            TurnTriggerType,
+            AssemblyItem, AssemblyTarget, Compact, ProviderState, SoulSession, SoulSessionEntry,
+            SoulSessionTargetType, ToolCall, ToolResult, Turn, TurnStatus, TurnTriggerType,
         },
         session::{SessionMessage, SessionMessageRef},
     },
-    port::{compact_ledger::CompactLedgerPort, soul_runtime::{AcquireSoulSession, AppendMessageRef, AppendToolCall, AppendToolResult, CompleteTurn, FailTurn, SoulRuntimePort, StartTurn}},
+    port::{
+        compact_ledger::CompactLedgerPort,
+        soul_runtime::{AcquireSoulSession, AppendMessageRef, AppendToolCall, AppendToolResult, CompleteTurn, FailTurn, SoulRuntimePort, StartTurn},
+        soul_session_query::SoulSessionQueryPort,
+    },
 };
 
 #[derive(Clone)]
@@ -177,7 +180,8 @@ impl LocalSoulRuntime {
 #[async_trait::async_trait]
 impl SoulRuntimePort for LocalSoulRuntime {
     async fn acquire_soul_session(&self, input: AcquireSoulSession) -> Result<SoulSession> {
-        self.ensure_soul_session(&input.soul_id, &input.session_id).await?;
+        self.ensure_soul_session(&input.soul_id, &input.session_id)
+            .await?;
         self.fetch_soul_session_by_session_id(&input.session_id)
             .await?
             .ok_or(Error::NotFound {
@@ -189,7 +193,11 @@ impl SoulRuntimePort for LocalSoulRuntime {
         self.fetch_soul_session_by_id(soul_session_id).await
     }
 
-    async fn write_session_memory(&self, soul_session_id: &str, text: &str) -> Result<Option<SoulSession>> {
+    async fn write_session_memory(
+        &self,
+        soul_session_id: &str,
+        text: &str,
+    ) -> Result<Option<SoulSession>> {
         let row = sqlx::query(
             r#"UPDATE local_soul_sessions
                SET session_memory = ?2,
@@ -319,18 +327,17 @@ impl SoulRuntimePort for LocalSoulRuntime {
             message: format!("local append tool call tx begin failed: {err}"),
         })?;
 
-        let soul_session_id: String = sqlx::query_scalar(
-            r#"SELECT soul_session_id FROM local_turns WHERE id = ?1 LIMIT 1"#,
-        )
-        .bind(&input.turn_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|err| Error::Internal {
-            message: format!("local load tool call soul session failed: {err}"),
-        })?
-        .ok_or(Error::NotFound {
-            resource: "local_turn",
-        })?;
+        let soul_session_id: String =
+            sqlx::query_scalar(r#"SELECT soul_session_id FROM local_turns WHERE id = ?1 LIMIT 1"#)
+                .bind(&input.turn_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|err| Error::Internal {
+                    message: format!("local load tool call soul session failed: {err}"),
+                })?
+                .ok_or(Error::NotFound {
+                    resource: "local_turn",
+                })?;
 
         let seq_row = sqlx::query(
             r#"UPDATE local_soul_sessions
@@ -558,10 +565,13 @@ impl SoulRuntimePort for LocalSoulRuntime {
         map_turn_row(row)
     }
 
+}
+
+#[async_trait::async_trait]
+impl SoulSessionQueryPort for LocalSoulRuntime {
     async fn get_soul_session_by_session_id(&self, session_id: &str) -> Result<Option<SoulSession>> {
         self.fetch_soul_session_by_session_id(session_id).await
     }
-
 }
 
 #[async_trait::async_trait]
@@ -635,7 +645,10 @@ mod tests {
             .await
             .expect("tool result");
 
-        assert_eq!(tool_result.entry.target_type, SoulSessionTargetType::ToolResult);
+        assert_eq!(
+            tool_result.entry.target_type,
+            SoulSessionTargetType::ToolResult
+        );
         assert_eq!(tool_result.entry.soul_session_seq, 2);
         match tool_result.target {
             AssemblyTarget::ToolResult(result) => {

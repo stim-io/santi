@@ -4,10 +4,10 @@ use santi_api::{
 };
 use santi_core::port::lock::Lock;
 use santi_db::adapter::local::{
-    session_fork_compact::LocalSessionForkCompactStore, session_store::LocalSessionStore,
+    session_compact::LocalSessionCompactStore, session_store::LocalSessionStore,
     soul_runtime::LocalSoulRuntime, soul_store::LocalSoulStore,
 };
-use santi_lock::InProcessLock;
+use santi_lock::adapter::local::InProcessLock;
 use santi_runtime::session::query::SessionQueryService;
 use std::sync::Arc;
 
@@ -75,17 +75,23 @@ async fn local_query_service_lists_compacts_via_fork_compact_store() {
     let soul_store = Arc::new(LocalSoulStore::new(&db_path).await.unwrap());
     let soul_runtime = Arc::new(LocalSoulRuntime::new(&db_path).await.unwrap());
     let send_lock: Arc<dyn Lock> = Arc::new(InProcessLock::default());
-    let fork_compact = Arc::new(LocalSessionForkCompactStore::new(&db_path, send_lock).await.unwrap());
+    let compact_ledger = Arc::new(LocalSessionCompactStore::new(&db_path, send_lock).await.unwrap());
 
     store.create_session("sess_1").await.unwrap();
-    store.append_user_message("sess_1", "hello local").await.unwrap();
-    fork_compact.compact_session("sess_1", "local compact").await.unwrap();
+    store
+        .append_user_message("sess_1", "hello local")
+        .await
+        .unwrap();
+    compact_ledger
+        .compact_session("sess_1", "local compact")
+        .await
+        .unwrap();
 
     let query = SessionQueryService::new(
         store,
         soul_store,
         soul_runtime,
-        fork_compact,
+        compact_ledger,
         "soul_default".to_string(),
     );
 

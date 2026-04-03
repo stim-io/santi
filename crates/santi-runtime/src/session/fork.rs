@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use santi_core::{
     error::{Error, LockError},
-    port::{lock::Lock, soul_runtime::SoulRuntimePort},
+    port::{lock::Lock, soul_runtime::SoulRuntimePort, soul_session_fork::SoulSessionForkPort},
 };
 use uuid::Uuid;
 
@@ -10,6 +10,7 @@ use uuid::Uuid;
 pub struct SessionForkService {
     lock: Arc<dyn Lock>,
     soul_runtime: Arc<dyn SoulRuntimePort>,
+    soul_session_fork: Arc<dyn SoulSessionForkPort>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,8 +29,16 @@ pub enum ForkError {
 }
 
 impl SessionForkService {
-    pub fn new(lock: Arc<dyn Lock>, soul_runtime: Arc<dyn SoulRuntimePort>) -> Self {
-        Self { lock, soul_runtime }
+    pub fn new(
+        lock: Arc<dyn Lock>,
+        soul_runtime: Arc<dyn SoulRuntimePort>,
+        soul_session_fork: Arc<dyn SoulSessionForkPort>,
+    ) -> Self {
+        Self {
+            lock,
+            soul_runtime,
+            soul_session_fork,
+        }
     }
 
     pub async fn fork_session(
@@ -91,7 +100,7 @@ impl SessionForkService {
 
         let new_soul_session_id = format!("ss_{}", Uuid::new_v4().simple());
 
-        self.soul_runtime
+        self.soul_session_fork
             .fork_soul_session(
                 &parent_soul_session.id,
                 fork_point,
@@ -138,9 +147,10 @@ mod tests {
         port::{
             lock::{Lock, LockGuard},
             soul_runtime::{
-                AppendCompact, AppendMessageRef, AppendToolCall, AppendToolResult, CompleteTurn,
-                FailTurn, SoulRuntimePort, StartTurn,
+                AppendMessageRef, AppendToolCall, AppendToolResult, CompleteTurn, FailTurn,
+                SoulRuntimePort, StartTurn,
             },
+            soul_session_fork::SoulSessionForkPort,
         },
     };
     use uuid::Uuid;
@@ -180,6 +190,10 @@ mod tests {
     struct FakeSoulRuntime {
         parent: Option<SoulSession>,
         existing_child: Option<SoulSession>,
+    }
+
+    #[derive(Clone)]
+    struct FakeSoulSessionFork {
         fork_calls: Arc<Mutex<Vec<(String, i64, String, String)>>>,
     }
 
@@ -188,6 +202,13 @@ mod tests {
             Self {
                 parent,
                 existing_child,
+            }
+        }
+    }
+
+    impl FakeSoulSessionFork {
+        fn new() -> Self {
+            Self {
                 fork_calls: Arc::new(Mutex::new(Vec::new())),
             }
         }
@@ -245,13 +266,6 @@ mod tests {
             unimplemented!()
         }
 
-        async fn append_compact(
-            &self,
-            _input: AppendCompact,
-        ) -> santi_core::error::Result<santi_core::model::runtime::AssemblyItem> {
-            unimplemented!()
-        }
-
         async fn complete_turn(
             &self,
             _input: CompleteTurn,
@@ -283,6 +297,10 @@ mod tests {
             Ok(None)
         }
 
+    }
+
+    #[async_trait::async_trait]
+    impl SoulSessionForkPort for FakeSoulSessionFork {
         async fn fork_soul_session(
             &self,
             parent_soul_session_id: &str,
@@ -311,7 +329,6 @@ mod tests {
                 updated_at: "now".to_string(),
             })
         }
-
     }
 
     fn parent_session() -> SoulSession {
@@ -353,7 +370,12 @@ mod tests {
             Some(parent),
             Some(existing_child.clone()),
         ));
-        let service = SessionForkService::new(Arc::new(FakeLock::default()), runtime.clone());
+        let fork_port = Arc::new(FakeSoulSessionFork::new());
+        let service = SessionForkService::new(
+            Arc::new(FakeLock::default()),
+            runtime.clone(),
+            fork_port.clone(),
+        );
 
         let result = service
             .fork_session("sess_parent".to_string(), 3, "req_1".to_string())
@@ -361,13 +383,18 @@ mod tests {
             .expect("fork should succeed");
 
         assert_eq!(result.new_session_id, existing_child.session_id);
-        assert!(runtime.fork_calls.lock().expect("poisoned").is_empty());
+        assert!(fork_port.fork_calls.lock().expect("poisoned").is_empty());
     }
 
     #[tokio::test]
     async fn rejects_invalid_fork_point_before_copy() {
         let runtime = Arc::new(FakeSoulRuntime::new(Some(parent_session()), None));
-        let service = SessionForkService::new(Arc::new(FakeLock::default()), runtime.clone());
+        let fork_port = Arc::new(FakeSoulSessionFork::new());
+        let service = SessionForkService::new(
+            Arc::new(FakeLock::default()),
+            runtime.clone(),
+            fork_port.clone(),
+        );
 
         let err = service
             .fork_session("sess_parent".to_string(), 5, "req_1".to_string())
@@ -375,6 +402,6 @@ mod tests {
             .expect_err("fork should fail");
 
         assert!(matches!(err, ForkError::InvalidForkPoint(_)));
-        assert!(runtime.fork_calls.lock().expect("poisoned").is_empty());
+        assert!(fork_port.fork_calls.lock().expect("poisoned").is_empty());
     }
 }

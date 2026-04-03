@@ -5,9 +5,10 @@ use santi_core::{
     hook::CompactReason,
     model::runtime::{AssemblyTarget, Compact},
     port::{
+        compact_runtime::{AppendCompact, CompactRuntimePort},
         lock::Lock,
         session_ledger::SessionLedgerPort,
-        soul_runtime::{AcquireSoulSession, AppendCompact, SoulRuntimePort, StartTurn},
+        soul_runtime::{AcquireSoulSession, SoulRuntimePort, StartTurn},
     },
 };
 use uuid::Uuid;
@@ -26,6 +27,7 @@ pub struct SessionCompactService {
     lock: Arc<dyn Lock>,
     session_ledger: Arc<dyn SessionLedgerPort>,
     soul_runtime: Arc<dyn SoulRuntimePort>,
+    compact_runtime: Arc<dyn CompactRuntimePort>,
     default_soul_id: String,
 }
 
@@ -42,12 +44,14 @@ impl SessionCompactService {
         lock: Arc<dyn Lock>,
         session_ledger: Arc<dyn SessionLedgerPort>,
         soul_runtime: Arc<dyn SoulRuntimePort>,
+        compact_runtime: Arc<dyn CompactRuntimePort>,
         default_soul_id: String,
     ) -> Self {
         Self {
             lock,
             session_ledger,
             soul_runtime,
+            compact_runtime,
             default_soul_id,
         }
     }
@@ -134,7 +138,7 @@ impl SessionCompactService {
             .map_err(render_error)?;
 
         let compact = self
-            .soul_runtime
+            .compact_runtime
             .append_compact(AppendCompact {
                 compact_id: format!("compact_{}", Uuid::new_v4().simple()),
                 turn_id: turn.id.clone(),
@@ -191,6 +195,7 @@ mod tests {
     use santi_core::{
         error::LockError,
         port::{
+            compact_runtime::CompactRuntimePort,
             lock::{Lock, LockGuard},
             session_ledger::SessionLedgerPort,
             soul_runtime::SoulRuntimePort,
@@ -256,6 +261,8 @@ mod tests {
 
     struct UnusedSoulRuntime;
 
+    struct UnusedCompactRuntime;
+
     #[async_trait::async_trait]
     impl SoulRuntimePort for UnusedSoulRuntime {
         async fn acquire_soul_session(
@@ -301,12 +308,6 @@ mod tests {
         ) -> santi_core::error::Result<santi_core::model::runtime::AssemblyItem> {
             unreachable!()
         }
-        async fn append_compact(
-            &self,
-            _input: santi_core::port::soul_runtime::AppendCompact,
-        ) -> santi_core::error::Result<santi_core::model::runtime::AssemblyItem> {
-            unreachable!()
-        }
         async fn complete_turn(
             &self,
             _input: santi_core::port::soul_runtime::CompleteTurn,
@@ -325,13 +326,14 @@ mod tests {
         ) -> santi_core::error::Result<Option<santi_core::model::runtime::SoulSession>> {
             unreachable!()
         }
-        async fn fork_soul_session(
+    }
+
+    #[async_trait::async_trait]
+    impl CompactRuntimePort for UnusedCompactRuntime {
+        async fn append_compact(
             &self,
-            _parent_soul_session_id: &str,
-            _fork_point: i64,
-            _new_soul_session_id: &str,
-            _new_session_id: &str,
-        ) -> santi_core::error::Result<santi_core::model::runtime::SoulSession> {
+            _input: santi_core::port::compact_runtime::AppendCompact,
+        ) -> santi_core::error::Result<santi_core::model::runtime::AssemblyItem> {
             unreachable!()
         }
     }
@@ -342,6 +344,7 @@ mod tests {
             Arc::new(BusyLock),
             Arc::new(UnusedLedger),
             Arc::new(UnusedSoulRuntime),
+            Arc::new(UnusedCompactRuntime),
             "soul_default".to_string(),
         );
 

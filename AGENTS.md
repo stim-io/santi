@@ -55,6 +55,9 @@ Detailed system thinking belongs in `docs/`, not here.
 - `docs/lifecycle.md`: soul/session lifecycle and fork hook model
 - `docs/hook-reload-boundary.md`: runtime boundary for hook source inputs and whole-set reload
 - `docs/dev-environment.md`: local development baseline and smoke entrypoints
+- `scripts/verify.sh`: workspace verify entrypoint; runs no-skips, fmt check, and locked workspace tests
+- `scripts/package.sh`: release packaging entrypoint for a target triple; writes archives to `dist/`
+- `scripts/verify/no-skips.sh`: fast guard that fails on skipped tests
 - `docs/cold-start-verification.md`: cold-start operational verification flow for common runtime smoke checks
 - `docs/dev-faq.md`: local troubleshooting notes for common development and smoke/integration issues
 - `docs/redis-lock-plan.md`: minimal Redis-based concurrency lock plan for `session/send`
@@ -68,6 +71,12 @@ Detailed system thinking belongs in `docs/`, not here.
 - `docs/meta-and-error-schema.md`: shared success meta and error schema for HTTP, CLI, and local mode
 - `docs/architecture-adr.md`: decision record for the `santi` service boundary, CLI split, and compatibility rules
 - `../AGENTS.md`: repo-root product and deployment boundary across `santi/`, `santi-link/`, and `santi-cli/`
+
+## Release Policy
+
+- This workspace follows a long-lived beta-only `0.1.0-beta.N` release line.
+- Keep packaging and verification entrypoints aligned with that beta-only workflow.
+- Skipped tests are not allowed in committed sources; `scripts/verify/no-skips.sh` is part of the required verification gate.
 
 ## Update Rules
 

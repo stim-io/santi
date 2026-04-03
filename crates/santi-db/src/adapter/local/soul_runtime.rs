@@ -15,7 +15,10 @@ use santi_core::{
     },
     port::{
         compact_ledger::CompactLedgerPort,
-        soul_runtime::{AcquireSoulSession, AppendMessageRef, AppendToolCall, AppendToolResult, CompleteTurn, FailTurn, SoulRuntimePort, StartTurn},
+        soul_runtime::{
+            AcquireSoulSession, AppendMessageRef, AppendToolCall, AppendToolResult, CompleteTurn,
+            FailTurn, SoulRuntimePort, StartTurn,
+        },
         soul_session_query::SoulSessionQueryPort,
     },
 };
@@ -564,12 +567,14 @@ impl SoulRuntimePort for LocalSoulRuntime {
 
         map_turn_row(row)
     }
-
 }
 
 #[async_trait::async_trait]
 impl SoulSessionQueryPort for LocalSoulRuntime {
-    async fn get_soul_session_by_session_id(&self, session_id: &str) -> Result<Option<SoulSession>> {
+    async fn get_soul_session_by_session_id(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SoulSession>> {
         self.fetch_soul_session_by_session_id(session_id).await
     }
 }

@@ -11,7 +11,10 @@ use santi_core::{
     },
     port::effect_ledger::EffectLedgerPort,
 };
-use santi_db::adapter::local::{session_compact::{LocalCompactError, LocalSessionCompactStore}, session_fork::{LocalForkError, LocalSessionForkStore}};
+use santi_db::adapter::local::{
+    session_compact::{LocalCompactError, LocalSessionCompactStore},
+    session_fork::{LocalForkError, LocalSessionForkStore},
+};
 use santi_runtime::hooks::{compile_hook_specs, load_hook_specs, HookEvaluator};
 use santi_runtime::session::{
     compact::{CompactSessionError, SessionCompactService},
@@ -316,7 +319,10 @@ impl SessionApi for LocalSessionApi {
 
     async fn list_session_compacts(&self, session_id: &str) -> Result<Vec<Compact>, ApiError> {
         self.get_session(session_id).await?;
-        self.compact.list_compacts(session_id).await.map_err(map_local_core_error)
+        self.compact
+            .list_compacts(session_id)
+            .await
+            .map_err(map_local_core_error)
     }
 
     async fn get_session_memory(

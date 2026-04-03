@@ -75,7 +75,11 @@ async fn local_query_service_lists_compacts_via_fork_compact_store() {
     let soul_store = Arc::new(LocalSoulStore::new(&db_path).await.unwrap());
     let soul_runtime = Arc::new(LocalSoulRuntime::new(&db_path).await.unwrap());
     let send_lock: Arc<dyn Lock> = Arc::new(InProcessLock::default());
-    let compact_ledger = Arc::new(LocalSessionCompactStore::new(&db_path, send_lock).await.unwrap());
+    let compact_ledger = Arc::new(
+        LocalSessionCompactStore::new(&db_path, send_lock)
+            .await
+            .unwrap(),
+    );
 
     store.create_session("sess_1").await.unwrap();
     store

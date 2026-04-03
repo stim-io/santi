@@ -15,9 +15,12 @@ use santi_core::{
     port::{
         compact_ledger::CompactLedgerPort,
         compact_runtime::{AppendCompact, CompactRuntimePort},
-        soul_runtime::{AcquireSoulSession, AppendMessageRef, AppendToolCall, AppendToolResult, CompleteTurn, FailTurn, SoulRuntimePort, StartTurn},
-        soul_session_query::SoulSessionQueryPort,
+        soul_runtime::{
+            AcquireSoulSession, AppendMessageRef, AppendToolCall, AppendToolResult, CompleteTurn,
+            FailTurn, SoulRuntimePort, StartTurn,
+        },
         soul_session_fork::SoulSessionForkPort,
+        soul_session_query::SoulSessionQueryPort,
     },
 };
 
@@ -445,7 +448,10 @@ impl SoulRuntimePort for DbSoulRuntime {
 
 #[async_trait::async_trait]
 impl SoulSessionQueryPort for DbSoulRuntime {
-    async fn get_soul_session_by_session_id(&self, session_id: &str) -> Result<Option<SoulSession>> {
+    async fn get_soul_session_by_session_id(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SoulSession>> {
         let row = sqlx::query(
             r#"
             SELECT id, soul_id, session_id, session_memory, provider_state, next_seq,

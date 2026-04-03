@@ -11,6 +11,7 @@ use santi_core::{
         session::SessionMessage,
     },
     port::{
+        compact_runtime::CompactRuntimePort,
         ebus::SubscriberSetPort,
         effect_ledger::EffectLedgerPort,
         lock::{Lock, LockGuard},
@@ -157,6 +158,7 @@ impl SessionSendService {
         lock: Arc<dyn Lock>,
         session_ledger: Arc<dyn SessionLedgerPort>,
         soul_runtime: Arc<dyn SoulRuntimePort>,
+        compact_runtime: Arc<dyn CompactRuntimePort>,
         effect_ledger: Arc<dyn EffectLedgerPort>,
         fork_service: Arc<SessionForkService>,
         provider: Arc<dyn Provider>,
@@ -169,6 +171,7 @@ impl SessionSendService {
             lock.clone(),
             session_ledger.clone(),
             soul_runtime.clone(),
+            compact_runtime,
             default_soul_id.clone(),
         ));
         let turn_service = Arc::new(SessionTurnService {

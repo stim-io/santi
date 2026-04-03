@@ -45,15 +45,6 @@ pub struct AppendToolResult {
 }
 
 #[derive(Clone, Debug)]
-pub struct AppendCompact {
-    pub compact_id: String,
-    pub turn_id: String,
-    pub summary: String,
-    pub start_session_seq: i64,
-    pub end_session_seq: i64,
-}
-
-#[derive(Clone, Debug)]
 pub struct CompleteTurn {
     pub turn_id: String,
     pub last_seen_session_seq: i64,
@@ -79,17 +70,8 @@ pub trait SoulRuntimePort: Send + Sync {
     async fn append_message_ref(&self, input: AppendMessageRef) -> Result<AssemblyItem>;
     async fn append_tool_call(&self, input: AppendToolCall) -> Result<AssemblyItem>;
     async fn append_tool_result(&self, input: AppendToolResult) -> Result<AssemblyItem>;
-    async fn append_compact(&self, input: AppendCompact) -> Result<AssemblyItem>;
     async fn complete_turn(&self, input: CompleteTurn) -> Result<Turn>;
     async fn fail_turn(&self, input: FailTurn) -> Result<Turn>;
     async fn get_soul_session_by_session_id(&self, session_id: &str)
         -> Result<Option<SoulSession>>;
-
-    async fn fork_soul_session(
-        &self,
-        parent_soul_session_id: &str,
-        fork_point: i64,
-        new_soul_session_id: &str,
-        new_session_id: &str,
-    ) -> Result<SoulSession>;
 }

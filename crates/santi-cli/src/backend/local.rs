@@ -86,7 +86,11 @@ impl LocalBackend {
             Arc::new(DbSessionLedger::new(pool.clone()));
         let effect_ledger: Arc<dyn EffectLedgerPort> = Arc::new(DbEffectLedger::new(pool.clone()));
         let soul_port: Arc<dyn SoulPort> = Arc::new(DbSoul::new(pool.clone()));
-        let soul_runtime: Arc<dyn SoulRuntimePort> = Arc::new(DbSoulRuntime::new(pool));
+        let soul_runtime_impl = Arc::new(DbSoulRuntime::new(pool));
+        let soul_runtime: Arc<dyn SoulRuntimePort> = soul_runtime_impl.clone();
+        let compact_ledger: Arc<dyn santi_core::port::compact_ledger::CompactLedgerPort> = soul_runtime_impl.clone();
+        let compact_runtime: Arc<dyn santi_core::port::compact_runtime::CompactRuntimePort> = soul_runtime_impl.clone();
+        let soul_session_fork: Arc<dyn santi_core::port::soul_session_fork::SoulSessionForkPort> = soul_runtime_impl.clone();
 
         let session_memory = Arc::new(SessionMemoryService::new(
             soul_runtime.clone(),
@@ -97,25 +101,32 @@ impl LocalBackend {
             session_ledger.clone(),
             soul_port,
             soul_runtime.clone(),
+            compact_ledger,
             default_soul_id.clone(),
         ));
         let session_compact = Arc::new(SessionCompactService::new(
             lock.clone(),
             session_ledger.clone(),
             soul_runtime.clone(),
+            compact_runtime,
             default_soul_id.clone(),
         ));
         let hook_specs = load_startup_hook_specs(config.hook_source.as_ref()).await?;
         let ebus: Arc<dyn SubscriberSetPort<Arc<dyn HookEvaluator>>> =
             Arc::new(InMemorySubscriberSet::<Arc<dyn HookEvaluator>>::new());
         ebus.replace_all(compile_hook_specs(&hook_specs));
-        let session_fork = Arc::new(SessionForkService::new(lock.clone(), soul_runtime.clone()));
+        let session_fork = Arc::new(SessionForkService::new(
+            lock.clone(),
+            soul_runtime.clone(),
+            soul_session_fork,
+        ));
         let session_send = Arc::new(SessionSendService::new(
             config.openai_model.clone(),
             default_soul_id.clone(),
             lock,
             session_ledger,
             soul_runtime,
+            soul_runtime_impl.clone(),
             effect_ledger.clone(),
             session_fork.clone(),
             provider,

@@ -28,6 +28,8 @@ pub async fn bootstrap_local(config: &Config) -> santi_core::error::Result<AppSt
         Arc::new(LocalEffectLedger::new(&config.local_sqlite_path).await?);
     let soul_runtime_port: Arc<dyn santi_core::port::soul_runtime::SoulRuntimePort> =
         soul_runtime.clone();
+    let compact_ledger: Arc<dyn santi_core::port::compact_ledger::CompactLedgerPort> =
+        soul_runtime.clone();
     let fork_compact = Arc::new(
         LocalSessionForkCompactStore::new(&config.local_sqlite_path, send_lock.clone()).await?,
     );
@@ -53,6 +55,7 @@ pub async fn bootstrap_local(config: &Config) -> santi_core::error::Result<AppSt
         store.clone(),
         soul_port,
         soul_runtime,
+        compact_ledger,
         "soul_default".to_string(),
     ));
 

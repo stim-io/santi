@@ -7,7 +7,7 @@ use sqlx::{sqlite::SqlitePoolOptions, Row, SqlitePool};
 use santi_core::{
     error::{Error, LockError, Result},
     model::runtime::Compact,
-    port::{lock::Lock, lock::LockGuard},
+    port::{compact_ledger::CompactLedgerPort, lock::Lock, lock::LockGuard},
 };
 use uuid::Uuid;
 
@@ -403,6 +403,26 @@ impl LocalSessionForkCompactStore {
         })?;
 
         Ok(LocalSoulSessionRow { id: row.get("id") })
+    }
+}
+
+#[async_trait::async_trait]
+impl CompactLedgerPort for LocalSessionForkCompactStore {
+    async fn list_compacts(&self, soul_session_id: &str) -> Result<Vec<Compact>> {
+        let session_id: String = sqlx::query_scalar(
+            r#"SELECT session_id FROM local_soul_sessions WHERE id = ?1 LIMIT 1"#,
+        )
+        .bind(soul_session_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|err| Error::Internal {
+            message: format!("load local compact session id failed: {err}"),
+        })?
+        .ok_or(Error::NotFound {
+            resource: "local_soul_session",
+        })?;
+
+        LocalSessionForkCompactStore::list_compacts(self, &session_id).await
     }
 }
 

@@ -1,12 +1,12 @@
 use std::{fs::OpenOptions, sync::Arc};
 
 use santi_db::adapter::local::{
-    effect_ledger::LocalEffectLedger, session_fork_compact::LocalSessionForkCompactStore,
-    session_store::LocalSessionStore, soul_runtime::LocalSoulRuntime,
-    soul_store::LocalSoulStore,
+    effect_ledger::LocalEffectLedger, session_compact::LocalSessionCompactStore,
+    session_fork::LocalSessionForkStore,
+    session_store::LocalSessionStore, soul_runtime::LocalSoulRuntime, soul_store::LocalSoulStore,
 };
-use santi_ebus::InMemorySubscriberSet;
-use santi_lock::InProcessLock;
+use santi_ebus::adapter::local::InMemorySubscriberSet;
+use santi_lock::adapter::local::InProcessLock;
 use santi_runtime::hooks::{compile_hook_specs, load_hook_specs, HookEvaluator};
 use santi_runtime::session::{
     local_send::LocalSessionSendService, memory::SessionMemoryService, query::SessionQueryService,
@@ -28,11 +28,10 @@ pub async fn bootstrap_local(config: &Config) -> santi_core::error::Result<AppSt
         Arc::new(LocalEffectLedger::new(&config.local_sqlite_path).await?);
     let soul_runtime_port: Arc<dyn santi_core::port::soul_runtime::SoulRuntimePort> =
         soul_runtime.clone();
-    let fork_compact = Arc::new(
-        LocalSessionForkCompactStore::new(&config.local_sqlite_path, send_lock.clone()).await?,
-    );
-    let compact_ledger: Arc<dyn santi_core::port::compact_ledger::CompactLedgerPort> =
-        fork_compact.clone();
+    let soul_session_query: Arc<dyn santi_core::port::soul_session_query::SoulSessionQueryPort> = soul_runtime.clone();
+    let fork = Arc::new(LocalSessionForkStore::new(&config.local_sqlite_path, send_lock.clone()).await?);
+    let compact = Arc::new(LocalSessionCompactStore::new(&config.local_sqlite_path, send_lock.clone()).await?);
+    let compact_ledger: Arc<dyn santi_core::port::compact_ledger::CompactLedgerPort> = compact.clone();
     let session_ledger: Arc<dyn santi_core::port::session_ledger::SessionLedgerPort> =
         store.clone();
     let soul_port: Arc<dyn santi_core::port::soul::SoulPort> = soul_store;
@@ -48,13 +47,14 @@ pub async fn bootstrap_local(config: &Config) -> santi_core::error::Result<AppSt
     ));
     let memory = Arc::new(SessionMemoryService::new(
         soul_runtime.clone(),
+        soul_session_query.clone(),
         soul_port.clone(),
         "soul_default".to_string(),
     ));
     let query = Arc::new(SessionQueryService::new(
         store.clone(),
         soul_port,
-        soul_runtime,
+        soul_session_query,
         compact_ledger,
         "soul_default".to_string(),
     ));
@@ -65,7 +65,8 @@ pub async fn bootstrap_local(config: &Config) -> santi_core::error::Result<AppSt
         Arc::new(LocalSessionApi {
             query: query.clone(),
             memory: memory.clone(),
-            fork_compact,
+            fork,
+            compact,
             effect_ledger,
             send,
         }),

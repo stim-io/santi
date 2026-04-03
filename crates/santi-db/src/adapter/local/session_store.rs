@@ -286,7 +286,11 @@ impl SessionLedgerPort for LocalSessionStore {
                     _ => ActorType::Account,
                 },
                 actor_id: row.get("actor_id"),
-                content: MessageContent { parts: vec![MessagePart::Text { text: row.get("content_text") }] },
+                content: MessageContent {
+                    parts: vec![MessagePart::Text {
+                        text: row.get("content_text"),
+                    }],
+                },
                 state: match row.get::<String, _>("state").as_str() {
                     "fixed" => MessageState::Fixed,
                     _ => MessageState::Pending,

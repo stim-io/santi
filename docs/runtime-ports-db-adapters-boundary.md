@@ -29,8 +29,8 @@
 ## 当前不一致点
 
 - **命名混杂**：`Store / Ledger / Runtime` 混用，例如 `LocalSessionStore` 实现的是 `SessionLedgerPort`，`LocalSoulStore` 实现的是 `SoulPort`。
-- **local partial impl**：`LocalSessionStore::apply_message_event()` 仍返回 unavailable；local 的 compact / fork / compact list read 仍主要停留在 `LocalSessionForkCompactStore` 这条本地专用路径，而不是 hosted runtime ports 同构实现，说明 trait 边界已进一步收窄，但 local 能力仍未完全对齐到同一组 ports。
-- **local helper 仍偏复合**：`LocalSessionForkCompactStore` 同时承载 local fork、compact、compact list 这几类本地专用能力；当前它符合 local 事实入口，但还不是与 hosted 对齐后的最小 port 形状。
+- **local partial impl**：`LocalSessionStore::apply_message_event()` 仍返回 unavailable；local 的 compact / fork 能力已拆到各自的本地专用路径，而不是停留在一个复合 helper 里，说明 trait 边界已进一步收窄，但 local 能力仍未完全对齐到同一组 ports。
+- **local helper 已拆分**：当前没有 `LocalSessionForkCompactStore` 这类合并式 helper；fork 与 compact 分别由独立的 local 实现承载，仍是本地专用入口，而不是 hosted runtime ports 同构实现。
 
 ## 当前源代码事实补充
 
@@ -42,7 +42,7 @@ runtime 的 send 路径现在按 `SessionLedgerPort::list_messages` 取消息序
 
 当前还需要继续盯住的 seam 主要变成两类：
 
-- local 的 `LocalSessionForkCompactStore` 是否继续作为本地专用 composite helper 保留
+- local 的 fork / compact 各自实现是否还需要继续收敛为更原子的 query seam
 - compact / assembly 这类读取能力是否需要新的更原子的 query seam，而不是重新把 composite read 塞回 runtime port
 
 ## 最安全的后续执行顺序
@@ -66,7 +66,8 @@ runtime 的 send 路径现在按 `SessionLedgerPort::list_messages` 取消息序
   - `crates/santi-db/src/adapter/local/effect_ledger.rs`
   - `crates/santi-db/src/adapter/local/soul_store.rs`
   - `crates/santi-db/src/adapter/local/soul_runtime.rs`
-  - `crates/santi-db/src/adapter/local/session_fork_compact.rs`
+  - `crates/santi-db/src/adapter/local/session_fork.rs`
+  - `crates/santi-db/src/adapter/local/session_compact.rs`
 - postgres:
   - `crates/santi-db/src/adapter/postgres/session_ledger.rs`
   - `crates/santi-db/src/adapter/postgres/effect_ledger.rs`

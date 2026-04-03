@@ -1,10 +1,8 @@
 use std::sync::Arc;
 
 use santi_core::port::{lock::Lock, session_ledger::SessionLedgerPort};
-use santi_db::adapter::local::{
-    session_store::LocalSessionStore, soul_runtime::LocalSoulRuntime,
-};
-use santi_lock::InProcessLock;
+use santi_db::adapter::local::{session_store::LocalSessionStore, soul_runtime::LocalSoulRuntime};
+use santi_lock::adapter::local::InProcessLock;
 use santi_runtime::session::local_send::{LocalSendError, LocalSessionSendService};
 
 #[tokio::test]

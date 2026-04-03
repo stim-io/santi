@@ -3,11 +3,12 @@ use std::sync::Arc;
 use santi_core::{
     error::Error,
     model::{runtime::SoulSession, soul::Soul},
-    port::{soul::SoulPort, soul_runtime::SoulRuntimePort},
+    port::{soul::SoulPort, soul_runtime::SoulRuntimePort, soul_session_query::SoulSessionQueryPort},
 };
 
 #[derive(Clone)]
 pub struct SessionMemoryService {
+    soul_session_query: Arc<dyn SoulSessionQueryPort>,
     soul_runtime: Arc<dyn SoulRuntimePort>,
     soul_port: Arc<dyn SoulPort>,
     default_soul_id: String,
@@ -16,10 +17,12 @@ pub struct SessionMemoryService {
 impl SessionMemoryService {
     pub fn new(
         soul_runtime: Arc<dyn SoulRuntimePort>,
+        soul_session_query: Arc<dyn SoulSessionQueryPort>,
         soul_port: Arc<dyn SoulPort>,
         default_soul_id: String,
     ) -> Self {
         Self {
+            soul_session_query,
             soul_runtime,
             soul_port,
             default_soul_id,
@@ -33,7 +36,10 @@ impl SessionMemoryService {
     ) -> Result<Option<SoulSession>, String> {
         let soul_session = self
             .soul_runtime
-            .acquire_soul_session(santi_core::port::soul_runtime::AcquireSoulSession { soul_id: self.default_soul_id.clone(), session_id: session_id.to_string() })
+            .acquire_soul_session(santi_core::port::soul_runtime::AcquireSoulSession {
+                soul_id: self.default_soul_id.clone(),
+                session_id: session_id.to_string(),
+            })
             .await
             .map_err(render_error)?;
 
@@ -47,7 +53,7 @@ impl SessionMemoryService {
         &self,
         session_id: &str,
     ) -> Result<Option<SoulSession>, String> {
-        self.soul_runtime
+        self.soul_session_query
             .get_soul_session_by_session_id(session_id)
             .await
             .map_err(render_error)

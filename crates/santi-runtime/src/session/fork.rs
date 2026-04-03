@@ -2,14 +2,14 @@ use std::sync::Arc;
 
 use santi_core::{
     error::{Error, LockError},
-    port::{lock::Lock, soul_runtime::SoulRuntimePort, soul_session_fork::SoulSessionForkPort},
+    port::{lock::Lock, soul_session_fork::SoulSessionForkPort, soul_session_query::SoulSessionQueryPort},
 };
 use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct SessionForkService {
     lock: Arc<dyn Lock>,
-    soul_runtime: Arc<dyn SoulRuntimePort>,
+    soul_session_query: Arc<dyn SoulSessionQueryPort>,
     soul_session_fork: Arc<dyn SoulSessionForkPort>,
 }
 
@@ -31,12 +31,12 @@ pub enum ForkError {
 impl SessionForkService {
     pub fn new(
         lock: Arc<dyn Lock>,
-        soul_runtime: Arc<dyn SoulRuntimePort>,
+        soul_session_query: Arc<dyn SoulSessionQueryPort>,
         soul_session_fork: Arc<dyn SoulSessionForkPort>,
     ) -> Self {
         Self {
             lock,
-            soul_runtime,
+            soul_session_query,
             soul_session_fork,
         }
     }
@@ -51,7 +51,7 @@ impl SessionForkService {
         let guard = self.lock.acquire(&lock_key).await.map_err(map_lock_error)?;
 
         let parent_soul_session = self
-            .soul_runtime
+            .soul_session_query
             .get_soul_session_by_session_id(&parent_session_id)
             .await
             .map_err(map_core_error)?
@@ -68,7 +68,7 @@ impl SessionForkService {
         );
 
         if let Some(existing) = self
-            .soul_runtime
+            .soul_session_query
             .get_soul_session_by_session_id(&new_session_id)
             .await
             .map_err(map_core_error)?
@@ -146,11 +146,9 @@ mod tests {
         model::runtime::SoulSession,
         port::{
             lock::{Lock, LockGuard},
-            soul_runtime::{
-                AppendMessageRef, AppendToolCall, AppendToolResult, CompleteTurn, FailTurn,
-                SoulRuntimePort, StartTurn,
-            },
-            soul_session_fork::SoulSessionForkPort,
+                soul_runtime::{AppendMessageRef, AppendToolCall, AppendToolResult, CompleteTurn, FailTurn, SoulRuntimePort, StartTurn},
+                soul_session_fork::SoulSessionForkPort,
+                soul_session_query::SoulSessionQueryPort,
         },
     };
     use uuid::Uuid;
@@ -280,6 +278,10 @@ mod tests {
             unimplemented!()
         }
 
+    }
+
+    #[async_trait::async_trait]
+    impl SoulSessionQueryPort for FakeSoulRuntime {
         async fn get_soul_session_by_session_id(
             &self,
             session_id: &str,
@@ -296,7 +298,6 @@ mod tests {
             }
             Ok(None)
         }
-
     }
 
     #[async_trait::async_trait]
@@ -371,11 +372,7 @@ mod tests {
             Some(existing_child.clone()),
         ));
         let fork_port = Arc::new(FakeSoulSessionFork::new());
-        let service = SessionForkService::new(
-            Arc::new(FakeLock::default()),
-            runtime.clone(),
-            fork_port.clone(),
-        );
+        let service = SessionForkService::new(Arc::new(FakeLock::default()), runtime.clone(), runtime.clone(), fork_port.clone());
 
         let result = service
             .fork_session("sess_parent".to_string(), 3, "req_1".to_string())
@@ -390,11 +387,7 @@ mod tests {
     async fn rejects_invalid_fork_point_before_copy() {
         let runtime = Arc::new(FakeSoulRuntime::new(Some(parent_session()), None));
         let fork_port = Arc::new(FakeSoulSessionFork::new());
-        let service = SessionForkService::new(
-            Arc::new(FakeLock::default()),
-            runtime.clone(),
-            fork_port.clone(),
-        );
+        let service = SessionForkService::new(Arc::new(FakeLock::default()), runtime.clone(), runtime.clone(), fork_port.clone());
 
         let err = service
             .fork_session("sess_parent".to_string(), 5, "req_1".to_string())

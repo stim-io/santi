@@ -13,13 +13,13 @@
 
 ### 1) `crates/santi-api/src/surface.rs`
 
-- 依赖：`santi_db::adapter::local::session_fork_compact::{LocalCompactError, LocalForkError, LocalSessionForkCompactStore}`
+- 依赖：`santi_db::adapter::local::{session_compact::LocalSessionCompactStore, session_fork::LocalSessionForkStore}`
 - 判定：**canonical path 已使用**
 - 备注：直接落在 `adapter::local::session_fork_compact`
 
 ### 2) `crates/santi-api/src/bootstrap_local.rs`
 
-- 依赖：`santi_db::adapter::local::{effect_ledger::LocalEffectLedger, session_fork_compact::LocalSessionForkCompactStore, session_store::LocalSessionStore, soul_runtime::LocalSoulRuntime, soul_store::LocalSoulStore}`
+- 依赖：`santi_db::adapter::local::{effect_ledger::LocalEffectLedger, session_compact::LocalSessionCompactStore, session_fork::LocalSessionForkStore, session_store::LocalSessionStore, soul_runtime::LocalSoulRuntime, soul_store::LocalSoulStore}`
 - 判定：**canonical path 已使用**
 - 备注：全部都是 `adapter::local::...` 子模块直达
 

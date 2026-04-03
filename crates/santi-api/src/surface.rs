@@ -11,9 +11,7 @@ use santi_core::{
     },
     port::effect_ledger::EffectLedgerPort,
 };
-use santi_db::adapter::local::session_fork_compact::{
-    LocalCompactError, LocalForkError, LocalSessionForkCompactStore,
-};
+use santi_db::adapter::local::{session_compact::{LocalCompactError, LocalSessionCompactStore}, session_fork::{LocalForkError, LocalSessionForkStore}};
 use santi_runtime::hooks::{compile_hook_specs, load_hook_specs, HookEvaluator};
 use santi_runtime::session::{
     compact::{CompactSessionError, SessionCompactService},
@@ -140,7 +138,8 @@ pub struct HostedSessionApi {
 pub struct LocalSessionApi {
     pub query: Arc<SessionQueryService>,
     pub memory: Arc<SessionMemoryService>,
-    pub fork_compact: Arc<LocalSessionForkCompactStore>,
+    pub fork: Arc<LocalSessionForkStore>,
+    pub compact: Arc<LocalSessionCompactStore>,
     pub effect_ledger: Arc<dyn EffectLedgerPort>,
     pub send: Arc<LocalSessionSendService>,
 }
@@ -317,10 +316,7 @@ impl SessionApi for LocalSessionApi {
 
     async fn list_session_compacts(&self, session_id: &str) -> Result<Vec<Compact>, ApiError> {
         self.get_session(session_id).await?;
-        self.fork_compact
-            .list_compacts(session_id)
-            .await
-            .map_err(map_local_core_error)
+        self.compact.list_compacts(session_id).await.map_err(map_local_core_error)
     }
 
     async fn get_session_memory(
@@ -369,7 +365,7 @@ impl SessionApi for LocalSessionApi {
         request_id: String,
     ) -> Result<ForkResult, ApiError> {
         self.get_session(session_id).await?;
-        self.fork_compact
+        self.fork
             .fork_session(session_id, fork_point, &request_id)
             .await
             .map(|result| ForkResult {
@@ -382,7 +378,7 @@ impl SessionApi for LocalSessionApi {
 
     async fn compact_session(&self, session_id: &str, summary: &str) -> Result<Compact, ApiError> {
         self.get_session(session_id).await?;
-        self.fork_compact
+        self.compact
             .compact_session(session_id, summary)
             .await
             .map_err(map_local_compact_error)

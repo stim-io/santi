@@ -6,7 +6,7 @@ Converge on a single HTTP host: `santi`.
 
 For the host boundary, `santi` is the external service boundary, while `santi-api` is the only HTTP host crate at the code layer.
 
-The refactor keeps composition at the root, moves mode-specific concerns inward, localizes adapters, deletes `crates/santi-cli`, and leaves `santi-api` as the only HTTP host crate.
+The refactor keeps composition at the root, moves mode-specific concerns inward, deletes the legacy internal CLI crate, and leaves `santi-api` as the only HTTP host crate.
 
 ## Ordering rules
 
@@ -14,7 +14,7 @@ The refactor keeps composition at the root, moves mode-specific concerns inward,
 2. Move mode selection and assembly inward.
 3. Localize local-mode adaptors.
 4. Remove embedded CLI hosting paths.
-5. Delete `crates/santi-cli`.
+5. Delete the legacy internal CLI crate.
 6. Finish with `santi-api` as the only HTTP host.
 
 Do not collapse these steps into one sweeping rewrite.
@@ -55,7 +55,7 @@ Completion criteria:
 - local mode does not depend on CLI hosting behavior
 - no adapter exists only to preserve an old shape
 
-## Phase 4: Remove `crates/santi-cli`
+## Phase 4: Remove the legacy internal CLI crate
 
 - Delete the embedded CLI host after the standalone client path is complete.
 - Remove any remaining startup or transport ownership from that crate.
@@ -63,7 +63,7 @@ Completion criteria:
 
 Completion criteria:
 
-- `crates/santi-cli` is gone
+- the legacy internal CLI crate is gone
 - no runtime hosting code references it
 - CLI responsibilities are purely outbound
 

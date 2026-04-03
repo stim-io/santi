@@ -98,6 +98,7 @@ impl SessionLedgerPort for DbSessionLedger {
                 to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS created_at,
                 to_char(m.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS updated_at,
                 rsm.session_id,
+                rsm.message_id,
                 rsm.session_seq,
                 to_char(rsm.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSOF') AS relation_created_at
             FROM messages m

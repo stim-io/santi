@@ -12,7 +12,7 @@ The runtime and client boundary needs to be explicit so transport, persistence, 
 
 ## Decision
 
-- `santi` no longer provides an embedded CLI; the `crates/santi-cli` host is removed after the refactor completes.
+- `santi` no longer provides an embedded CLI; the old internal CLI host is removed.
 - `santi` is the only closed-loop HTTP service.
 - `local` and `hosted` modes are owned by `santi` itself.
 - `santi-cli` talks only to the `santi` HTTP API.
@@ -43,4 +43,4 @@ The runtime and client boundary needs to be explicit so transport, persistence, 
 - Remove `--backend` paths and any embedded backend selection logic.
 - Normalize all exposed endpoints to `/api/v1`.
 - Keep local mode single-process with sqlite.
-- Remove `crates/santi-cli` after the new separation is complete.
+- Remove the old internal CLI host after the new separation is complete.

@@ -40,7 +40,7 @@
 
 ## Phase 4: Cleanup
 
-- [ ] Delete `crates/santi-cli` after the standalone client is in place.
+- [x] Delete the legacy internal CLI crate after the standalone client is in place.
 - [ ] Remove stale compatibility code and dead backend abstractions.
 - [ ] Update docs and runbooks that still mention the embedded CLI or `--backend`.
 

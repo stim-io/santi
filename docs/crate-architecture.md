@@ -7,7 +7,7 @@ santi-core
   - models
   - ports
 
-santi-db / santi-lock / santi-provider
+santi-db / santi-lock
   - infrastructure adapters
 
 santi-runtime
@@ -17,6 +17,7 @@ santi-api
   - HTTP/SSE transport
   - config
   - wiring
+  - santi-link gateway client for hosted upstream calls
 ```
 
 ## Rules

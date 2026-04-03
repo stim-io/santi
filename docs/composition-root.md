@@ -7,7 +7,7 @@ Goal: define the assembly boundary for `santi` as the only HTTP runtime host in 
 Non-goals:
 
 - do not describe transport internals or storage implementation details
-- do not preserve standalone runtime hosting inside `crates/santi-cli`
+- do not preserve standalone runtime hosting inside any internal CLI host
 - do not introduce alternative HTTP roots or duplicated startup paths
 
 ## Top-level components
@@ -24,7 +24,7 @@ Non-goals:
 - all HTTP surface area uses the unified `/api/v1` prefix
 - local and hosted modes assemble into `santi`; they do not branch into separate runtime owners
 - local mode uses sqlite and must remain strictly single-process
-- `crates/santi-cli` is a temporary client crate and is expected to disappear in the future
+- the old internal CLI host is gone; standalone CLI ownership lives in `../santi-cli/`
 
 ## Dependency direction
 
@@ -70,6 +70,6 @@ Non-goals:
 ## Crate refactor constraints
 
 - preserve `santi` as the composition owner for runtime hosting
-- keep `crates/santi-cli` client-only during the transition
+- keep CLI ownership outside `santi/` and do not reintroduce an internal CLI host
 - do not move HTTP hosting back into the CLI crate
 - do not split the unified `/api/v1` contract across crates

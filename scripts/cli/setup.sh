@@ -64,7 +64,7 @@ with open(path, "w", encoding="utf-8") as f:
     f.write("\n")
 PY
 
-cargo install --path "$repo_root/crates/santi-cli" --force >/dev/null
+cargo install --path "$repo_root/../santi-cli/app" --force >/dev/null
 
 cargo_bin_dir="${CARGO_HOME:-$HOME/.cargo}/bin"
 

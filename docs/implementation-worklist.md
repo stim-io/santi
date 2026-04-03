@@ -49,13 +49,13 @@ This is the execution map for the current phase of code change.
 - Prerequisites: internal mode/bootstrap convergence is in place.
 - Minimum validation: local mode starts with sqlite, runs in one process, and rejects same-session concurrency with the existing fail-fast rule.
 
-### 5. Final removal of `crates/santi-cli`
+### 5. Final removal of the legacy internal CLI crate
 
-- Goal: delete the old crate after the standalone client path is complete.
-- Crate/module: workspace cleanup around `crates/santi-cli`.
+- Goal: delete the old internal crate after the standalone client path is complete.
+- Crate/module: workspace cleanup around the removed internal CLI host.
 - Key files: workspace manifests, references, docs that still point at the embedded crate.
 - Prerequisites: standalone CLI is fully usable and no runtime path depends on the old crate.
-- Minimum validation: workspace builds and tests without `crates/santi-cli`; no code references remain.
+- Minimum validation: workspace builds and tests without the removed internal CLI crate; no code references remain.
 
 ## Code-change map
 
@@ -71,7 +71,7 @@ This is the execution map for the current phase of code change.
 2. Convert standalone `santi-cli` to HTTP-only.
 3. Collapse `santi` mode/bootstrap into one internal assembly path.
 4. Land local-mode sqlite and single-process adaptor wiring.
-5. Delete `crates/santi-cli` after the new path is fully in use.
+5. Delete the legacy internal CLI crate after the new path is fully in use.
 
 ## Validation per unit
 

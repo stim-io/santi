@@ -71,7 +71,7 @@ Examples:
 - `crates/santi-runtime/src/session/*.rs`
 - `crates/santi-runtime/src/runtime/*.rs`
 - `crates/santi-api/src/*.rs`
-- `crates/santi-cli/src/*.rs`
+- legacy internal CLI host files when present
 
 ## Safest stop point
 

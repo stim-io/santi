@@ -10,7 +10,6 @@ use santi_db::{
 };
 use santi_ebus::InMemorySubscriberSet;
 use santi_lock::{RedisLockClient, RedisLockConfig};
-use santi_provider::openai_compatible::OpenAiCompatibleProvider;
 use santi_runtime::{
     hooks::{compile_hook_specs, load_hook_specs, HookEvaluator},
     runtime::tools::ToolExecutorConfig,
@@ -22,6 +21,7 @@ use santi_runtime::{
 
 use crate::{
     config::{Config, Mode},
+    link_client::OpenAiResponsesClient,
     state::AppState,
     surface::{default_capabilities, HostedAdminApi, HostedSessionApi, HostedSoulApi},
 };
@@ -40,7 +40,7 @@ pub async fn bootstrap(
 async fn hosted_bootstrap(
     config: &Config,
 ) -> Result<AppState, Box<dyn std::error::Error + Send + Sync>> {
-    let provider = OpenAiCompatibleProvider::new(
+    let provider = OpenAiResponsesClient::new(
         config.openai_api_key.clone(),
         config.openai_base_url.clone(),
     );

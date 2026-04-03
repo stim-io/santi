@@ -1,5 +1,5 @@
 use async_stream::try_stream;
-use futures::Stream;
+use futures::{Stream, StreamExt};
 use reqwest::Client;
 use serde::Serialize;
 use serde_json::Value;
@@ -19,7 +19,7 @@ use santi_core::{
 };
 
 #[derive(Clone, Debug, PartialEq)]
-enum VerboseProviderEvent {
+enum VerboseGatewayEvent {
     ResponseCreated {
         response_id: String,
     },
@@ -56,11 +56,11 @@ enum VerboseProviderEvent {
     Completed {
         response_id: Option<String>,
     },
-    OpaqueUpstreamEvent(ObservedUpstreamEvent),
+    OpaqueUpstreamEvent(ObservedGatewayEvent),
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ObservedUpstreamEvent {
+pub struct ObservedGatewayEvent {
     pub sequence: usize,
     pub event_type: String,
     pub raw_data: String,
@@ -68,7 +68,7 @@ pub struct ObservedUpstreamEvent {
 }
 
 #[derive(Clone)]
-pub struct OpenAiCompatibleProvider {
+pub struct OpenAiResponsesClient {
     client: Client,
     api_key: String,
     base_url: String,
@@ -90,7 +90,7 @@ struct UpstreamResponsesRequest {
     prompt_cache_key: String,
 }
 
-impl OpenAiCompatibleProvider {
+impl OpenAiResponsesClient {
     pub fn new(api_key: String, base_url: String) -> Self {
         Self {
             client: Client::new(),
@@ -103,9 +103,9 @@ impl OpenAiCompatibleProvider {
     fn stream_verbose(
         &self,
         input: ProviderRequest,
-    ) -> impl Stream<Item = Result<VerboseProviderEvent>> + '_ {
+    ) -> impl Stream<Item = Result<VerboseGatewayEvent>> + '_ {
         try_stream! {
-            tracing::info!(model = %input.model, "upstream response request started");
+            tracing::info!(model = %input.model, gateway_base_url = %self.base_url, "gateway responses request started");
             let request = self.map_request(input)?;
             let response = self
                 .client
@@ -118,12 +118,12 @@ impl OpenAiCompatibleProvider {
 
             let status = response.status();
             let response = if status.is_success() {
-                tracing::info!(http_status = %status, "upstream response request finished");
+                tracing::info!(http_status = %status, "gateway responses request finished");
                 response
             } else {
                 let text = response.text().await.unwrap_or_default();
-                tracing::warn!(http_status = %status, error_body = %text, "upstream response request failed");
-                Err(Error::Upstream { message: format!("upstream provider error: {} {}", status, text) })?
+                tracing::warn!(http_status = %status, error_body = %text, "gateway responses request failed");
+                Err(Error::Upstream { message: format!("gateway provider error: {} {}", status, text) })?
             };
 
             let mut stream = response.bytes_stream();
@@ -154,7 +154,7 @@ impl OpenAiCompatibleProvider {
     }
 }
 
-impl Provider for OpenAiCompatibleProvider {
+impl Provider for OpenAiResponsesClient {
     fn stream(
         &self,
         request: ProviderRequest,
@@ -170,15 +170,15 @@ impl Provider for OpenAiCompatibleProvider {
 
             while let Some(event) = stream.next().await {
                 match event? {
-                    VerboseProviderEvent::ResponseCreated { response_id }
-                    | VerboseProviderEvent::ResponseInProgress { response_id } => {
+                    VerboseGatewayEvent::ResponseCreated { response_id }
+                    | VerboseGatewayEvent::ResponseInProgress { response_id } => {
                         current_response_id = Some(response_id);
                     }
-                    VerboseProviderEvent::OutputTextDelta { output_index, content_index, delta } => {
+                    VerboseGatewayEvent::OutputTextDelta { output_index, content_index, delta } => {
                         streamed_text_parts.insert((output_index, content_index));
                         yield ProviderEvent::OutputTextDelta(delta);
                     }
-                    VerboseProviderEvent::OutputTextDone { output_index, content_index, text } => {
+                    VerboseGatewayEvent::OutputTextDone { output_index, content_index, text } => {
                         if text.is_empty() {
                             continue;
                         }
@@ -187,7 +187,7 @@ impl Provider for OpenAiCompatibleProvider {
                             yield ProviderEvent::OutputTextDelta(text);
                         }
                     }
-                    VerboseProviderEvent::OutputItemDone {
+                    VerboseGatewayEvent::OutputItemDone {
                         output_index,
                         item_id,
                         item_type,
@@ -241,7 +241,7 @@ impl Provider for OpenAiCompatibleProvider {
                             arguments,
                         });
                     }
-                    VerboseProviderEvent::Completed { response_id } => {
+                    VerboseGatewayEvent::Completed { response_id } => {
                         if let Some(response_id) = response_id.clone() {
                             let cached_output = completed_items.values().cloned().collect::<Vec<_>>();
                             if !cached_output.is_empty() {
@@ -258,7 +258,7 @@ impl Provider for OpenAiCompatibleProvider {
     }
 }
 
-impl OpenAiCompatibleProvider {
+impl OpenAiResponsesClient {
     fn map_request(&self, input: ProviderRequest) -> Result<UpstreamResponsesRequest> {
         let prompt_cache_key = build_prompt_cache_key(&input);
         let previous_response_id = input.previous_response_id.clone();
@@ -278,7 +278,7 @@ impl OpenAiCompatibleProvider {
             function_call_outputs_count,
             input_items = request_input.as_array().map(|items| items.len()).unwrap_or(0),
             prompt_cache_key = %prompt_cache_key,
-            "mapped openai responses request"
+            "mapped gateway responses request"
         );
 
         Ok(UpstreamResponsesRequest {
@@ -315,7 +315,7 @@ impl OpenAiCompatibleProvider {
                         function_call_outputs_count,
                         response_cache_size,
                         flattening_applied = true,
-                        "flattening provider continuation input"
+                        "flattening gateway continuation input"
                     );
                     cached_output
                 }
@@ -328,7 +328,7 @@ impl OpenAiCompatibleProvider {
                         function_call_outputs_count,
                         response_cache_size,
                         known_cached_response_ids_sample,
-                        "missing cached response output for provider continuation"
+                        "missing cached response output for gateway continuation"
                     );
                     return Err(Error::Upstream {
                         message: format!(
@@ -347,7 +347,7 @@ impl OpenAiCompatibleProvider {
             tracing::debug!(
                 previous_response_id,
                 merged_items_count = merged.len(),
-                "provider continuation input prepared"
+                "gateway continuation input prepared"
             );
             return Ok(Value::Array(merged));
         }
@@ -387,12 +387,12 @@ impl OpenAiCompatibleProvider {
             function_call_items_count,
             text_items_count,
             cache_size_after_insert,
-            "cached provider response output"
+            "cached gateway response output"
         );
     }
 }
 
-fn parse_sse_frame(frame: &str, sequence: &mut usize) -> Result<Vec<VerboseProviderEvent>> {
+fn parse_sse_frame(frame: &str, sequence: &mut usize) -> Result<Vec<VerboseGatewayEvent>> {
     let mut events = Vec::new();
 
     for line in frame.lines().map(str::trim).filter(|line| !line.is_empty()) {
@@ -406,9 +406,9 @@ fn parse_sse_frame(frame: &str, sequence: &mut usize) -> Result<Vec<VerboseProvi
         }
 
         let payload: serde_json::Value = serde_json::from_str(data).map_err(|err| {
-            tracing::warn!(error = %err, "invalid upstream SSE payload");
+            tracing::warn!(error = %err, "invalid gateway SSE payload");
             Error::Upstream {
-                message: format!("invalid upstream SSE payload: {err}"),
+                message: format!("invalid gateway SSE payload: {err}"),
             }
         })?;
 
@@ -423,7 +423,7 @@ fn parse_sse_frame(frame: &str, sequence: &mut usize) -> Result<Vec<VerboseProvi
                 .and_then(|response| response.get("id"))
                 .and_then(Value::as_str)
             {
-                events.push(VerboseProviderEvent::ResponseCreated {
+                events.push(VerboseGatewayEvent::ResponseCreated {
                     response_id: response_id.to_string(),
                 });
                 continue;
@@ -436,7 +436,7 @@ fn parse_sse_frame(frame: &str, sequence: &mut usize) -> Result<Vec<VerboseProvi
                 .and_then(|response| response.get("id"))
                 .and_then(Value::as_str)
             {
-                events.push(VerboseProviderEvent::ResponseInProgress {
+                events.push(VerboseGatewayEvent::ResponseInProgress {
                     response_id: response_id.to_string(),
                 });
                 continue;
@@ -460,7 +460,7 @@ fn parse_sse_frame(frame: &str, sequence: &mut usize) -> Result<Vec<VerboseProvi
                 .map(str::to_string);
             let item = payload.get("item").cloned();
 
-            events.push(VerboseProviderEvent::OutputItemAdded {
+            events.push(VerboseGatewayEvent::OutputItemAdded {
                 output_index,
                 item_id,
                 item_type,
@@ -484,7 +484,7 @@ fn parse_sse_frame(frame: &str, sequence: &mut usize) -> Result<Vec<VerboseProvi
                 .and_then(Value::as_str)
                 .map(str::to_string);
 
-            events.push(VerboseProviderEvent::ContentPartAdded {
+            events.push(VerboseGatewayEvent::ContentPartAdded {
                 output_index,
                 content_index,
                 part_type,
@@ -502,7 +502,7 @@ fn parse_sse_frame(frame: &str, sequence: &mut usize) -> Result<Vec<VerboseProvi
                     .get("content_index")
                     .and_then(Value::as_u64)
                     .map(|v| v as usize);
-                events.push(VerboseProviderEvent::OutputTextDelta {
+                events.push(VerboseGatewayEvent::OutputTextDelta {
                     output_index,
                     content_index,
                     delta: content.to_string(),
@@ -526,7 +526,7 @@ fn parse_sse_frame(frame: &str, sequence: &mut usize) -> Result<Vec<VerboseProvi
                 .unwrap_or_default()
                 .to_string();
 
-            events.push(VerboseProviderEvent::OutputTextDone {
+            events.push(VerboseGatewayEvent::OutputTextDone {
                 output_index,
                 content_index,
                 text,
@@ -551,7 +551,7 @@ fn parse_sse_frame(frame: &str, sequence: &mut usize) -> Result<Vec<VerboseProvi
                 .map(str::to_string);
             let item = payload.get("item").cloned();
 
-            events.push(VerboseProviderEvent::OutputItemDone {
+            events.push(VerboseGatewayEvent::OutputItemDone {
                 output_index,
                 item_id,
                 item_type,
@@ -566,14 +566,14 @@ fn parse_sse_frame(frame: &str, sequence: &mut usize) -> Result<Vec<VerboseProvi
                 .and_then(|response| response.get("id"))
                 .and_then(Value::as_str)
                 .map(str::to_string);
-            events.push(VerboseProviderEvent::Completed { response_id });
+            events.push(VerboseGatewayEvent::Completed { response_id });
             continue;
         }
 
         *sequence += 1;
-        tracing::debug!(event_type = %event_type, sequence = *sequence, raw_data = %data, "observed opaque upstream event");
-        events.push(VerboseProviderEvent::OpaqueUpstreamEvent(
-            ObservedUpstreamEvent {
+        tracing::debug!(event_type = %event_type, sequence = *sequence, raw_data = %data, "observed opaque gateway event");
+        events.push(VerboseGatewayEvent::OpaqueUpstreamEvent(
+            ObservedGatewayEvent {
                 sequence: *sequence,
                 event_type: event_type.to_string(),
                 raw_data: data.to_string(),
@@ -635,7 +635,7 @@ fn build_prompt_cache_key(input: &ProviderRequest) -> String {
         tools_count = input.tools.as_ref().map(|tools| tools.len()).unwrap_or(0),
         tool_names,
         prompt_cache_key = %prompt_cache_key,
-        "built openai prompt cache key"
+        "built gateway prompt cache key"
     );
 
     prompt_cache_key
@@ -705,5 +705,3 @@ fn map_function_call_outputs(outputs: Vec<FunctionCallOutput>) -> Vec<Value> {
         })
         .collect()
 }
-
-use futures::StreamExt;

@@ -32,7 +32,6 @@ Detailed system thinking belongs in `docs/`, not here.
 - `soul_dir` and `session_dir` are normal directories used as unified agent resource spaces.
 - Testing should start from executable smoke and integration checks on the main path, add focused `crates/santi-api/tests` only where those checks reveal weak spots, and keep tracing strong enough to diagnose known classes of failure.
 - Tests must target non-real model API call scenarios only; any verification that depends on real API calls belongs in docs or runbooks, not automated test logic or scripts.
-- `cargo run -p santi-cli -- ...` is the canonical local dev CLI entrypoint: top-level commands default through the configured backend, `--backend api` selects the HTTP backend explicitly, and session turns must always be issued strictly sequentially against the same session.
 - concurrent `session/send` on the same session is a fail-fast conflict: return `409`, do not queue, silently serialize, or retry implicitly.
 
 ## Reference Project Index
@@ -60,7 +59,6 @@ Detailed system thinking belongs in `docs/`, not here.
 - `docs/dev-faq.md`: local troubleshooting notes for common development and smoke/integration issues
 - `docs/redis-lock-plan.md`: minimal Redis-based concurrency lock plan for `session/send`
 - `docs/crate-architecture.md`: stable crate layering and refactor guidance
-- `docs/provider-gateway.md`: boundary between thin upstream auth gateway and `santi-provider` protocol ownership
 - `docs/stim-santi-boundary.md`: high-level product boundary between public session ledger and soul runtime
 - `docs/composition-root.md`: composition root rules for the single `santi` HTTP host, mode assembly, and crate refactor constraints
 - `docs/local-mode.md`: local mode assembly, storage, and single-process rules for the `santi` internal local runtime
@@ -69,7 +67,6 @@ Detailed system thinking belongs in `docs/`, not here.
 - `docs/http-api-contract.md`: minimal stable `/api/v1` HTTP contract for the current resource set
 - `docs/meta-and-error-schema.md`: shared success meta and error schema for HTTP, CLI, and local mode
 - `docs/architecture-adr.md`: decision record for the `santi` service boundary, CLI split, and compatibility rules
-- `crates/santi-cli/AGENTS.md`: stable local constraints and file index for the CLI host and backend adaptors
 - `../AGENTS.md`: repo-root product and deployment boundary across `santi/`, `santi-link/`, and `santi-cli/`
 
 ## Update Rules

@@ -2,25 +2,22 @@
 
 ## Split
 
-Keep the gateway thin. Keep provider semantics in `santi-provider`.
+`santi-link/` now owns the hosted OpenAI-compatible gateway path.
 
-### Gateway owns
+### `santi-link` owns
 
 - upstream auth
 - token/header injection
 - account routing and health
-- basic forwarding
+- `/openai/v1/responses` forwarding surface for hosted mode
 
-### `santi-provider` owns
+### `santi/` owns
 
-- `/responses` request shaping
-- `instructions`, `input`, `tools`, `previous_response_id`
-- SSE parsing
-- response mapping
-- tool-call extraction
+- runtime-facing send orchestration
+- the narrow hosted caller that talks to `santi-link`
 
 ## Rule
 
-The gateway decides which upstream account sends the request.
+`santi-link` decides how hosted upstream access is reached.
 
-`santi-provider` decides what the request means.
+`santi` should not carry a standalone provider crate anymore.

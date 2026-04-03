@@ -11,6 +11,7 @@ serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 futures = "0.3"
 async-stream = "0.3"
+sha2 = "0.10"
 utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "8", features = ["axum"] }
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "sqlite", "macros", "migrate"] }
@@ -22,7 +23,6 @@ santi-db = { path = "../santi-db" }
 santi-ebus = { path = "../santi-ebus" }
 santi-runtime = { path = "../santi-runtime" }
 santi-lock = { path = "../santi-lock" }
-santi-provider = { path = "../santi-provider" }
 async-trait = "0.1"
 fs2 = "0.4"
 

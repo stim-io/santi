@@ -3,6 +3,7 @@ pub mod bootstrap;
 pub mod bootstrap_local;
 pub mod config;
 pub mod handler;
+pub mod link_client;
 pub mod model;
 pub mod openapi;
 pub mod schema;

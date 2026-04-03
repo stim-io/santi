@@ -122,10 +122,11 @@ struct StartupContext {
 
 async fn build_assembly_items(
     session_ledger: Arc<dyn SessionLedgerPort>,
+    session_id: &str,
     soul_session_id: &str,
 ) -> Result<Vec<AssemblyItem>, SendSessionError> {
     let session_messages = session_ledger
-        .list_messages(soul_session_id, None)
+        .list_messages(session_id, None)
         .await
         .map_err(map_core_error)?;
     let mut items = Vec::new();
@@ -348,7 +349,7 @@ async fn run_turn_startup(
         .await
         .map_err(map_core_error)?;
 
-    let assembly = build_assembly_items(session_ledger.clone(), &soul_session.id)
+    let assembly = build_assembly_items(session_ledger.clone(), &session.id, &soul_session.id)
         .await?;
     let provider_input = assembly_to_provider_input(&assembly);
     let runtime_context = tools.build_context(&request.session_id, &soul_session.soul_id);
@@ -436,7 +437,11 @@ async fn run_turn_worker(
                         .await
                         .map_err(map_core_error)?
                     {
-                        let assembly = build_assembly_items(session_ledger.clone(), &output.soul_session_id)
+                        let assembly = build_assembly_items(
+                            session_ledger.clone(),
+                            &output.session.id,
+                            &output.soul_session_id,
+                        )
                             .await?;
 
                         let _ = hooks

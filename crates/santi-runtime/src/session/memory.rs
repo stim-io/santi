@@ -3,7 +3,9 @@ use std::sync::Arc;
 use santi_core::{
     error::Error,
     model::{runtime::SoulSession, soul::Soul},
-    port::{soul::SoulPort, soul_runtime::SoulRuntimePort, soul_session_query::SoulSessionQueryPort},
+    port::{
+        soul::SoulPort, soul_runtime::SoulRuntimePort, soul_session_query::SoulSessionQueryPort,
+    },
 };
 
 #[derive(Clone)]

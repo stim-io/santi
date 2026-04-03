@@ -323,12 +323,6 @@ mod tests {
         ) -> santi_core::error::Result<santi_core::model::runtime::Turn> {
             unreachable!()
         }
-        async fn get_soul_session_by_session_id(
-            &self,
-            _session_id: &str,
-        ) -> santi_core::error::Result<Option<santi_core::model::runtime::SoulSession>> {
-            unreachable!()
-        }
     }
 
     #[async_trait::async_trait]

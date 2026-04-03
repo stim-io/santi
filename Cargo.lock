@@ -1691,7 +1691,7 @@ dependencies = [
 
 [[package]]
 name = "santi-api"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -1720,7 +1720,7 @@ dependencies = [
 
 [[package]]
 name = "santi-core"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "async-trait",
  "futures",
@@ -1731,7 +1731,7 @@ dependencies = [
 
 [[package]]
 name = "santi-db"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "async-trait",
  "santi-core",
@@ -1745,7 +1745,7 @@ dependencies = [
 
 [[package]]
 name = "santi-ebus"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "async-trait",
  "redis",
@@ -1757,7 +1757,7 @@ dependencies = [
 
 [[package]]
 name = "santi-lock"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "async-trait",
  "redis",
@@ -1770,7 +1770,7 @@ dependencies = [
 
 [[package]]
 name = "santi-runtime"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "async-stream",
  "async-trait",

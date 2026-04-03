@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use santi_core::{
     error::{Error, LockError},
-    port::{lock::Lock, soul_session_fork::SoulSessionForkPort, soul_session_query::SoulSessionQueryPort},
+    port::{
+        lock::Lock, soul_session_fork::SoulSessionForkPort,
+        soul_session_query::SoulSessionQueryPort,
+    },
 };
 use uuid::Uuid;
 
@@ -146,9 +149,12 @@ mod tests {
         model::runtime::SoulSession,
         port::{
             lock::{Lock, LockGuard},
-                soul_runtime::{AppendMessageRef, AppendToolCall, AppendToolResult, CompleteTurn, FailTurn, SoulRuntimePort, StartTurn},
-                soul_session_fork::SoulSessionForkPort,
-                soul_session_query::SoulSessionQueryPort,
+            soul_runtime::{
+                AppendMessageRef, AppendToolCall, AppendToolResult, CompleteTurn, FailTurn,
+                SoulRuntimePort, StartTurn,
+            },
+            soul_session_fork::SoulSessionForkPort,
+            soul_session_query::SoulSessionQueryPort,
         },
     };
     use uuid::Uuid;
@@ -277,7 +283,6 @@ mod tests {
         ) -> santi_core::error::Result<santi_core::model::runtime::Turn> {
             unimplemented!()
         }
-
     }
 
     #[async_trait::async_trait]
@@ -372,7 +377,11 @@ mod tests {
             Some(existing_child.clone()),
         ));
         let fork_port = Arc::new(FakeSoulSessionFork::new());
-        let service = SessionForkService::new(Arc::new(FakeLock::default()), runtime.clone(), runtime.clone(), fork_port.clone());
+        let service = SessionForkService::new(
+            Arc::new(FakeLock::default()),
+            runtime.clone(),
+            fork_port.clone(),
+        );
 
         let result = service
             .fork_session("sess_parent".to_string(), 3, "req_1".to_string())
@@ -387,7 +396,11 @@ mod tests {
     async fn rejects_invalid_fork_point_before_copy() {
         let runtime = Arc::new(FakeSoulRuntime::new(Some(parent_session()), None));
         let fork_port = Arc::new(FakeSoulSessionFork::new());
-        let service = SessionForkService::new(Arc::new(FakeLock::default()), runtime.clone(), runtime.clone(), fork_port.clone());
+        let service = SessionForkService::new(
+            Arc::new(FakeLock::default()),
+            runtime.clone(),
+            fork_port.clone(),
+        );
 
         let err = service
             .fork_session("sess_parent".to_string(), 5, "req_1".to_string())

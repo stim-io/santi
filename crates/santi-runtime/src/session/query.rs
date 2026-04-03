@@ -110,7 +110,10 @@ mod tests {
             compact_ledger::CompactLedgerPort,
             session_ledger::{AppendSessionMessage, ApplyMessageEvent, SessionLedgerPort},
             soul::SoulPort,
-            soul_runtime::{AcquireSoulSession, AppendMessageRef, AppendToolCall, AppendToolResult, CompleteTurn, FailTurn, SoulRuntimePort, StartTurn},
+            soul_runtime::{
+                AcquireSoulSession, AppendMessageRef, AppendToolCall, AppendToolResult,
+                CompleteTurn, FailTurn, SoulRuntimePort, StartTurn,
+            },
             soul_session_query::SoulSessionQueryPort,
         },
     };
@@ -194,7 +197,6 @@ mod tests {
         async fn fail_turn(&self, _input: FailTurn) -> Result<Turn> {
             unreachable!()
         }
-
     }
 
     #[async_trait::async_trait]

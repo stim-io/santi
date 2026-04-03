@@ -68,8 +68,10 @@ async fn hosted_bootstrap(
         Arc::new(DbEffectLedger::new(pool.clone()));
     let soul_port: Arc<dyn santi_core::port::soul::SoulPort> = Arc::new(DbSoul::new(pool.clone()));
     let soul_runtime_impl = Arc::new(DbSoulRuntime::new(pool));
-    let soul_runtime: Arc<dyn santi_core::port::soul_runtime::SoulRuntimePort> = soul_runtime_impl.clone();
-    let soul_session_query: Arc<dyn santi_core::port::soul_session_query::SoulSessionQueryPort> = soul_runtime_impl.clone();
+    let soul_runtime: Arc<dyn santi_core::port::soul_runtime::SoulRuntimePort> =
+        soul_runtime_impl.clone();
+    let soul_session_query: Arc<dyn santi_core::port::soul_session_query::SoulSessionQueryPort> =
+        soul_runtime_impl.clone();
     let compact_ledger: Arc<dyn santi_core::port::compact_ledger::CompactLedgerPort> =
         soul_runtime_impl.clone();
     let compact_runtime: Arc<dyn santi_core::port::compact_runtime::CompactRuntimePort> =
@@ -77,7 +79,12 @@ async fn hosted_bootstrap(
     let soul_session_fork: Arc<dyn santi_core::port::soul_session_fork::SoulSessionForkPort> =
         soul_runtime_impl.clone();
 
-    let session_memory = Arc::new(SessionMemoryService::new(soul_runtime.clone(), soul_session_query.clone(), soul_port.clone(), default_soul_id.clone()));
+    let session_memory = Arc::new(SessionMemoryService::new(
+        soul_runtime.clone(),
+        soul_session_query.clone(),
+        soul_port.clone(),
+        default_soul_id.clone(),
+    ));
     let session_query = Arc::new(SessionQueryService::new(
         session_ledger.clone(),
         soul_port.clone(),

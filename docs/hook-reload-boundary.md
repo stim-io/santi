@@ -39,11 +39,10 @@ The resolved result is always a whole `Vec<HookSpec>`.
 ## Current management paths
 
 - startup:
-  - CLI local: `SANTI_CLI_HOOKS_JSON` / `SANTI_CLI_HOOKS_FILE` / `SANTI_CLI_HOOKS_URL`
   - API service: `HOOK_SPECS_JSON` / `HOOK_SPECS_FILE` / `HOOK_SPECS_URL`
 - reload:
   - admin API: `PUT /api/v1/admin/hooks`
-  - CLI wrapper: `santi-cli --backend api admin hooks reload`
+  - CLI wrapper: `santi-cli admin hooks reload`
 
 ## Non-goals
 

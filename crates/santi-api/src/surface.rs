@@ -11,18 +11,18 @@ use santi_core::{
     },
     port::effect_ledger::EffectLedgerPort,
 };
-use santi_db::adapter::local::{
-    session_compact::{LocalCompactError, LocalSessionCompactStore},
-    session_fork::{LocalForkError, LocalSessionForkStore},
+use santi_db::adapter::standalone::{
+    session_compact::{StandaloneCompactError, StandaloneSessionCompactStore},
+    session_fork::{StandaloneForkError, StandaloneSessionForkStore},
 };
 use santi_runtime::hooks::{compile_hook_specs, load_hook_specs, HookEvaluator};
 use santi_runtime::session::{
     compact::{CompactSessionError, SessionCompactService},
     fork::{ForkError, ForkResult, SessionForkService},
-    local_send::{LocalSendError, LocalSessionSendService},
     memory::SessionMemoryService,
     query::SessionQueryService,
     send::{SendSessionCommand, SendSessionError, SendSessionEvent, SessionSendService},
+    standalone_send::{StandaloneSendError, StandaloneSessionSendService},
 };
 
 use crate::{
@@ -128,7 +128,7 @@ pub trait AdminApi: Send + Sync {
 }
 
 #[derive(Clone)]
-pub struct HostedSessionApi {
+pub struct DistributedSessionApi {
     pub query: Arc<SessionQueryService>,
     pub memory: Arc<SessionMemoryService>,
     pub compact: Arc<SessionCompactService>,
@@ -138,39 +138,39 @@ pub struct HostedSessionApi {
 }
 
 #[derive(Clone)]
-pub struct LocalSessionApi {
+pub struct StandaloneSessionApi {
     pub query: Arc<SessionQueryService>,
     pub memory: Arc<SessionMemoryService>,
-    pub fork: Arc<LocalSessionForkStore>,
-    pub compact: Arc<LocalSessionCompactStore>,
+    pub fork: Arc<StandaloneSessionForkStore>,
+    pub compact: Arc<StandaloneSessionCompactStore>,
     pub effect_ledger: Arc<dyn EffectLedgerPort>,
-    pub send: Arc<LocalSessionSendService>,
+    pub send: Arc<StandaloneSessionSendService>,
 }
 
 #[derive(Clone)]
-pub struct HostedSoulApi {
+pub struct DistributedSoulApi {
     pub query: Arc<SessionQueryService>,
     pub memory: Arc<SessionMemoryService>,
 }
 
 #[derive(Clone)]
-pub struct LocalSoulApi {
+pub struct StandaloneSoulApi {
     pub session_query: Arc<SessionQueryService>,
     pub memory: Arc<SessionMemoryService>,
 }
 
 #[derive(Clone)]
-pub struct HostedAdminApi {
+pub struct DistributedAdminApi {
     pub send: Arc<SessionSendService>,
 }
 
 #[derive(Clone)]
-pub struct LocalAdminApi {
+pub struct StandaloneAdminApi {
     pub ebus: Arc<dyn SubscriberSetPort<Arc<dyn HookEvaluator>>>,
 }
 
 #[async_trait]
-impl SessionApi for HostedSessionApi {
+impl SessionApi for DistributedSessionApi {
     async fn create_session(&self) -> Result<Session, ApiError> {
         self.query
             .create_session()
@@ -282,7 +282,7 @@ impl SessionApi for HostedSessionApi {
 }
 
 #[async_trait]
-impl SessionApi for LocalSessionApi {
+impl SessionApi for StandaloneSessionApi {
     async fn create_session(&self) -> Result<Session, ApiError> {
         self.query
             .create_session()
@@ -322,7 +322,7 @@ impl SessionApi for LocalSessionApi {
         self.compact
             .list_compacts(session_id)
             .await
-            .map_err(map_local_core_error)
+            .map_err(map_standalone_core_error)
     }
 
     async fn get_session_memory(
@@ -358,7 +358,7 @@ impl SessionApi for LocalSessionApi {
         self.send
             .send_text(session_id, &user_content)
             .await
-            .map_err(map_local_send_error)?;
+            .map_err(map_standalone_send_error)?;
         Ok(Box::pin(futures::stream::iter(vec![Ok(
             SessionStreamEvent::Completed,
         )])))
@@ -379,7 +379,7 @@ impl SessionApi for LocalSessionApi {
                 parent_session_id: result.parent_session_id,
                 fork_point: result.fork_point,
             })
-            .map_err(map_local_fork_error)
+            .map_err(map_standalone_fork_error)
     }
 
     async fn compact_session(&self, session_id: &str, summary: &str) -> Result<Compact, ApiError> {
@@ -387,12 +387,12 @@ impl SessionApi for LocalSessionApi {
         self.compact
             .compact_session(session_id, summary)
             .await
-            .map_err(map_local_compact_error)
+            .map_err(map_standalone_compact_error)
     }
 }
 
 #[async_trait]
-impl SoulApi for HostedSoulApi {
+impl SoulApi for DistributedSoulApi {
     async fn get_default_soul(&self) -> Result<Soul, ApiError> {
         self.query
             .get_default_soul()
@@ -411,7 +411,7 @@ impl SoulApi for HostedSoulApi {
 }
 
 #[async_trait]
-impl SoulApi for LocalSoulApi {
+impl SoulApi for StandaloneSoulApi {
     async fn get_default_soul(&self) -> Result<Soul, ApiError> {
         self.session_query
             .get_default_soul()
@@ -430,7 +430,7 @@ impl SoulApi for LocalSoulApi {
 }
 
 #[async_trait]
-impl AdminApi for HostedAdminApi {
+impl AdminApi for DistributedAdminApi {
     async fn reload_hooks_from_source(&self, source: HookSpecSource) -> Result<usize, ApiError> {
         let specs = santi_runtime::hooks::load_hook_specs(&source)
             .await
@@ -440,7 +440,7 @@ impl AdminApi for HostedAdminApi {
 }
 
 #[async_trait]
-impl AdminApi for LocalAdminApi {
+impl AdminApi for StandaloneAdminApi {
     async fn reload_hooks_from_source(&self, source: HookSpecSource) -> Result<usize, ApiError> {
         let specs = load_hook_specs(&source)
             .await
@@ -454,14 +454,14 @@ impl AdminApi for LocalAdminApi {
 
 pub fn default_capabilities(mode: &Mode) -> ApiCapabilities {
     match mode {
-        Mode::Hosted => ApiCapabilities {
+        Mode::Distributed => ApiCapabilities {
             health: true,
             sessions: true,
             soul: true,
             admin_hooks: true,
             streaming: true,
         },
-        Mode::Local => ApiCapabilities {
+        Mode::Standalone => ApiCapabilities {
             health: true,
             sessions: true,
             soul: true,
@@ -501,37 +501,41 @@ fn map_compact_error(err: CompactSessionError) -> ApiError {
     }
 }
 
-fn map_local_send_error(err: LocalSendError) -> ApiError {
+fn map_standalone_send_error(err: StandaloneSendError) -> ApiError {
     match err {
-        LocalSendError::Busy => ApiError::Conflict("session send already in progress".to_string()),
-        LocalSendError::NotFound => ApiError::NotFound("session not found".to_string()),
-        LocalSendError::Internal(message) => ApiError::Internal(message),
+        StandaloneSendError::Busy => {
+            ApiError::Conflict("session send already in progress".to_string())
+        }
+        StandaloneSendError::NotFound => ApiError::NotFound("session not found".to_string()),
+        StandaloneSendError::Internal(message) => ApiError::Internal(message),
     }
 }
 
-fn map_local_fork_error(err: LocalForkError) -> ApiError {
+fn map_standalone_fork_error(err: StandaloneForkError) -> ApiError {
     match err {
-        LocalForkError::Busy => ApiError::Conflict("session fork already in progress".to_string()),
-        LocalForkError::ParentNotFound => {
+        StandaloneForkError::Busy => {
+            ApiError::Conflict("session fork already in progress".to_string())
+        }
+        StandaloneForkError::ParentNotFound => {
             ApiError::NotFound("parent session not found".to_string())
         }
-        LocalForkError::InvalidForkPoint(message) => ApiError::Validation(message),
-        LocalForkError::Internal(message) => ApiError::Internal(message),
+        StandaloneForkError::InvalidForkPoint(message) => ApiError::Validation(message),
+        StandaloneForkError::Internal(message) => ApiError::Internal(message),
     }
 }
 
-fn map_local_compact_error(err: LocalCompactError) -> ApiError {
+fn map_standalone_compact_error(err: StandaloneCompactError) -> ApiError {
     match err {
-        LocalCompactError::Busy => {
+        StandaloneCompactError::Busy => {
             ApiError::Conflict("session compact already in progress".to_string())
         }
-        LocalCompactError::NotFound => ApiError::NotFound("session not found".to_string()),
-        LocalCompactError::Invalid(message) => ApiError::Validation(message),
-        LocalCompactError::Internal(message) => ApiError::Internal(message),
+        StandaloneCompactError::NotFound => ApiError::NotFound("session not found".to_string()),
+        StandaloneCompactError::Invalid(message) => ApiError::Validation(message),
+        StandaloneCompactError::Internal(message) => ApiError::Internal(message),
     }
 }
 
-fn map_local_core_error(err: santi_core::error::Error) -> ApiError {
+fn map_standalone_core_error(err: santi_core::error::Error) -> ApiError {
     match err {
         santi_core::error::Error::NotFound { .. } => {
             ApiError::NotFound("session not found".to_string())

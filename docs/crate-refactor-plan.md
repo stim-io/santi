@@ -6,13 +6,15 @@ Converge on a single HTTP host: `santi`.
 
 For the host boundary, `santi` is the external service boundary, while `santi-api` is the only HTTP host crate at the code layer.
 
-The refactor keeps composition at the root, moves mode-specific concerns inward, deletes the legacy internal CLI crate, and leaves `santi-api` as the only HTTP host crate.
+The refactor keeps composition at the root, moves topology-specific concerns inward, deletes the legacy internal CLI crate, and leaves `santi-api` as the only HTTP host crate.
+
+The primary architecture split is 中文 `单机` vs `分布式` assembly. Runtime naming now converges on `standalone` and `distributed`.
 
 ## Ordering rules
 
 1. Stabilize the composition root.
-2. Move mode selection and assembly inward.
-3. Localize local-mode adaptors.
+2. Move topology selection and assembly inward.
+3. Localize 单机 adaptors.
 4. Remove embedded CLI hosting paths.
 5. Delete the legacy internal CLI crate.
 6. Finish with `santi-api` as the only HTTP host.
@@ -22,7 +24,7 @@ Do not collapse these steps into one sweeping rewrite.
 ## Phase 1: Composition root
 
 - Make the `santi` root the only place that assembles runtime graphs.
-- Keep startup, shutdown, and mode selection at the root boundary.
+- Keep startup, shutdown, and topology selection at the root boundary.
 - Ensure the HTTP contract is registered once and only once.
 
 Completion criteria:
@@ -31,28 +33,28 @@ Completion criteria:
 - route registration is centralized
 - no secondary crate owns host startup
 
-## Phase 2: Mode is internal
+## Phase 2: Topology is internal
 
-- Move mode branching behind the composition root.
-- Keep `local`, `hosted`, and `test` as assembly choices, not separate ownership domains.
-- Avoid mode-specific transport logic leaking into shared code.
+- Move topology branching behind the composition root.
+- Keep 单机, 分布式, and `test` as assembly choices, not separate ownership domains.
+- Avoid topology-specific transport logic leaking into shared code.
 
 Completion criteria:
 
-- mode selection changes dependencies, not API shape
+- topology selection changes dependencies, not API shape
 - runtime semantics stay inside `santi`
 - no duplicated startup path remains
 
-## Phase 3: Local adaptors
+## Phase 3: 单机 adaptors
 
-- Keep local-mode adaptors narrow and explicit.
+- Keep 单机 adaptors narrow and explicit.
 - Prefer direct adapters over compatibility glue.
-- Preserve sqlite and single-process assumptions in local mode.
+- Preserve sqlite and single-process assumptions in 单机.
 
 Completion criteria:
 
-- local adaptors are clearly bounded
-- local mode does not depend on CLI hosting behavior
+- 单机 adaptors are clearly bounded
+- 单机 does not depend on CLI hosting behavior
 - no adapter exists only to preserve an old shape
 
 ## Phase 4: Remove the legacy internal CLI crate
@@ -77,7 +79,7 @@ Completion criteria:
 
 - only one crate owns HTTP serving
 - the contract is not split across hosts
-- local and hosted modes share the same service boundary
+- 单机 and 分布式 share the same service boundary
 
 ## Anti-patterns
 

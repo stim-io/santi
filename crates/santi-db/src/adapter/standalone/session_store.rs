@@ -12,11 +12,11 @@ use santi_core::{
 };
 
 #[derive(Clone)]
-pub struct LocalSessionStore {
+pub struct StandaloneSessionStore {
     pool: SqlitePool,
 }
 
-impl LocalSessionStore {
+impl StandaloneSessionStore {
     pub async fn new(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         if let Some(parent) = path.parent() {
@@ -259,13 +259,13 @@ impl LocalSessionStore {
 }
 
 #[async_trait::async_trait]
-impl SessionLedgerPort for LocalSessionStore {
+impl SessionLedgerPort for StandaloneSessionStore {
     async fn create_session(&self, session_id: &str) -> Result<Session> {
-        LocalSessionStore::create_session(self, session_id).await
+        StandaloneSessionStore::create_session(self, session_id).await
     }
 
     async fn get_session(&self, session_id: &str) -> Result<Option<Session>> {
-        LocalSessionStore::get_session(self, session_id).await
+        StandaloneSessionStore::get_session(self, session_id).await
     }
 
     async fn get_message(&self, message_id: &str) -> Result<Option<SessionMessage>> {
@@ -314,7 +314,7 @@ impl SessionLedgerPort for LocalSessionStore {
         session_id: &str,
         _after_session_seq: Option<i64>,
     ) -> Result<Vec<SessionMessage>> {
-        LocalSessionStore::list_messages(self, session_id).await
+        StandaloneSessionStore::list_messages(self, session_id).await
     }
 
     async fn append_message(&self, input: AppendSessionMessage) -> Result<SessionMessage> {
@@ -344,7 +344,7 @@ impl SessionLedgerPort for LocalSessionStore {
 
     async fn apply_message_event(&self, _input: ApplyMessageEvent) -> Result<SessionMessage> {
         Err(Error::Internal {
-            message: "message events are unavailable in local mode".to_string(),
+            message: "message events are unavailable in standalone mode".to_string(),
         })
     }
 }

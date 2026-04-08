@@ -12,7 +12,7 @@ pub struct AppState {
     session_api: Arc<dyn SessionApi>,
     soul_api: Arc<dyn SoulApi>,
     admin_api: Arc<dyn AdminApi>,
-    local_bootstrap_lock: Option<Arc<std::fs::File>>,
+    standalone_bootstrap_lock: Option<Arc<std::fs::File>>,
 }
 
 impl AppState {
@@ -22,7 +22,7 @@ impl AppState {
         session_api: Arc<dyn SessionApi>,
         soul_api: Arc<dyn SoulApi>,
         admin_api: Arc<dyn AdminApi>,
-        local_bootstrap_lock: Option<Arc<std::fs::File>>,
+        standalone_bootstrap_lock: Option<Arc<std::fs::File>>,
     ) -> Self {
         Self {
             mode,
@@ -30,7 +30,7 @@ impl AppState {
             session_api,
             soul_api,
             admin_api,
-            local_bootstrap_lock,
+            standalone_bootstrap_lock,
         }
     }
 
@@ -54,7 +54,7 @@ impl AppState {
         self.admin_api.clone()
     }
 
-    pub fn local_bootstrap_lock(&self) -> Option<Arc<std::fs::File>> {
-        self.local_bootstrap_lock.clone()
+    pub fn standalone_bootstrap_lock(&self) -> Option<Arc<std::fs::File>> {
+        self.standalone_bootstrap_lock.clone()
     }
 }

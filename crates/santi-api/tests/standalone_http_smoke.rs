@@ -4,22 +4,22 @@ use axum::{
 };
 use santi_api::{
     app::build_router,
-    bootstrap_local::bootstrap_local,
+    bootstrap_standalone::bootstrap_standalone,
     config::{Config, Mode},
 };
 use serde_json::Value;
 use tower::ServiceExt;
 
-fn local_config(path: String) -> Config {
+fn standalone_config(path: String) -> Config {
     Config {
-        mode: Mode::Local,
+        mode: Mode::Standalone,
         bind_addr: "127.0.0.1:0".parse().unwrap(),
         openai_api_key: String::new(),
         openai_base_url: String::new(),
         openai_model: String::new(),
         database_url: String::new(),
         redis_url: String::new(),
-        local_sqlite_path: path,
+        standalone_sqlite_path: path,
         execution_root: String::new(),
         runtime_root: String::new(),
         hook_source: None,
@@ -27,10 +27,10 @@ fn local_config(path: String) -> Config {
 }
 
 #[tokio::test]
-async fn local_http_session_create_get_and_meta_smoke() {
+async fn standalone_http_session_create_get_and_meta_smoke() {
     let dir = tempfile::tempdir().unwrap();
-    let config = local_config(dir.path().join("local.sqlite").display().to_string());
-    let state = bootstrap_local(&config).await.unwrap();
+    let config = standalone_config(dir.path().join("standalone.sqlite").display().to_string());
+    let state = bootstrap_standalone(&config).await.unwrap();
     let app = build_router(state);
 
     let create_res = app
@@ -105,7 +105,7 @@ async fn local_http_session_create_get_and_meta_smoke() {
                 .uri(format!("/api/v1/sessions/{session_id}/send"))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    r#"{"content":[{"type":"text","text":"hello local"}]}"#,
+                    r#"{"content":[{"type":"text","text":"hello standalone"}]}"#,
                 ))
                 .unwrap(),
         )
@@ -164,7 +164,7 @@ async fn local_http_session_create_get_and_meta_smoke() {
     assert_eq!(items.len(), 1);
     assert_eq!(
         items[0].get("content_text").and_then(Value::as_str),
-        Some("hello local")
+        Some("hello standalone")
     );
 
     let compacts_res = app
@@ -224,7 +224,9 @@ async fn local_http_session_create_get_and_meta_smoke() {
                 .method("POST")
                 .uri(format!("/api/v1/sessions/{session_id}/fork"))
                 .header("content-type", "application/json")
-                .body(Body::from(r#"{"fork_point":1,"request_id":"local-fork"}"#))
+                .body(Body::from(
+                    r#"{"fork_point":1,"request_id":"standalone-fork"}"#,
+                ))
                 .unwrap(),
         )
         .await
@@ -264,7 +266,7 @@ async fn local_http_session_create_get_and_meta_smoke() {
     assert_eq!(forked_items.len(), 1);
     assert_eq!(
         forked_items[0].get("content_text").and_then(Value::as_str),
-        Some("hello local")
+        Some("hello standalone")
     );
 
     let compact_res = app
@@ -274,7 +276,7 @@ async fn local_http_session_create_get_and_meta_smoke() {
                 .method("POST")
                 .uri(format!("/api/v1/sessions/{session_id}/compact"))
                 .header("content-type", "application/json")
-                .body(Body::from(r#"{"summary":"local compact"}"#))
+                .body(Body::from(r#"{"summary":"standalone compact"}"#))
                 .unwrap(),
         )
         .await
@@ -286,7 +288,7 @@ async fn local_http_session_create_get_and_meta_smoke() {
     let compact: Value = serde_json::from_slice(&compact_body).unwrap();
     assert_eq!(
         compact.get("summary").and_then(Value::as_str),
-        Some("local compact")
+        Some("standalone compact")
     );
 
     let compacts_res = app
@@ -310,7 +312,7 @@ async fn local_http_session_create_get_and_meta_smoke() {
     assert_eq!(compacts_items.len(), 1);
     assert_eq!(
         compacts_items[0].get("summary").and_then(Value::as_str),
-        Some("local compact")
+        Some("standalone compact")
     );
 
     let missing_messages_res = app
@@ -402,7 +404,7 @@ async fn local_http_session_create_get_and_meta_smoke() {
         .await
         .unwrap();
     let meta: Value = serde_json::from_slice(&meta_body).unwrap();
-    assert_eq!(meta.get("mode").and_then(Value::as_str), Some("local"));
+    assert_eq!(meta.get("mode").and_then(Value::as_str), Some("standalone"));
     assert_eq!(
         meta.pointer("/capabilities/health")
             .and_then(Value::as_bool),
@@ -436,7 +438,7 @@ async fn local_http_session_create_get_and_meta_smoke() {
                 .uri("/api/v1/admin/hooks")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    r#"{"hooks":[{"id":"compact-local","enabled":true,"hook_point":"turn_completed","kind":"compact_threshold","params":{"min_messages_since_last_compact":2}}]}"#,
+                    r#"{"hooks":[{"id":"compact-standalone","enabled":true,"hook_point":"turn_completed","kind":"compact_threshold","params":{"min_messages_since_last_compact":2}}]}"#,
                 ))
                 .unwrap(),
         )
@@ -479,7 +481,7 @@ async fn local_http_session_create_get_and_meta_smoke() {
                 .method("PUT")
                 .uri("/api/v1/soul/memory")
                 .header("content-type", "application/json")
-                .body(Body::from(r#"{"text":"local soul memory"}"#))
+                .body(Body::from(r#"{"text":"standalone soul memory"}"#))
                 .unwrap(),
         )
         .await
@@ -492,7 +494,7 @@ async fn local_http_session_create_get_and_meta_smoke() {
     let updated: Value = serde_json::from_slice(&set_soul_body).unwrap();
     assert_eq!(
         updated.get("memory").and_then(Value::as_str),
-        Some("local soul memory")
+        Some("standalone soul memory")
     );
 
     let get_soul_res = app
@@ -512,6 +514,6 @@ async fn local_http_session_create_get_and_meta_smoke() {
     let soul: Value = serde_json::from_slice(&get_soul_body).unwrap();
     assert_eq!(
         soul.get("memory").and_then(Value::as_str),
-        Some("local soul memory")
+        Some("standalone soul memory")
     );
 }

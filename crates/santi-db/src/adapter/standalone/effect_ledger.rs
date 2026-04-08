@@ -9,11 +9,11 @@ use santi_core::{
 };
 
 #[derive(Clone)]
-pub struct LocalEffectLedger {
+pub struct StandaloneEffectLedger {
     pool: SqlitePool,
 }
 
-impl LocalEffectLedger {
+impl StandaloneEffectLedger {
     pub async fn new(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         if let Some(parent) = path.parent() {
@@ -34,7 +34,7 @@ impl LocalEffectLedger {
             })?;
 
         sqlx::query(
-            r#"CREATE TABLE IF NOT EXISTS local_session_effects (
+            r#"CREATE TABLE IF NOT EXISTS standalone_session_effects (
                 id TEXT PRIMARY KEY,
                 session_id TEXT NOT NULL,
                 effect_type TEXT NOT NULL,
@@ -52,7 +52,7 @@ impl LocalEffectLedger {
         .execute(&pool)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("migrate sqlite local_session_effects failed: {err}"),
+            message: format!("migrate sqlite standalone_session_effects failed: {err}"),
         })?;
 
         Ok(Self { pool })
@@ -60,12 +60,12 @@ impl LocalEffectLedger {
 }
 
 #[async_trait::async_trait]
-impl EffectLedgerPort for LocalEffectLedger {
+impl EffectLedgerPort for StandaloneEffectLedger {
     async fn list_effects(&self, session_id: &str) -> Result<Vec<SessionEffect>> {
         let rows = sqlx::query(
             r#"SELECT id, session_id, effect_type, idempotency_key, status, source_hook_id,
                       source_turn_id, result_ref, error_text, created_at, updated_at
-               FROM local_session_effects
+               FROM standalone_session_effects
                WHERE session_id = ?1
                ORDER BY created_at ASC"#,
         )
@@ -73,7 +73,7 @@ impl EffectLedgerPort for LocalEffectLedger {
         .fetch_all(&self.pool)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("local effect list failed: {err}"),
+            message: format!("standalone effect list failed: {err}"),
         })?;
 
         Ok(rows.into_iter().map(map_session_effect_row).collect())
@@ -88,7 +88,7 @@ impl EffectLedgerPort for LocalEffectLedger {
         let row = sqlx::query(
             r#"SELECT id, session_id, effect_type, idempotency_key, status, source_hook_id,
                       source_turn_id, result_ref, error_text, created_at, updated_at
-               FROM local_session_effects
+               FROM standalone_session_effects
                WHERE session_id = ?1 AND effect_type = ?2 AND idempotency_key = ?3
                LIMIT 1"#,
         )
@@ -98,7 +98,7 @@ impl EffectLedgerPort for LocalEffectLedger {
         .fetch_optional(&self.pool)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("local effect get failed: {err}"),
+            message: format!("standalone effect get failed: {err}"),
         })?;
 
         Ok(row.map(map_session_effect_row))
@@ -106,11 +106,11 @@ impl EffectLedgerPort for LocalEffectLedger {
 
     async fn create_effect(&self, input: CreateSessionEffect) -> Result<SessionEffect> {
         let row = sqlx::query(
-            r#"INSERT INTO local_session_effects
+            r#"INSERT INTO standalone_session_effects
                (id, session_id, effect_type, idempotency_key, status, source_hook_id, source_turn_id, result_ref, error_text)
                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                ON CONFLICT(session_id, effect_type, idempotency_key)
-               DO UPDATE SET updated_at = local_session_effects.updated_at
+               DO UPDATE SET updated_at = standalone_session_effects.updated_at
                RETURNING id, session_id, effect_type, idempotency_key, status, source_hook_id,
                          source_turn_id, result_ref, error_text, created_at, updated_at"#,
         )
@@ -126,7 +126,7 @@ impl EffectLedgerPort for LocalEffectLedger {
         .fetch_one(&self.pool)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("local effect create failed: {err}"),
+            message: format!("standalone effect create failed: {err}"),
         })?;
 
         Ok(map_session_effect_row(row))
@@ -134,7 +134,7 @@ impl EffectLedgerPort for LocalEffectLedger {
 
     async fn update_effect(&self, input: UpdateSessionEffect) -> Result<Option<SessionEffect>> {
         let row = sqlx::query(
-            r#"UPDATE local_session_effects
+            r#"UPDATE standalone_session_effects
                SET status = ?2,
                    result_ref = ?3,
                    error_text = ?4,
@@ -150,7 +150,7 @@ impl EffectLedgerPort for LocalEffectLedger {
         .fetch_optional(&self.pool)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("local effect update failed: {err}"),
+            message: format!("standalone effect update failed: {err}"),
         })?;
 
         Ok(row.map(map_session_effect_row))

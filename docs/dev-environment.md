@@ -39,20 +39,14 @@ docker compose exec redis redis-cli info server
 - install: `./scripts/cli/setup.sh`
 - reset: `./scripts/cli/reset.sh`
 - stable local smoke should go through installed `santi-cli`, not root-level curl wrappers
-- top-level commands default to the configured backend
-- backend selection priority: `--backend` > `SANTI_CLI_BACKEND` > `config.json` > default `local`
-- explicit API compatibility form: `santi-cli api ...`
-- with the default compose stack, host-side CLI usage should prefer `api` backend because `postgres` and `redis` are not host-exposed
+- top-level commands talk directly to the configured `base_url`
+- keep CLI configuration focused on endpoint and auth inputs, not transport-selection indirection
 
 Typical `~/.santi-cli/config.json`:
 
 ```json
 {
-  "backend": "api",
-  "base_url": "http://127.0.0.1:18081",
-  "openai_base_url": "http://127.0.0.1:18082/openai/v1",
-  "openai_api_key": "codex-local-dev",
-  "openai_model": "gpt-5.4"
+  "base_url": "http://127.0.0.1:18081"
 }
 ```
 
@@ -61,21 +55,12 @@ Examples:
 ```bash
 docker compose up -d --build
 ./scripts/cli/setup.sh
-santi-cli --backend api health
-santi-cli --backend api chat 'hello'
-printf 'hello again' | santi-cli --backend api chat --session <session_id>
-printf 'compact summary' | santi-cli --backend api session compact <session_id>
-santi-cli --backend api chat 'hello from api backend'
-printf 'compact summary' | santi-cli --backend api session compact <session_id>
-SANTI_CLI_BACKEND=api santi-cli health
-
-# optional typed hook instances for local CLI runtime
-export SANTI_CLI_HOOKS_JSON='[{"id":"auto-compact-threshold","enabled":true,"hook_point":"turn_completed","kind":"compact_threshold","params":{"min_messages_since_last_compact":2}}]'
-santi-cli chat 'auto compact local'
-
-# or point startup at a file / url instead of inline JSON
-export SANTI_CLI_HOOKS_FILE='/absolute/path/to/hooks.json'
-export SANTI_CLI_HOOKS_URL='https://example.com/hooks.json'
+santi-cli health
+santi-cli chat 'hello'
+printf 'hello again' | santi-cli chat --session <session_id>
+printf 'compact summary' | santi-cli session compact <session_id>
+santi-cli chat 'hello from standalone path'
+printf 'compact summary' | santi-cli session compact <session_id>
 
 # optional typed hook instances for dockerized API runtime
 export HOOK_SPECS_JSON='[{"id":"auto-compact-threshold","enabled":true,"hook_point":"turn_completed","kind":"compact_threshold","params":{"min_messages_since_last_compact":2}}]'
@@ -90,18 +75,18 @@ curl -X PUT http://127.0.0.1:18081/api/v1/admin/hooks \
 
 # same operation through santi-cli
 printf '[{"id":"auto-compact-threshold","enabled":true,"hook_point":"turn_completed","kind":"compact_threshold","params":{"min_messages_since_last_compact":2}}]' \
-  | santi-cli --backend api admin hooks reload
+  | santi-cli admin hooks reload
 
 # path/url modes for the same reload entrypoint
-printf '{"source":"path","path":"/app/tmp/hooks.json"}' | santi-cli --backend api admin hooks reload
-printf '{"source":"url","url":"http://host.docker.internal:18765/hooks.json"}' | santi-cli --backend api admin hooks reload
+printf '{"source":"path","path":"/app/tmp/hooks.json"}' | santi-cli admin hooks reload
+printf '{"source":"url","url":"http://host.docker.internal:18765/hooks.json"}' | santi-cli admin hooks reload
 ```
 
 Preferred smoke sequence:
 
 ```bash
 docker compose up -d --build
-SANTI_CLI_BACKEND=api ./scripts/cli/setup.sh
+./scripts/cli/setup.sh
 santi-cli health
 santi-cli chat 'hello'
 printf 'compact summary' | santi-cli session compact <session_id>

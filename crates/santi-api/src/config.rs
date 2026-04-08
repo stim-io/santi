@@ -11,7 +11,7 @@ pub struct Config {
     pub openai_model: String,
     pub database_url: String,
     pub redis_url: String,
-    pub local_sqlite_path: String,
+    pub standalone_sqlite_path: String,
     pub execution_root: String,
     pub runtime_root: String,
     pub hook_source: Option<HookSpecSource>,
@@ -19,16 +19,16 @@ pub struct Config {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Mode {
-    Hosted,
-    Local,
+    Distributed,
+    Standalone,
 }
 
 impl Config {
     pub fn from_env() -> Result<Self, String> {
-        let mode_raw = env::var("MODE").unwrap_or_else(|_| "hosted".to_string());
+        let mode_raw = env::var("MODE").unwrap_or_else(|_| "distributed".to_string());
         let mode = match mode_raw.to_lowercase().as_str() {
-            "hosted" => Mode::Hosted,
-            "local" => Mode::Local,
+            "distributed" => Mode::Distributed,
+            "standalone" => Mode::Standalone,
             _ => return Err(format!("invalid MODE: {mode_raw}")),
         };
 
@@ -43,7 +43,7 @@ impl Config {
             env::var("RUNTIME_ROOT").unwrap_or_else(|_| "/tmp/santi-runtime".to_string());
 
         let (openai_api_key, openai_base_url, openai_model, database_url, redis_url) = match mode {
-            Mode::Hosted => (
+            Mode::Distributed => (
                 env::var("OPENAI_API_KEY").map_err(|_| "missing OPENAI_API_KEY".to_string())?,
                 env::var("OPENAI_BASE_URL")
                     .unwrap_or_else(|_| "https://api.openai.com/v1".to_string()),
@@ -53,7 +53,7 @@ impl Config {
                 }),
                 env::var("REDIS_URL").unwrap_or_else(|_| "redis://redis:6379/0".to_string()),
             ),
-            Mode::Local => (
+            Mode::Standalone => (
                 String::new(),
                 String::new(),
                 String::new(),
@@ -61,8 +61,8 @@ impl Config {
                 String::new(),
             ),
         };
-        let local_sqlite_path =
-            env::var("LOCAL_SQLITE_PATH").unwrap_or_else(|_| "./santi-local.sqlite".to_string());
+        let standalone_sqlite_path = env::var("STANDALONE_SQLITE_PATH")
+            .unwrap_or_else(|_| "./santi-standalone.sqlite".to_string());
 
         let hook_source = env::var("HOOK_SPECS_JSON")
             .ok()
@@ -90,7 +90,7 @@ impl Config {
             openai_model,
             database_url,
             redis_url,
-            local_sqlite_path,
+            standalone_sqlite_path,
             execution_root,
             runtime_root,
             hook_source,

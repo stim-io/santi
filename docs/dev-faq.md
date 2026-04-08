@@ -24,12 +24,12 @@ Check:
 1. `docker ps --format '{{.Names}} {{.Ports}}'`
 2. stop the conflicting stack
 
-## what is the default local smoke path now?
+## what is the default standalone smoke path now?
 
 Use the installed CLI instead of root-level smoke scripts.
 
 1. `docker compose up -d --build`
-2. `SANTI_CLI_BACKEND=api ./scripts/cli/setup.sh`
+2. `./scripts/cli/setup.sh`
 3. `santi-cli health`
 4. `santi-cli chat 'hello'`
 5. `printf 'compact summary' | santi-cli session compact <session_id>`

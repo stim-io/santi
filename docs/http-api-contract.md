@@ -47,7 +47,7 @@ It keeps the current resource shape and only normalizes how the surface is named
 - `GET /api/v1/sessions/{id}/compacts`
   - compacted session state views
 - `PUT /api/v1/admin/hooks`
-  - operational hooks used by trusted local/admin flows
+  - operational hooks used by trusted standalone/admin flows
 
 ## `/health` vs `/meta`
 

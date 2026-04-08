@@ -10,7 +10,7 @@ use santi_core::{
 use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum LocalCompactError {
+pub enum StandaloneCompactError {
     Busy,
     NotFound,
     Invalid(String),
@@ -18,12 +18,12 @@ pub enum LocalCompactError {
 }
 
 #[derive(Clone)]
-pub struct LocalSessionCompactStore {
+pub struct StandaloneSessionCompactStore {
     pool: SqlitePool,
     lock: Arc<dyn Lock>,
 }
 
-impl LocalSessionCompactStore {
+impl StandaloneSessionCompactStore {
     pub async fn new(path: impl AsRef<Path>, lock: Arc<dyn Lock>) -> Result<Self> {
         let path = path.as_ref();
         if let Some(parent) = path.parent() {
@@ -44,7 +44,7 @@ impl LocalSessionCompactStore {
             })?;
 
         sqlx::query(
-            r#"CREATE TABLE IF NOT EXISTS local_soul_sessions (
+            r#"CREATE TABLE IF NOT EXISTS standalone_soul_sessions (
                 id TEXT PRIMARY KEY,
                 soul_id TEXT NOT NULL,
                 session_id TEXT NOT NULL UNIQUE,
@@ -61,11 +61,11 @@ impl LocalSessionCompactStore {
         .execute(&pool)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("migrate sqlite local_soul_sessions failed: {err}"),
+            message: format!("migrate sqlite standalone_soul_sessions failed: {err}"),
         })?;
 
         sqlx::query(
-            r#"CREATE TABLE IF NOT EXISTS local_session_compacts (
+            r#"CREATE TABLE IF NOT EXISTS standalone_session_compacts (
                 id TEXT PRIMARY KEY,
                 session_id TEXT NOT NULL,
                 turn_id TEXT NOT NULL,
@@ -78,7 +78,7 @@ impl LocalSessionCompactStore {
         .execute(&pool)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("migrate sqlite local_session_compacts failed: {err}"),
+            message: format!("migrate sqlite standalone_session_compacts failed: {err}"),
         })?;
 
         Ok(Self { pool, lock })
@@ -88,7 +88,7 @@ impl LocalSessionCompactStore {
         &self,
         session_id: &str,
         summary: &str,
-    ) -> std::result::Result<Compact, LocalCompactError> {
+    ) -> std::result::Result<Compact, StandaloneCompactError> {
         let guard = self
             .lock
             .acquire(&format!("lock:session_send:{session_id}"))
@@ -96,7 +96,7 @@ impl LocalSessionCompactStore {
             .map_err(map_lock_error)?;
         if summary.trim().is_empty() {
             release_compact_guard(guard).await?;
-            return Err(LocalCompactError::Invalid(
+            return Err(StandaloneCompactError::Invalid(
                 "expected non-empty compact summary".to_string(),
             ));
         }
@@ -107,34 +107,46 @@ impl LocalSessionCompactStore {
             .map_err(map_compact_sql_error)?;
         if session_exists.is_none() {
             release_compact_guard(guard).await?;
-            return Err(LocalCompactError::NotFound);
+            return Err(StandaloneCompactError::NotFound);
         }
-        let end_session_seq = sqlx::query(r#"SELECT MAX(session_seq) AS end_session_seq FROM session_messages WHERE session_id = ?1"#)
-            .bind(session_id)
-            .fetch_one(&self.pool)
-            .await
-            .map_err(map_compact_sql_error)?
-            .try_get::<Option<i64>, _>("end_session_seq")
-            .map_err(|err| LocalCompactError::Internal(format!("decode local compact range failed: {err}")))?
-            .ok_or_else(|| LocalCompactError::Invalid("cannot compact empty session".to_string()))?;
-        let start_session_seq = sqlx::query(r#"SELECT MAX(end_session_seq) AS max_end_session_seq FROM local_session_compacts WHERE session_id = ?1"#)
-            .bind(session_id)
-            .fetch_one(&self.pool)
-            .await
-            .map_err(map_compact_sql_error)?
-            .try_get::<Option<i64>, _>("max_end_session_seq")
-            .map_err(|err| LocalCompactError::Internal(format!("decode local compact head failed: {err}")))?
-            .map(|seq| seq + 1)
-            .unwrap_or(1);
+        let end_session_seq = sqlx::query(
+            r#"SELECT MAX(session_seq) AS end_session_seq FROM session_messages WHERE session_id = ?1"#,
+        )
+        .bind(session_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(map_compact_sql_error)?
+        .try_get::<Option<i64>, _>("end_session_seq")
+        .map_err(|err| {
+            StandaloneCompactError::Internal(format!(
+                "decode standalone compact range failed: {err}"
+            ))
+        })?
+        .ok_or_else(|| StandaloneCompactError::Invalid("cannot compact empty session".to_string()))?;
+        let start_session_seq = sqlx::query(
+            r#"SELECT MAX(end_session_seq) AS max_end_session_seq FROM standalone_session_compacts WHERE session_id = ?1"#,
+        )
+        .bind(session_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(map_compact_sql_error)?
+        .try_get::<Option<i64>, _>("max_end_session_seq")
+        .map_err(|err| {
+            StandaloneCompactError::Internal(format!(
+                "decode standalone compact head failed: {err}"
+            ))
+        })?
+        .map(|seq| seq + 1)
+        .unwrap_or(1);
         if start_session_seq > end_session_seq {
             release_compact_guard(guard).await?;
-            return Err(LocalCompactError::Invalid(
+            return Err(StandaloneCompactError::Invalid(
                 "no uncompacted session range".to_string(),
             ));
         }
         let compact = Compact {
             id: format!("compact_{}", Uuid::new_v4().simple()),
-            turn_id: format!("turn_local_compact_{}", Uuid::new_v4().simple()),
+            turn_id: format!("turn_standalone_compact_{}", Uuid::new_v4().simple()),
             summary: summary.trim().to_string(),
             start_session_seq,
             end_session_seq,
@@ -142,7 +154,7 @@ impl LocalSessionCompactStore {
                 .await
                 .map_err(map_compact_core_error)?,
         };
-        sqlx::query(r#"INSERT OR REPLACE INTO local_session_compacts (id, session_id, turn_id, summary, start_session_seq, end_session_seq) VALUES (?1, ?2, ?3, ?4, ?5, ?6)"#)
+        sqlx::query(r#"INSERT OR REPLACE INTO standalone_session_compacts (id, session_id, turn_id, summary, start_session_seq, end_session_seq) VALUES (?1, ?2, ?3, ?4, ?5, ?6)"#)
             .bind(&compact.id)
             .bind(session_id)
             .bind(&compact.turn_id)
@@ -160,11 +172,11 @@ impl LocalSessionCompactStore {
     }
 
     pub async fn list_compacts(&self, session_id: &str) -> Result<Vec<Compact>> {
-        let rows = sqlx::query(r#"SELECT id, turn_id, summary, start_session_seq, end_session_seq, created_at FROM local_session_compacts WHERE session_id = ?1 ORDER BY created_at ASC"#)
+        let rows = sqlx::query(r#"SELECT id, turn_id, summary, start_session_seq, end_session_seq, created_at FROM standalone_session_compacts WHERE session_id = ?1 ORDER BY created_at ASC"#)
             .bind(session_id)
             .fetch_all(&self.pool)
             .await
-            .map_err(|err| Error::Internal { message: format!("list local compacts failed: {err}") })?;
+            .map_err(|err| Error::Internal { message: format!("list standalone compacts failed: {err}") })?;
         Ok(rows
             .into_iter()
             .map(|row| Compact {
@@ -179,33 +191,33 @@ impl LocalSessionCompactStore {
     }
 
     async fn ensure_soul_session(&self, session_id: &str, next_seq: i64) -> Result<()> {
-        sqlx::query(r#"INSERT INTO local_soul_sessions (id, soul_id, session_id, session_memory, next_seq, last_seen_session_seq, parent_soul_session_id, fork_point) VALUES (?1, 'soul_default', ?2, '', ?3, 0, NULL, NULL) ON CONFLICT(session_id) DO UPDATE SET updated_at = local_soul_sessions.updated_at"#)
-            .bind(format!("ss_local_{session_id}"))
+        sqlx::query(r#"INSERT INTO standalone_soul_sessions (id, soul_id, session_id, session_memory, next_seq, last_seen_session_seq, parent_soul_session_id, fork_point) VALUES (?1, 'soul_default', ?2, '', ?3, 0, NULL, NULL) ON CONFLICT(session_id) DO UPDATE SET updated_at = standalone_soul_sessions.updated_at"#)
+            .bind(format!("ss_standalone_{session_id}"))
             .bind(session_id)
             .bind(next_seq)
             .execute(&self.pool)
             .await
-            .map_err(|err| Error::Internal { message: format!("ensure local soul_session failed: {err}") })?;
+            .map_err(|err| Error::Internal { message: format!("ensure standalone soul_session failed: {err}") })?;
         Ok(())
     }
 }
 
 #[async_trait::async_trait]
-impl CompactLedgerPort for LocalSessionCompactStore {
+impl CompactLedgerPort for StandaloneSessionCompactStore {
     async fn list_compacts(&self, soul_session_id: &str) -> Result<Vec<Compact>> {
         let session_id: String = sqlx::query_scalar(
-            r#"SELECT session_id FROM local_soul_sessions WHERE id = ?1 LIMIT 1"#,
+            r#"SELECT session_id FROM standalone_soul_sessions WHERE id = ?1 LIMIT 1"#,
         )
         .bind(soul_session_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("load local compact session id failed: {err}"),
+            message: format!("load standalone compact session id failed: {err}"),
         })?
         .ok_or(Error::NotFound {
-            resource: "local_soul_session",
+            resource: "standalone_soul_session",
         })?;
-        LocalSessionCompactStore::list_compacts(self, &session_id).await
+        StandaloneSessionCompactStore::list_compacts(self, &session_id).await
     }
 }
 
@@ -221,29 +233,31 @@ async fn current_timestamp_string(pool: &SqlitePool) -> Result<String> {
 
 async fn release_compact_guard(
     guard: Box<dyn LockGuard + Send>,
-) -> std::result::Result<(), LocalCompactError> {
+) -> std::result::Result<(), StandaloneCompactError> {
     guard.release().await.map_err(map_lock_error)
 }
 
-fn map_compact_sql_error(err: sqlx::Error) -> LocalCompactError {
-    LocalCompactError::Internal(format!("local compact sqlite failed: {err}"))
+fn map_compact_sql_error(err: sqlx::Error) -> StandaloneCompactError {
+    StandaloneCompactError::Internal(format!("standalone compact sqlite failed: {err}"))
 }
 
-fn map_compact_core_error(err: Error) -> LocalCompactError {
+fn map_compact_core_error(err: Error) -> StandaloneCompactError {
     match err {
-        Error::NotFound { .. } => LocalCompactError::NotFound,
-        Error::Busy { resource } => LocalCompactError::Internal(format!("{resource} busy")),
-        Error::InvalidInput { message } => LocalCompactError::Invalid(message),
+        Error::NotFound { .. } => StandaloneCompactError::NotFound,
+        Error::Busy { resource } => StandaloneCompactError::Internal(format!("{resource} busy")),
+        Error::InvalidInput { message } => StandaloneCompactError::Invalid(message),
         Error::Upstream { message } | Error::Internal { message } => {
-            LocalCompactError::Internal(message)
+            StandaloneCompactError::Internal(message)
         }
     }
 }
 
-fn map_lock_error(err: LockError) -> LocalCompactError {
+fn map_lock_error(err: LockError) -> StandaloneCompactError {
     match err {
-        LockError::Busy => LocalCompactError::Busy,
-        LockError::Lost => LocalCompactError::Internal("session compact lock lost".to_string()),
-        LockError::Backend { message } => LocalCompactError::Internal(message),
+        LockError::Busy => StandaloneCompactError::Busy,
+        LockError::Lost => {
+            StandaloneCompactError::Internal("session compact lock lost".to_string())
+        }
+        LockError::Backend { message } => StandaloneCompactError::Internal(message),
     }
 }

@@ -24,11 +24,11 @@ use santi_core::{
 };
 
 #[derive(Clone)]
-pub struct LocalSoulRuntime {
+pub struct StandaloneSoulRuntime {
     pool: SqlitePool,
 }
 
-impl LocalSoulRuntime {
+impl StandaloneSoulRuntime {
     pub async fn new(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         if let Some(parent) = path.parent() {
@@ -49,7 +49,7 @@ impl LocalSoulRuntime {
             })?;
 
         sqlx::query(
-            r#"CREATE TABLE IF NOT EXISTS local_soul_sessions (
+            r#"CREATE TABLE IF NOT EXISTS standalone_soul_sessions (
                 id TEXT PRIMARY KEY,
                 soul_id TEXT NOT NULL,
                 session_id TEXT NOT NULL UNIQUE,
@@ -66,11 +66,11 @@ impl LocalSoulRuntime {
         .execute(&pool)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("migrate sqlite local_soul_sessions failed: {err}"),
+            message: format!("migrate sqlite standalone_soul_sessions failed: {err}"),
         })?;
 
         sqlx::query(
-            r#"CREATE TABLE IF NOT EXISTS local_turns (
+            r#"CREATE TABLE IF NOT EXISTS standalone_turns (
                 id TEXT PRIMARY KEY,
                 soul_session_id TEXT NOT NULL,
                 trigger_type TEXT NOT NULL,
@@ -88,11 +88,11 @@ impl LocalSoulRuntime {
         .execute(&pool)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("migrate sqlite local_turns failed: {err}"),
+            message: format!("migrate sqlite standalone_turns failed: {err}"),
         })?;
 
         sqlx::query(
-            r#"CREATE TABLE IF NOT EXISTS local_soul_session_items (
+            r#"CREATE TABLE IF NOT EXISTS standalone_soul_session_items (
                 soul_session_id TEXT NOT NULL,
                 target_type TEXT NOT NULL,
                 target_id TEXT NOT NULL,
@@ -104,7 +104,7 @@ impl LocalSoulRuntime {
         .execute(&pool)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("migrate sqlite local_soul_session_items failed: {err}"),
+            message: format!("migrate sqlite standalone_soul_session_items failed: {err}"),
         })?;
 
         Ok(Self { pool })
@@ -112,17 +112,17 @@ impl LocalSoulRuntime {
 
     async fn ensure_soul_session(&self, soul_id: &str, session_id: &str) -> Result<()> {
         sqlx::query(
-            r#"INSERT INTO local_soul_sessions (id, soul_id, session_id)
+            r#"INSERT INTO standalone_soul_sessions (id, soul_id, session_id)
                VALUES (?1, ?2, ?3)
-               ON CONFLICT(session_id) DO UPDATE SET updated_at = local_soul_sessions.updated_at"#,
+               ON CONFLICT(session_id) DO UPDATE SET updated_at = standalone_soul_sessions.updated_at"#,
         )
-        .bind(Self::local_soul_session_id(session_id))
+        .bind(Self::standalone_soul_session_id(session_id))
         .bind(soul_id)
         .bind(session_id)
         .execute(&self.pool)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("ensure local soul_session failed: {err}"),
+            message: format!("ensure standalone soul_session failed: {err}"),
         })?;
 
         Ok(())
@@ -133,7 +133,7 @@ impl LocalSoulRuntime {
             r#"SELECT id, soul_id, session_id, session_memory, provider_state, next_seq,
                       last_seen_session_seq, parent_soul_session_id, fork_point,
                       created_at, updated_at
-               FROM local_soul_sessions
+               FROM standalone_soul_sessions
                WHERE id = ?1
                LIMIT 1"#,
         )
@@ -141,7 +141,7 @@ impl LocalSoulRuntime {
         .fetch_optional(&self.pool)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("local soul_session get failed: {err}"),
+            message: format!("standalone soul_session get failed: {err}"),
         })?;
 
         row.map(map_soul_session_row).transpose()
@@ -155,7 +155,7 @@ impl LocalSoulRuntime {
             r#"SELECT id, soul_id, session_id, session_memory, provider_state, next_seq,
                       last_seen_session_seq, parent_soul_session_id, fork_point,
                       created_at, updated_at
-               FROM local_soul_sessions
+               FROM standalone_soul_sessions
                WHERE session_id = ?1
                LIMIT 1"#,
         )
@@ -163,32 +163,32 @@ impl LocalSoulRuntime {
         .fetch_optional(&self.pool)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("local soul_session by session failed: {err}"),
+            message: format!("standalone soul_session by session failed: {err}"),
         })?;
 
         row.map(map_soul_session_row).transpose()
     }
 
-    fn local_soul_session_id(session_id: &str) -> String {
-        format!("ss_local_{session_id}")
+    fn standalone_soul_session_id(session_id: &str) -> String {
+        format!("ss_standalone_{session_id}")
     }
 
     fn unsupported(feature: &str) -> Error {
         Error::InvalidInput {
-            message: format!("{feature} not implemented in local mode"),
+            message: format!("{feature} not implemented in standalone mode"),
         }
     }
 }
 
 #[async_trait::async_trait]
-impl SoulRuntimePort for LocalSoulRuntime {
+impl SoulRuntimePort for StandaloneSoulRuntime {
     async fn acquire_soul_session(&self, input: AcquireSoulSession) -> Result<SoulSession> {
         self.ensure_soul_session(&input.soul_id, &input.session_id)
             .await?;
         self.fetch_soul_session_by_session_id(&input.session_id)
             .await?
             .ok_or(Error::NotFound {
-                resource: "local_soul_session",
+                resource: "standalone_soul_session",
             })
     }
 
@@ -202,7 +202,7 @@ impl SoulRuntimePort for LocalSoulRuntime {
         text: &str,
     ) -> Result<Option<SoulSession>> {
         let row = sqlx::query(
-            r#"UPDATE local_soul_sessions
+            r#"UPDATE standalone_soul_sessions
                SET session_memory = ?2,
                    updated_at = CURRENT_TIMESTAMP
                WHERE id = ?1
@@ -215,7 +215,7 @@ impl SoulRuntimePort for LocalSoulRuntime {
         .fetch_optional(&self.pool)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("local session memory update failed: {err}"),
+            message: format!("standalone session memory update failed: {err}"),
         })?;
 
         row.map(map_soul_session_row).transpose()
@@ -223,11 +223,11 @@ impl SoulRuntimePort for LocalSoulRuntime {
 
     async fn start_turn(&self, input: StartTurn) -> Result<Turn> {
         let row = sqlx::query(
-            r#"INSERT INTO local_turns (
+            r#"INSERT INTO standalone_turns (
                    id, soul_session_id, trigger_type, trigger_ref, input_through_session_seq, base_soul_session_seq, status
                )
                SELECT ?1, ?2, ?3, ?4, ?5, next_seq - 1, 'running'
-               FROM local_soul_sessions
+               FROM standalone_soul_sessions
                WHERE id = ?2
                RETURNING id, soul_session_id, trigger_type, trigger_ref, input_through_session_seq,
                          base_soul_session_seq, end_soul_session_seq, status, error_text,
@@ -244,11 +244,11 @@ impl SoulRuntimePort for LocalSoulRuntime {
         .fetch_optional(&self.pool)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("local turn start failed: {err}"),
+            message: format!("standalone turn start failed: {err}"),
         })?;
 
         let row = row.ok_or(Error::NotFound {
-            resource: "local_soul_session",
+            resource: "standalone_soul_session",
         })?;
 
         map_turn_row(row)
@@ -256,11 +256,11 @@ impl SoulRuntimePort for LocalSoulRuntime {
 
     async fn append_message_ref(&self, input: AppendMessageRef) -> Result<AssemblyItem> {
         let mut tx = self.pool.begin().await.map_err(|err| Error::Internal {
-            message: format!("local append message ref tx begin failed: {err}"),
+            message: format!("standalone append message ref tx begin failed: {err}"),
         })?;
 
         let seq_row = sqlx::query(
-            r#"UPDATE local_soul_sessions
+            r#"UPDATE standalone_soul_sessions
                SET next_seq = next_seq + 1,
                    updated_at = CURRENT_TIMESTAMP
                WHERE id = ?1
@@ -270,16 +270,16 @@ impl SoulRuntimePort for LocalSoulRuntime {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("local append message ref seq advance failed: {err}"),
+            message: format!("standalone append message ref seq advance failed: {err}"),
         })?
         .ok_or(Error::NotFound {
-            resource: "local_soul_session",
+            resource: "standalone_soul_session",
         })?;
 
         let allocated_seq: i64 = seq_row.get("allocated_seq");
 
         let entry_row = sqlx::query(
-            r#"INSERT INTO local_soul_session_items (soul_session_id, target_type, target_id, soul_session_seq)
+            r#"INSERT INTO standalone_soul_session_items (soul_session_id, target_type, target_id, soul_session_seq)
                VALUES (?1, 'message', ?2, ?3)
                RETURNING soul_session_id, target_id, soul_session_seq, created_at"#,
         )
@@ -289,7 +289,7 @@ impl SoulRuntimePort for LocalSoulRuntime {
         .fetch_one(&mut *tx)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("local append message ref insert failed: {err}"),
+            message: format!("standalone append message ref insert failed: {err}"),
         })?;
 
         let message_row = sqlx::query(
@@ -302,14 +302,14 @@ impl SoulRuntimePort for LocalSoulRuntime {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("local append message ref message lookup failed: {err}"),
+            message: format!("standalone append message ref message lookup failed: {err}"),
         })?
         .ok_or(Error::NotFound {
             resource: "session_message",
         })?;
 
         tx.commit().await.map_err(|err| Error::Internal {
-            message: format!("local append message ref tx commit failed: {err}"),
+            message: format!("standalone append message ref tx commit failed: {err}"),
         })?;
 
         Ok(AssemblyItem {
@@ -327,23 +327,24 @@ impl SoulRuntimePort for LocalSoulRuntime {
     async fn append_tool_call(&self, _input: AppendToolCall) -> Result<AssemblyItem> {
         let input = _input;
         let mut tx = self.pool.begin().await.map_err(|err| Error::Internal {
-            message: format!("local append tool call tx begin failed: {err}"),
+            message: format!("standalone append tool call tx begin failed: {err}"),
         })?;
 
-        let soul_session_id: String =
-            sqlx::query_scalar(r#"SELECT soul_session_id FROM local_turns WHERE id = ?1 LIMIT 1"#)
-                .bind(&input.turn_id)
-                .fetch_optional(&mut *tx)
-                .await
-                .map_err(|err| Error::Internal {
-                    message: format!("local load tool call soul session failed: {err}"),
-                })?
-                .ok_or(Error::NotFound {
-                    resource: "local_turn",
-                })?;
+        let soul_session_id: String = sqlx::query_scalar(
+            r#"SELECT soul_session_id FROM standalone_turns WHERE id = ?1 LIMIT 1"#,
+        )
+        .bind(&input.turn_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|err| Error::Internal {
+            message: format!("standalone load tool call soul session failed: {err}"),
+        })?
+        .ok_or(Error::NotFound {
+            resource: "standalone_turn",
+        })?;
 
         let seq_row = sqlx::query(
-            r#"UPDATE local_soul_sessions
+            r#"UPDATE standalone_soul_sessions
                SET next_seq = next_seq + 1,
                    updated_at = CURRENT_TIMESTAMP
                WHERE id = ?1
@@ -353,16 +354,16 @@ impl SoulRuntimePort for LocalSoulRuntime {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("local append tool call seq advance failed: {err}"),
+            message: format!("standalone append tool call seq advance failed: {err}"),
         })?
         .ok_or(Error::NotFound {
-            resource: "local_soul_session",
+            resource: "standalone_soul_session",
         })?;
 
         let allocated_seq: i64 = seq_row.get("allocated_seq");
 
         let entry_row = sqlx::query(
-            r#"INSERT INTO local_soul_session_items (soul_session_id, target_type, target_id, soul_session_seq)
+            r#"INSERT INTO standalone_soul_session_items (soul_session_id, target_type, target_id, soul_session_seq)
                VALUES (?1, 'tool_call', ?2, ?3)
                RETURNING soul_session_id, target_id, soul_session_seq, created_at"#,
         )
@@ -372,11 +373,11 @@ impl SoulRuntimePort for LocalSoulRuntime {
         .fetch_one(&mut *tx)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("local append tool call insert failed: {err}"),
+            message: format!("standalone append tool call insert failed: {err}"),
         })?;
 
         tx.commit().await.map_err(|err| Error::Internal {
-            message: format!("local append tool call tx commit failed: {err}"),
+            message: format!("standalone append tool call tx commit failed: {err}"),
         })?;
 
         Ok(AssemblyItem {
@@ -400,12 +401,12 @@ impl SoulRuntimePort for LocalSoulRuntime {
     async fn append_tool_result(&self, _input: AppendToolResult) -> Result<AssemblyItem> {
         let input = _input;
         let mut tx = self.pool.begin().await.map_err(|err| Error::Internal {
-            message: format!("local append tool result tx begin failed: {err}"),
+            message: format!("standalone append tool result tx begin failed: {err}"),
         })?;
 
         let soul_session_id: String = sqlx::query_scalar(
             r#"SELECT soul_session_id
-               FROM local_soul_session_items
+               FROM standalone_soul_session_items
                WHERE target_type = 'tool_call' AND target_id = ?1
                LIMIT 1"#,
         )
@@ -413,14 +414,14 @@ impl SoulRuntimePort for LocalSoulRuntime {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("local load tool result soul session failed: {err}"),
+            message: format!("standalone load tool result soul session failed: {err}"),
         })?
         .ok_or(Error::NotFound {
             resource: "tool_call",
         })?;
 
         let seq_row = sqlx::query(
-            r#"UPDATE local_soul_sessions
+            r#"UPDATE standalone_soul_sessions
                SET next_seq = next_seq + 1,
                    updated_at = CURRENT_TIMESTAMP
                WHERE id = ?1
@@ -430,16 +431,16 @@ impl SoulRuntimePort for LocalSoulRuntime {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("local append tool result seq advance failed: {err}"),
+            message: format!("standalone append tool result seq advance failed: {err}"),
         })?
         .ok_or(Error::NotFound {
-            resource: "local_soul_session",
+            resource: "standalone_soul_session",
         })?;
 
         let allocated_seq: i64 = seq_row.get("allocated_seq");
 
         let entry_row = sqlx::query(
-            r#"INSERT INTO local_soul_session_items (soul_session_id, target_type, target_id, soul_session_seq)
+            r#"INSERT INTO standalone_soul_session_items (soul_session_id, target_type, target_id, soul_session_seq)
                VALUES (?1, 'tool_result', ?2, ?3)
                RETURNING soul_session_id, target_id, soul_session_seq, created_at"#,
         )
@@ -449,11 +450,11 @@ impl SoulRuntimePort for LocalSoulRuntime {
         .fetch_one(&mut *tx)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("local append tool result insert failed: {err}"),
+            message: format!("standalone append tool result insert failed: {err}"),
         })?;
 
         tx.commit().await.map_err(|err| Error::Internal {
-            message: format!("local append tool result tx commit failed: {err}"),
+            message: format!("standalone append tool result tx commit failed: {err}"),
         })?;
 
         Ok(AssemblyItem {
@@ -482,20 +483,20 @@ impl SoulRuntimePort for LocalSoulRuntime {
             .map(|value| serde_json::to_string(&value))
             .transpose()
             .map_err(|err| Error::Internal {
-                message: format!("encode local provider_state failed: {err}"),
+                message: format!("encode standalone provider_state failed: {err}"),
             })?;
 
         let mut tx = self.pool.begin().await.map_err(|err| Error::Internal {
-            message: format!("local complete turn tx begin failed: {err}"),
+            message: format!("standalone complete turn tx begin failed: {err}"),
         })?;
 
         let row = sqlx::query(
-            r#"UPDATE local_turns
+            r#"UPDATE standalone_turns
                SET status = 'completed',
                    end_soul_session_seq = (
                        SELECT next_seq - 1
-                       FROM local_soul_sessions
-                       WHERE id = (SELECT soul_session_id FROM local_turns WHERE id = ?1)
+                       FROM standalone_soul_sessions
+                       WHERE id = (SELECT soul_session_id FROM standalone_turns WHERE id = ?1)
                    ),
                    updated_at = CURRENT_TIMESTAMP,
                    finished_at = CURRENT_TIMESTAMP
@@ -508,18 +509,18 @@ impl SoulRuntimePort for LocalSoulRuntime {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("local turn complete failed: {err}"),
+            message: format!("standalone turn complete failed: {err}"),
         })?
         .ok_or(Error::NotFound {
-            resource: "local_turn",
+            resource: "standalone_turn",
         })?;
 
         sqlx::query(
-            r#"UPDATE local_soul_sessions
+            r#"UPDATE standalone_soul_sessions
                SET last_seen_session_seq = ?2,
                    provider_state = ?3,
                    updated_at = CURRENT_TIMESTAMP
-               WHERE id = (SELECT soul_session_id FROM local_turns WHERE id = ?1)"#,
+               WHERE id = (SELECT soul_session_id FROM standalone_turns WHERE id = ?1)"#,
         )
         .bind(&input.turn_id)
         .bind(input.last_seen_session_seq)
@@ -527,11 +528,11 @@ impl SoulRuntimePort for LocalSoulRuntime {
         .execute(&mut *tx)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("local soul_session complete failed: {err}"),
+            message: format!("standalone soul_session complete failed: {err}"),
         })?;
 
         tx.commit().await.map_err(|err| Error::Internal {
-            message: format!("local complete turn tx commit failed: {err}"),
+            message: format!("standalone complete turn tx commit failed: {err}"),
         })?;
 
         map_turn_row(row)
@@ -539,12 +540,12 @@ impl SoulRuntimePort for LocalSoulRuntime {
 
     async fn fail_turn(&self, input: FailTurn) -> Result<Turn> {
         let row = sqlx::query(
-            r#"UPDATE local_turns
+            r#"UPDATE standalone_turns
                SET status = 'failed',
                    end_soul_session_seq = (
                        SELECT next_seq - 1
-                       FROM local_soul_sessions
-                       WHERE id = (SELECT soul_session_id FROM local_turns WHERE id = ?1)
+                       FROM standalone_soul_sessions
+                       WHERE id = (SELECT soul_session_id FROM standalone_turns WHERE id = ?1)
                    ),
                    error_text = ?2,
                    updated_at = CURRENT_TIMESTAMP,
@@ -559,10 +560,10 @@ impl SoulRuntimePort for LocalSoulRuntime {
         .fetch_optional(&self.pool)
         .await
         .map_err(|err| Error::Internal {
-            message: format!("local turn fail failed: {err}"),
+            message: format!("standalone turn fail failed: {err}"),
         })?
         .ok_or(Error::NotFound {
-            resource: "local_turn",
+            resource: "standalone_turn",
         })?;
 
         map_turn_row(row)
@@ -570,7 +571,7 @@ impl SoulRuntimePort for LocalSoulRuntime {
 }
 
 #[async_trait::async_trait]
-impl SoulSessionQueryPort for LocalSoulRuntime {
+impl SoulSessionQueryPort for StandaloneSoulRuntime {
     async fn get_soul_session_by_session_id(
         &self,
         session_id: &str,
@@ -580,7 +581,7 @@ impl SoulSessionQueryPort for LocalSoulRuntime {
 }
 
 #[async_trait::async_trait]
-impl CompactLedgerPort for LocalSoulRuntime {
+impl CompactLedgerPort for StandaloneSoulRuntime {
     async fn list_compacts(&self, _soul_session_id: &str) -> Result<Vec<Compact>> {
         Err(Self::unsupported("list_compacts"))
     }
@@ -593,9 +594,9 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn local_tool_call_and_result_append_allocate_entries() {
+    async fn standalone_tool_call_and_result_append_allocate_entries() {
         let dir = tempdir().expect("tempdir");
-        let runtime = LocalSoulRuntime::new(dir.path().join("local.sqlite"))
+        let runtime = StandaloneSoulRuntime::new(dir.path().join("standalone.sqlite"))
             .await
             .expect("runtime");
 
@@ -671,12 +672,12 @@ fn map_soul_session_row(row: sqlx::sqlite::SqliteRow) -> Result<SoulSession> {
     let provider_state = row
         .try_get::<Option<String>, _>("provider_state")
         .map_err(|err| Error::Internal {
-            message: format!("local provider_state decode failed: {err}"),
+            message: format!("standalone provider_state decode failed: {err}"),
         })?
         .map(|raw| serde_json::from_str::<Value>(&raw))
         .transpose()
         .map_err(|err| Error::Internal {
-            message: format!("parse local provider_state failed: {err}"),
+            message: format!("parse standalone provider_state failed: {err}"),
         })?
         .map(decode_provider_state)
         .transpose()?;

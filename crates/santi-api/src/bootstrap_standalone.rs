@@ -1,39 +1,42 @@
 use std::{fs::OpenOptions, sync::Arc};
 
-use santi_db::adapter::local::{
-    effect_ledger::LocalEffectLedger, session_compact::LocalSessionCompactStore,
-    session_fork::LocalSessionForkStore, session_store::LocalSessionStore,
-    soul_runtime::LocalSoulRuntime, soul_store::LocalSoulStore,
+use santi_db::adapter::standalone::{
+    effect_ledger::StandaloneEffectLedger, session_compact::StandaloneSessionCompactStore,
+    session_fork::StandaloneSessionForkStore, session_store::StandaloneSessionStore,
+    soul_runtime::StandaloneSoulRuntime, soul_store::StandaloneSoulStore,
 };
-use santi_ebus::adapter::local::InMemorySubscriberSet;
-use santi_lock::adapter::local::InProcessLock;
+use santi_ebus::adapter::standalone::InMemorySubscriberSet;
+use santi_lock::adapter::standalone::InProcessLock;
 use santi_runtime::hooks::{compile_hook_specs, load_hook_specs, HookEvaluator};
 use santi_runtime::session::{
-    local_send::LocalSessionSendService, memory::SessionMemoryService, query::SessionQueryService,
+    memory::SessionMemoryService, query::SessionQueryService,
+    standalone_send::StandaloneSessionSendService,
 };
 
 use crate::{
     config::Config,
     state::AppState,
-    surface::{default_capabilities, LocalAdminApi, LocalSessionApi, LocalSoulApi},
+    surface::{default_capabilities, StandaloneAdminApi, StandaloneSessionApi, StandaloneSoulApi},
 };
 
-pub async fn bootstrap_local(config: &Config) -> santi_core::error::Result<AppState> {
-    let lock = acquire_local_bootstrap_lock(&config.local_sqlite_path)?;
+pub async fn bootstrap_standalone(config: &Config) -> santi_core::error::Result<AppState> {
+    let lock = acquire_standalone_bootstrap_lock(&config.standalone_sqlite_path)?;
     let send_lock: Arc<dyn santi_core::port::lock::Lock> = Arc::new(InProcessLock::default());
-    let store = Arc::new(LocalSessionStore::new(&config.local_sqlite_path).await?);
-    let soul_store = Arc::new(LocalSoulStore::new(&config.local_sqlite_path).await?);
-    let soul_runtime = Arc::new(LocalSoulRuntime::new(&config.local_sqlite_path).await?);
+    let store = Arc::new(StandaloneSessionStore::new(&config.standalone_sqlite_path).await?);
+    let soul_store = Arc::new(StandaloneSoulStore::new(&config.standalone_sqlite_path).await?);
+    let soul_runtime = Arc::new(StandaloneSoulRuntime::new(&config.standalone_sqlite_path).await?);
     let effect_ledger: Arc<dyn santi_core::port::effect_ledger::EffectLedgerPort> =
-        Arc::new(LocalEffectLedger::new(&config.local_sqlite_path).await?);
+        Arc::new(StandaloneEffectLedger::new(&config.standalone_sqlite_path).await?);
     let soul_runtime_port: Arc<dyn santi_core::port::soul_runtime::SoulRuntimePort> =
         soul_runtime.clone();
     let soul_session_query: Arc<dyn santi_core::port::soul_session_query::SoulSessionQueryPort> =
         soul_runtime.clone();
-    let fork =
-        Arc::new(LocalSessionForkStore::new(&config.local_sqlite_path, send_lock.clone()).await?);
+    let fork = Arc::new(
+        StandaloneSessionForkStore::new(&config.standalone_sqlite_path, send_lock.clone()).await?,
+    );
     let compact = Arc::new(
-        LocalSessionCompactStore::new(&config.local_sqlite_path, send_lock.clone()).await?,
+        StandaloneSessionCompactStore::new(&config.standalone_sqlite_path, send_lock.clone())
+            .await?,
     );
     let compact_ledger: Arc<dyn santi_core::port::compact_ledger::CompactLedgerPort> =
         compact.clone();
@@ -45,7 +48,7 @@ pub async fn bootstrap_local(config: &Config) -> santi_core::error::Result<AppSt
     let ebus: Arc<dyn santi_core::port::ebus::SubscriberSetPort<Arc<dyn HookEvaluator>>> =
         Arc::new(InMemorySubscriberSet::<Arc<dyn HookEvaluator>>::new());
     ebus.replace_all(compile_hook_specs(&hook_specs));
-    let send = Arc::new(LocalSessionSendService::new(
+    let send = Arc::new(StandaloneSessionSendService::new(
         send_lock,
         session_ledger,
         soul_runtime_port,
@@ -67,7 +70,7 @@ pub async fn bootstrap_local(config: &Config) -> santi_core::error::Result<AppSt
     Ok(AppState::new(
         config.mode.clone(),
         default_capabilities(&config.mode),
-        Arc::new(LocalSessionApi {
+        Arc::new(StandaloneSessionApi {
             query: query.clone(),
             memory: memory.clone(),
             fork,
@@ -75,11 +78,11 @@ pub async fn bootstrap_local(config: &Config) -> santi_core::error::Result<AppSt
             effect_ledger,
             send,
         }),
-        Arc::new(LocalSoulApi {
+        Arc::new(StandaloneSoulApi {
             session_query: query,
             memory,
         }),
-        Arc::new(LocalAdminApi { ebus }),
+        Arc::new(StandaloneAdminApi { ebus }),
         Some(lock),
     ))
 }
@@ -95,13 +98,13 @@ async fn load_startup_hook_specs(
     }
 }
 
-fn acquire_local_bootstrap_lock(
+fn acquire_standalone_bootstrap_lock(
     sqlite_path: &str,
 ) -> santi_core::error::Result<Arc<std::fs::File>> {
     let lock_path = std::path::Path::new(sqlite_path).with_extension("lock");
     if let Some(parent) = lock_path.parent() {
         std::fs::create_dir_all(parent).map_err(|err| santi_core::error::Error::Internal {
-            message: format!("create local lock parent dir failed: {err}"),
+            message: format!("create standalone lock parent dir failed: {err}"),
         })?;
     }
 
@@ -111,13 +114,13 @@ fn acquire_local_bootstrap_lock(
         .write(true)
         .open(&lock_path)
         .map_err(|err| santi_core::error::Error::Internal {
-            message: format!("open local bootstrap lock failed: {err}"),
+            message: format!("open standalone bootstrap lock failed: {err}"),
         })?;
 
     fs2::FileExt::try_lock_exclusive(&lock_file).map_err(|err| {
         santi_core::error::Error::Internal {
             message: format!(
-                "local bootstrap lock already held for {}: {err}",
+                "standalone bootstrap lock already held for {}: {err}",
                 lock_path.display()
             ),
         }

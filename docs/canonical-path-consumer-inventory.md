@@ -6,22 +6,22 @@
 
 本清单仅统计当前 `santi_db::adapter` 的 consumer，并区分：
 
-- **canonical path**：直接使用 `santi_db::adapter::local::...` 或 `santi_db::adapter::postgres::...`
+- **canonical path**：直接使用 `santi_db::adapter::standalone::...` 或 `santi_db::adapter::postgres::...`
 - **compat/flat 导出**：依赖 `santi_db::adapter::{...}` 这类平铺再导出的路径
 
 ## 当前 consumer inventory
 
 ### 1) `crates/santi-api/src/surface.rs`
 
-- 依赖：`santi_db::adapter::local::{session_compact::LocalSessionCompactStore, session_fork::LocalSessionForkStore}`
+- 依赖：`santi_db::adapter::standalone::{session_compact::StandaloneSessionCompactStore, session_fork::StandaloneSessionForkStore}`
 - 判定：**canonical path 已使用**
-- 备注：直接落在 `adapter::local::session_fork_compact`
+- 备注：直接落在 `adapter::standalone::*`
 
-### 2) `crates/santi-api/src/bootstrap_local.rs`
+### 2) `crates/santi-api/src/bootstrap_standalone.rs`
 
-- 依赖：`santi_db::adapter::local::{effect_ledger::LocalEffectLedger, session_compact::LocalSessionCompactStore, session_fork::LocalSessionForkStore, session_store::LocalSessionStore, soul_runtime::LocalSoulRuntime, soul_store::LocalSoulStore}`
+- 依赖：`santi_db::adapter::standalone::{effect_ledger::StandaloneEffectLedger, session_compact::StandaloneSessionCompactStore, session_fork::StandaloneSessionForkStore, session_store::StandaloneSessionStore, soul_runtime::StandaloneSoulRuntime, soul_store::StandaloneSoulStore}`
 - 判定：**canonical path 已使用**
-- 备注：全部都是 `adapter::local::...` 子模块直达
+- 备注：全部都是 `adapter::standalone::...` 子模块直达
 
 ### 3) `crates/santi-api/src/bootstrap.rs`
 
@@ -29,17 +29,17 @@
 - 判定：**canonical path 已使用**
 - 备注：全部都是 `adapter::postgres::...` 子模块直达
 
-### 4) `crates/santi-api/tests/local_session_store.rs`
+### 4) `crates/santi-api/tests/standalone_session_store.rs`
 
-- 依赖：`santi_db::adapter::local::{session_store::LocalSessionStore, soul_store::LocalSoulStore}`
+- 依赖：`santi_db::adapter::standalone::{session_store::StandaloneSessionStore, soul_store::StandaloneSoulStore}`
 - 判定：**canonical path 已使用**
-- 备注：仅使用 local canonical 子路径
+- 备注：仅使用 standalone canonical 子路径
 
-### 5) `crates/santi-api/tests/local_send.rs`
+### 5) `crates/santi-api/tests/standalone_send.rs`
 
-- 依赖：`santi_db::adapter::local::{session_store::LocalSessionStore, soul_runtime::LocalSoulRuntime}`
+- 依赖：`santi_db::adapter::standalone::{session_store::StandaloneSessionStore, soul_runtime::StandaloneSoulRuntime}`
 - 判定：**canonical path 已使用**
-- 备注：仅使用 local canonical 子路径
+- 备注：仅使用 standalone canonical 子路径
 
 ## compat / flat consumer 结论
 

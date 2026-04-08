@@ -12,7 +12,7 @@ These are the stable module entry points that should own the public shape of the
 
 These are the actual implementation sources currently exposed from the adapter root. They are still the real implementation owners.
 
-`adapter/local/*` and `adapter/postgres/*` continue to depend on these root-level `pub mod ...` items as their live source of implementation.
+`adapter/standalone/*` and `adapter/postgres/*` continue to depend on these root-level `pub mod ...` items as their live source of implementation.
 
 ### `*_mod` alias re-exports
 
@@ -27,7 +27,7 @@ Do not treat root-level `pub mod ...` items as removable yet.
 
 ## Why root-level modules must stay for now
 
-Root-level `pub mod ...` modules cannot be deleted yet because `adapter/local/*` and `adapter/postgres/*` still rely on them as the true implementation source.
+Root-level `pub mod ...` modules cannot be deleted yet because `adapter/standalone/*` and `adapter/postgres/*` still rely on them as the true implementation source.
 
 Removing them now would move the implementation boundary before the wrapper layer has been repointed.
 
@@ -37,7 +37,7 @@ Removing them now would move the implementation boundary before the wrapper laye
 
 Remove only the `*_mod` alias layer first.
 
-Status: completed. The `*_mod` alias re-exports were removed from `crates/santi-db/src/adapter/mod.rs`, and core crates still compile through canonical `adapter::{local,postgres}` paths.
+Status: completed. The `*_mod` alias re-exports were removed from `crates/santi-db/src/adapter/mod.rs`, and core crates still compile through canonical `adapter::{standalone,postgres}` paths.
 
 ### Phase B: move real implementation into canonical wrappers
 

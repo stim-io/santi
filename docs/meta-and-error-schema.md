@@ -6,7 +6,7 @@ This document defines the shared minimal success meta and error schema for:
 
 - HTTP API responses
 - standalone `santi-cli`
-- local mode
+- 单机 and 分布式 `santi` assembly paths
 
 It is the shared mother contract for the same runtime result shape across surfaces.
 
@@ -105,21 +105,21 @@ The standalone CLI must align with the HTTP contract semantics.
 - CLI exit codes should reflect the error class, but must not invent new semantic classes that diverge from the shared error taxonomy.
 - A CLI conflict must map to the same `conflict` class as HTTP and should exit non-zero.
 
-## Local mode mapping
+## Topology mapping
 
-Local mode must not invent separate error semantics.
+单机 and 分布式 must not invent separate error semantics.
 
 - Use the same canonical success meta and error model as HTTP and CLI.
 - Map internal failures to the shared error taxonomy before surface-specific rendering.
-- If local mode is not using HTTP transport, it still reports the same `code`, `message`, and optional `details` fields.
-- Local mode conflict handling for the same session must still be `conflict`.
+- If a non-HTTP internal path is used during assembly or tests, it still reports the same `code`, `message`, and optional `details` fields.
+- 单机 conflict handling for the same session must still be `conflict`.
 
 ## Compatibility rules
 
 - Additive fields are allowed.
 - Removing or renaming stable fields is a breaking change.
 - Surfaces may omit optional fields when they are not available.
-- Error and success shapes must remain consistent across HTTP, CLI, and local mode.
+- Error and success shapes must remain consistent across HTTP, CLI, 单机, and 分布式 assembly paths.
 - Transport-specific wrappers must not change the meaning of `code`, `message`, or `request_id`.
 
 ## Minimal examples

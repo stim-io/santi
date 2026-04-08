@@ -27,6 +27,7 @@ Detailed system thinking belongs in `docs/`, not here.
 - `core` defines the atomic boundary traits required by runtime.
 - `middleware` implements those core traits through adapters.
 - `runtime` composes those traits and owns orchestration, concurrency, and business composition.
+- `santi` is always the single HTTP service host; 中文 `单机` vs `分布式` is an assembly/dependency topology distinction, not a service-boundary distinction.
 - `session` is the public shared ledger container and a work unit, not a security boundary.
 - HTTP capabilities are currently open; `scope` / `tenant` comes later.
 - `soul_dir` and `session_dir` are normal directories used as unified agent resource spaces.
@@ -63,12 +64,12 @@ Detailed system thinking belongs in `docs/`, not here.
 - `docs/redis-lock-plan.md`: minimal Redis-based concurrency lock plan for `session/send`
 - `docs/crate-architecture.md`: stable crate layering and refactor guidance
 - `docs/stim-santi-boundary.md`: high-level product boundary between public session ledger and soul runtime
-- `docs/composition-root.md`: composition root rules for the single `santi` HTTP host, mode assembly, and crate refactor constraints
-- `docs/local-mode.md`: local mode assembly, storage, and single-process rules for the `santi` internal local runtime
+- `docs/composition-root.md`: composition root rules for the single `santi` HTTP host and 单机 / 分布式 assembly
+- `docs/standalone-mode.md`: 单机 assembly, storage, and single-process rules inside the same `santi` service boundary
 - `docs/runtime-ports-db-adapters-boundary.md`: boundary between runtime-facing ports and db adapter ownership
-- `docs/service-config-and-bootstrap.md`: startup config precedence, mode requirements, and fail-fast bootstrap boundary for `santi`
+- `docs/service-config-and-bootstrap.md`: startup config precedence, topology requirements, and fail-fast bootstrap boundary for `santi`
 - `docs/http-api-contract.md`: minimal stable `/api/v1` HTTP contract for the current resource set
-- `docs/meta-and-error-schema.md`: shared success meta and error schema for HTTP, CLI, and local mode
+- `docs/meta-and-error-schema.md`: shared success meta and error schema for HTTP, CLI, and 单机 / 分布式 assembly
 - `docs/architecture-adr.md`: decision record for the `santi` service boundary, CLI split, and compatibility rules
 - `../AGENTS.md`: repo-root product and deployment boundary across `santi/`, `santi-link/`, and `santi-cli/`
 

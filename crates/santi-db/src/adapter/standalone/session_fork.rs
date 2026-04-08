@@ -9,14 +9,14 @@ use santi_core::{
 use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LocalForkResult {
+pub struct StandaloneForkResult {
     pub new_session_id: String,
     pub parent_session_id: String,
     pub fork_point: i64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum LocalForkError {
+pub enum StandaloneForkError {
     Busy,
     ParentNotFound,
     InvalidForkPoint(String),
@@ -24,12 +24,12 @@ pub enum LocalForkError {
 }
 
 #[derive(Clone)]
-pub struct LocalSessionForkStore {
+pub struct StandaloneSessionForkStore {
     pool: SqlitePool,
     lock: Arc<dyn Lock>,
 }
 
-impl LocalSessionForkStore {
+impl StandaloneSessionForkStore {
     pub async fn new(path: impl AsRef<Path>, lock: Arc<dyn Lock>) -> Result<Self> {
         let path = path.as_ref();
         if let Some(parent) = path.parent() {
@@ -48,8 +48,8 @@ impl LocalSessionForkStore {
             .map_err(|err| Error::Internal {
                 message: format!("connect sqlite failed: {err}"),
             })?;
-        sqlx::query(r#"CREATE TABLE IF NOT EXISTS local_soul_sessions (id TEXT PRIMARY KEY, soul_id TEXT NOT NULL, session_id TEXT NOT NULL UNIQUE, session_memory TEXT NOT NULL DEFAULT '', provider_state TEXT NULL, next_seq INTEGER NOT NULL DEFAULT 1, last_seen_session_seq INTEGER NOT NULL DEFAULT 0, parent_soul_session_id TEXT NULL, fork_point INTEGER NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"#).execute(&pool).await.map_err(|err| Error::Internal { message: format!("migrate sqlite local_soul_sessions failed: {err}") })?;
-        sqlx::query(r#"CREATE TABLE IF NOT EXISTS local_session_compacts (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, turn_id TEXT NOT NULL, summary TEXT NOT NULL, start_session_seq INTEGER NOT NULL, end_session_seq INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"#).execute(&pool).await.map_err(|err| Error::Internal { message: format!("migrate sqlite local_session_compacts failed: {err}") })?;
+        sqlx::query(r#"CREATE TABLE IF NOT EXISTS standalone_soul_sessions (id TEXT PRIMARY KEY, soul_id TEXT NOT NULL, session_id TEXT NOT NULL UNIQUE, session_memory TEXT NOT NULL DEFAULT '', provider_state TEXT NULL, next_seq INTEGER NOT NULL DEFAULT 1, last_seen_session_seq INTEGER NOT NULL DEFAULT 0, parent_soul_session_id TEXT NULL, fork_point INTEGER NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"#).execute(&pool).await.map_err(|err| Error::Internal { message: format!("migrate sqlite standalone_soul_sessions failed: {err}") })?;
+        sqlx::query(r#"CREATE TABLE IF NOT EXISTS standalone_session_compacts (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, turn_id TEXT NOT NULL, summary TEXT NOT NULL, start_session_seq INTEGER NOT NULL, end_session_seq INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"#).execute(&pool).await.map_err(|err| Error::Internal { message: format!("migrate sqlite standalone_session_compacts failed: {err}") })?;
         let _ = lock;
         Ok(Self { pool, lock })
     }
@@ -59,7 +59,7 @@ impl LocalSessionForkStore {
         parent_session_id: &str,
         fork_point: i64,
         request_id: &str,
-    ) -> std::result::Result<LocalForkResult, LocalForkError> {
+    ) -> std::result::Result<StandaloneForkResult, StandaloneForkError> {
         let guard = self
             .lock
             .acquire(&format!("lock:session_send:{parent_session_id}"))
@@ -73,7 +73,7 @@ impl LocalSessionForkStore {
                 .map_err(map_fork_sql_error)?;
         let Some(parent_session) = parent_session else {
             release_fork_guard(guard).await?;
-            return Err(LocalForkError::ParentNotFound);
+            return Err(StandaloneForkError::ParentNotFound);
         };
         let parent_messages = sqlx::query(r#"SELECT actor_type, actor_id, content_text, state, session_seq FROM session_messages WHERE session_id = ?1 ORDER BY session_seq ASC"#).bind(parent_session_id).fetch_all(&self.pool).await.map_err(map_fork_sql_error)?;
         let parent_next_seq = parent_messages
@@ -82,7 +82,7 @@ impl LocalSessionForkStore {
             .unwrap_or(1);
         if fork_point < 1 || fork_point >= parent_next_seq {
             release_fork_guard(guard).await?;
-            return Err(LocalForkError::InvalidForkPoint(format!(
+            return Err(StandaloneForkError::InvalidForkPoint(format!(
                 "illegal fork_point {}: must be 1 <= fp < {}",
                 fork_point, parent_next_seq
             )));
@@ -119,13 +119,13 @@ impl LocalSessionForkStore {
                     == Some(fork_point);
             release_fork_guard(guard).await?;
             if same_lineage {
-                return Ok(LocalForkResult {
+                return Ok(StandaloneForkResult {
                     new_session_id,
                     parent_session_id: parent_session_id.to_string(),
                     fork_point,
                 });
             }
-            return Err(LocalForkError::Internal(
+            return Err(StandaloneForkError::Internal(
                 "existing fork session id collided with incompatible lineage".to_string(),
             ));
         }
@@ -144,7 +144,7 @@ impl LocalSessionForkStore {
             .await
             .map_err(map_fork_core_error)?;
         release_fork_guard(guard).await?;
-        Ok(LocalForkResult {
+        Ok(StandaloneForkResult {
             new_session_id,
             parent_session_id: parent_session_id.to_string(),
             fork_point,
@@ -155,46 +155,46 @@ impl LocalSessionForkStore {
         &self,
         session_id: &str,
         next_seq: i64,
-    ) -> Result<LocalSoulSessionRow> {
-        sqlx::query(r#"INSERT INTO local_soul_sessions (id, soul_id, session_id, session_memory, next_seq, last_seen_session_seq, parent_soul_session_id, fork_point) VALUES (?1, 'soul_default', ?2, '', ?3, 0, NULL, NULL) ON CONFLICT(session_id) DO UPDATE SET updated_at = local_soul_sessions.updated_at"#).bind(format!("ss_local_{session_id}")).bind(session_id).bind(next_seq).execute(&self.pool).await.map_err(|err| Error::Internal { message: format!("ensure local soul_session failed: {err}") })?;
+    ) -> Result<StandaloneSoulSessionRow> {
+        sqlx::query(r#"INSERT INTO standalone_soul_sessions (id, soul_id, session_id, session_memory, next_seq, last_seen_session_seq, parent_soul_session_id, fork_point) VALUES (?1, 'soul_default', ?2, '', ?3, 0, NULL, NULL) ON CONFLICT(session_id) DO UPDATE SET updated_at = standalone_soul_sessions.updated_at"#).bind(format!("ss_standalone_{session_id}")).bind(session_id).bind(next_seq).execute(&self.pool).await.map_err(|err| Error::Internal { message: format!("ensure standalone soul_session failed: {err}") })?;
         let row =
-            sqlx::query(r#"SELECT id FROM local_soul_sessions WHERE session_id = ?1 LIMIT 1"#)
+            sqlx::query(r#"SELECT id FROM standalone_soul_sessions WHERE session_id = ?1 LIMIT 1"#)
                 .bind(session_id)
                 .fetch_one(&self.pool)
                 .await
                 .map_err(|err| Error::Internal {
-                    message: format!("load local soul_session failed: {err}"),
+                    message: format!("load standalone soul_session failed: {err}"),
                 })?;
         let _ = row.get::<String, _>("id");
-        Ok(LocalSoulSessionRow)
+        Ok(StandaloneSoulSessionRow)
     }
 }
 
 #[derive(Clone, Debug)]
-struct LocalSoulSessionRow;
+struct StandaloneSoulSessionRow;
 
 async fn release_fork_guard(
     guard: Box<dyn LockGuard + Send>,
-) -> std::result::Result<(), LocalForkError> {
+) -> std::result::Result<(), StandaloneForkError> {
     guard.release().await.map_err(map_lock_error)
 }
-fn map_fork_sql_error(err: sqlx::Error) -> LocalForkError {
-    LocalForkError::Internal(format!("local fork sqlite failed: {err}"))
+fn map_fork_sql_error(err: sqlx::Error) -> StandaloneForkError {
+    StandaloneForkError::Internal(format!("standalone fork sqlite failed: {err}"))
 }
-fn map_fork_core_error(err: Error) -> LocalForkError {
+fn map_fork_core_error(err: Error) -> StandaloneForkError {
     match err {
-        Error::NotFound { .. } => LocalForkError::ParentNotFound,
-        Error::Busy { resource } => LocalForkError::Internal(format!("{resource} busy")),
-        Error::InvalidInput { message } => LocalForkError::InvalidForkPoint(message),
+        Error::NotFound { .. } => StandaloneForkError::ParentNotFound,
+        Error::Busy { resource } => StandaloneForkError::Internal(format!("{resource} busy")),
+        Error::InvalidInput { message } => StandaloneForkError::InvalidForkPoint(message),
         Error::Upstream { message } | Error::Internal { message } => {
-            LocalForkError::Internal(message)
+            StandaloneForkError::Internal(message)
         }
     }
 }
-fn map_lock_error(err: LockError) -> LocalForkError {
+fn map_lock_error(err: LockError) -> StandaloneForkError {
     match err {
-        LockError::Busy => LocalForkError::Busy,
-        LockError::Lost => LocalForkError::Internal("fork session lock lost".to_string()),
-        LockError::Backend { message } => LocalForkError::Internal(message),
+        LockError::Busy => StandaloneForkError::Busy,
+        LockError::Lost => StandaloneForkError::Internal("fork session lock lost".to_string()),
+        LockError::Backend { message } => StandaloneForkError::Internal(message),
     }
 }

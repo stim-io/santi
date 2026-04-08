@@ -6,19 +6,19 @@ This document is a baseline only. It records the current safe migration shape fo
 
 Use this map as the current reference point for Phase B.
 
-### `crates/santi-db/src/adapter/local/mod.rs`
-- Canonical wrapper for local adapter surface.
+### `crates/santi-db/src/adapter/standalone/mod.rs`
+- Canonical wrapper for standalone adapter surface.
 - Root-level implementation sources still in use:
-  - `crates/santi-db/src/adapter/local_soul_runtime.rs`
+  - `crates/santi-db/src/adapter/standalone_soul_runtime.rs`
 - Already moved into canonical wrapper:
-  - `crates/santi-db/src/adapter/local/effect_ledger.rs`
-  - root-level `crates/santi-db/src/adapter/local_effect_ledger.rs` now acts as shim/re-export
-  - `crates/santi-db/src/adapter/local/session_fork_compact.rs`
-  - root-level `crates/santi-db/src/adapter/local_session_fork_compact.rs` now acts as shim/re-export
-  - `crates/santi-db/src/adapter/local/session_store.rs`
-  - root-level `crates/santi-db/src/adapter/local_session_store.rs` now acts as shim/re-export
-  - `crates/santi-db/src/adapter/local/soul_store.rs`
-  - root-level `crates/santi-db/src/adapter/local_soul_store.rs` now acts as shim/re-export
+  - `crates/santi-db/src/adapter/standalone/effect_ledger.rs`
+  - root-level `crates/santi-db/src/adapter/standalone_effect_ledger.rs` now acts as shim/re-export
+  - `crates/santi-db/src/adapter/standalone/session_fork_compact.rs`
+  - root-level `crates/santi-db/src/adapter/standalone_session_fork_compact.rs` now acts as shim/re-export
+  - `crates/santi-db/src/adapter/standalone/session_store.rs`
+  - root-level `crates/santi-db/src/adapter/standalone_session_store.rs` now acts as shim/re-export
+  - `crates/santi-db/src/adapter/standalone/soul_store.rs`
+  - root-level `crates/santi-db/src/adapter/standalone_soul_store.rs` now acts as shim/re-export
 
 ### `crates/santi-db/src/adapter/postgres/mod.rs`
 - Canonical wrapper for postgres adapter surface.
@@ -47,9 +47,9 @@ Use this map as the current reference point for Phase B.
 Small, focused files with limited surface area and little orchestration logic.
 
 Examples:
-- `crates/santi-db/src/adapter/local_effect_ledger.rs`
-- `crates/santi-db/src/adapter/local_session_store.rs`
-- `crates/santi-db/src/adapter/local_soul_store.rs`
+- `crates/santi-db/src/adapter/standalone_effect_ledger.rs`
+- `crates/santi-db/src/adapter/standalone_session_store.rs`
+- `crates/santi-db/src/adapter/standalone_soul_store.rs`
 - `crates/santi-db/src/adapter/effect_ledger.rs`
 - `crates/santi-db/src/adapter/session_ledger.rs`
 
@@ -59,8 +59,8 @@ Files that carry adapter coordination or multiple call sites, but are not the co
 
 Examples:
 - `crates/santi-db/src/adapter/soul.rs`
-- `crates/santi-db/src/adapter/local_session_fork_compact.rs`
-- `crates/santi-db/src/adapter/local_soul_runtime.rs`
+- `crates/santi-db/src/adapter/standalone_session_fork_compact.rs`
+- `crates/santi-db/src/adapter/standalone_soul_runtime.rs`
 - `crates/santi-db/src/adapter/soul_runtime.rs`
 
 ### High risk
@@ -91,9 +91,9 @@ Phase B is now complete for:
 - `SoulPort`
 - `EffectLedgerPort`
 - `SessionLedgerPort`
-- local `SessionForkCompact`
+- standalone `SessionForkCompact`
 
-The remaining unmoved high-risk implementation is `SoulRuntimePort` (`local_soul_runtime.rs` / `soul_runtime.rs`).
+The remaining unmoved high-risk implementation is `SoulRuntimePort` (`standalone_soul_runtime.rs` / `soul_runtime.rs`).
 
 That pair still sits directly on runtime lifecycle and contract-leakage boundaries, so it is the right pause point before any deeper move.
 

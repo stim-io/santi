@@ -17,7 +17,7 @@ santi-api
   - HTTP/SSE transport
   - config
   - wiring
-  - santi-link gateway client for hosted upstream calls
+  - santi-link gateway client for distributed upstream calls
 ```
 
 ## Rules

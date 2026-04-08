@@ -26,7 +26,7 @@ In particular:
 
 - use the repo-root `docker compose.yml`
 - prefer the installed `santi-cli`
-- prefer the `api` backend on the default local stack
+- prefer direct CLI-to-HTTP usage against the default standalone stack
 
 ## Main-path verification goal
 
@@ -42,7 +42,7 @@ If this path is broken, stop and fix the runtime before doing deeper checks.
 
 ```bash
 docker compose up -d --build
-SANTI_CLI_BACKEND=api ./scripts/cli/setup.sh
+./scripts/cli/setup.sh
 santi-cli health
 ```
 
@@ -171,14 +171,14 @@ Reload a minimal hook set through the API runtime:
 
 ```bash
 printf '[{"id":"auto-fork-handoff","enabled":true,"hook_point":"turn_completed","kind":"fork_handoff_threshold","params":{"min_messages_since_last_compact":1}}]' \
-  | santi-cli --backend api admin hooks reload
+  | santi-cli admin hooks reload
 ```
 
 Then trigger a normal turn and inspect effects:
 
 ```bash
-printf 'normal reply' | santi-cli --backend api chat --session <session_id>
-santi-cli --backend api session effects <session_id>
+printf 'normal reply' | santi-cli chat --session <session_id>
+santi-cli session effects <session_id>
 ```
 
 Expected result:

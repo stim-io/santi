@@ -27,6 +27,7 @@ Detailed system thinking belongs in `docs/`, not here.
 - `core` defines the atomic boundary traits required by runtime.
 - `middleware` implements those core traits through adapters.
 - `runtime` composes those traits and owns orchestration, concurrency, and business composition.
+- `santi` is always the single HTTP service host; 中文 `单机` vs `分布式` is an assembly/dependency topology distinction, not a service-boundary distinction.
 - `session` is the public shared ledger container and a work unit, not a security boundary.
 - HTTP capabilities are currently open; `scope` / `tenant` comes later.
 - `soul_dir` and `session_dir` are normal directories used as unified agent resource spaces.
@@ -49,27 +50,26 @@ Detailed system thinking belongs in `docs/`, not here.
 ## Key File Index
 
 - `AGENTS.md`: stable constraints and file index
-- `docs/system-model.md`: top-level runtime model overview and design principles
-- `docs/runtime-primitives.md`: current core object model and primitive definitions
-- `docs/layer-responsibility-analogy.md`: durable analogy for core/runtime/middleware responsibility boundaries
-- `docs/lifecycle.md`: soul/session lifecycle and fork hook model
-- `docs/hook-reload-boundary.md`: runtime boundary for hook source inputs and whole-set reload
-- `docs/dev-environment.md`: local development baseline and smoke entrypoints
+- `docs/README.md`: docs structure map and core bucket guidance
+- `docs/operations/documentation.md`: must-read docs update guide, canonical-source rule, and anti-duplication process
+- `docs/architecture/overview.md`: top-level runtime model overview and design principles
+- `docs/architecture/runtime/glossary.md`: current core object model and primitive definitions
+- `docs/architecture/layers/principles.md`: durable layering and ownership rules
+- `docs/architecture/runtime/lifecycle-and-hooks.md`: soul/session lifecycle, hook points, and reload boundary
+- `docs/operations/local-dev/setup.md`: local development baseline and smoke entrypoints
 - `scripts/verify.sh`: workspace verify entrypoint; runs no-skips, fmt check, and locked workspace tests
 - `scripts/package.sh`: release packaging entrypoint for a target triple; writes archives to `dist/`
 - `scripts/verify/no-skips.sh`: fast guard that fails on skipped tests
-- `docs/cold-start-verification.md`: cold-start operational verification flow for common runtime smoke checks
-- `docs/dev-faq.md`: local troubleshooting notes for common development and smoke/integration issues
-- `docs/redis-lock-plan.md`: minimal Redis-based concurrency lock plan for `session/send`
-- `docs/crate-architecture.md`: stable crate layering and refactor guidance
-- `docs/stim-santi-boundary.md`: high-level product boundary between public session ledger and soul runtime
-- `docs/composition-root.md`: composition root rules for the single `santi` HTTP host, mode assembly, and crate refactor constraints
-- `docs/local-mode.md`: local mode assembly, storage, and single-process rules for the `santi` internal local runtime
-- `docs/runtime-ports-db-adapters-boundary.md`: boundary between runtime-facing ports and db adapter ownership
-- `docs/service-config-and-bootstrap.md`: startup config precedence, mode requirements, and fail-fast bootstrap boundary for `santi`
-- `docs/http-api-contract.md`: minimal stable `/api/v1` HTTP contract for the current resource set
-- `docs/meta-and-error-schema.md`: shared success meta and error schema for HTTP, CLI, and local mode
-- `docs/architecture-adr.md`: decision record for the `santi` service boundary, CLI split, and compatibility rules
+- `docs/operations/local-dev/verification.md`: cold-start operational verification flow for common runtime smoke checks
+- `docs/operations/local-dev/troubleshooting.md`: local troubleshooting notes for common development and smoke/integration issues
+- `docs/contracts/runtime/session-locking.md`: concurrency lock contract for `session/send`, `fork`, and `compact`
+- `docs/architecture/layers/crate-map.md`: stable crate ownership and refactor guidance
+- `docs/architecture/product/stim-boundary.md`: product-facing boundary between `stim` and `santi`
+- `docs/architecture/topology/service-and-assemblies.md`: service boundary, topology assembly, bootstrap, and standalone rules
+- `docs/contracts/runtime/adapter-boundaries.md`: boundary between runtime-facing ports and db adapter ownership
+- `docs/contracts/http/api-surface.md`: minimal stable `/api/v1` HTTP contract for the current resource set
+- `docs/contracts/http/envelopes-and-errors.md`: shared success meta and error schema for HTTP, CLI, and 单机 / 分布式 assembly
+- `docs/architecture/decisions/0001-service-boundary.md`: decision record for the `santi` service boundary, CLI split, and compatibility rules
 - `../AGENTS.md`: repo-root product and deployment boundary across `santi/`, `santi-link/`, and `santi-cli/`
 
 ## Release Policy
@@ -83,3 +83,4 @@ Detailed system thinking belongs in `docs/`, not here.
 - Put ongoing design reasoning into `docs/`.
 - Keep `AGENTS.md` short and durable.
 - Only add indexes here for files that are likely to remain central.
+- Before changing doc structure or adding new docs, read `docs/operations/documentation.md` and follow its canonical-source, split/merge, and no-history-baggage rules.

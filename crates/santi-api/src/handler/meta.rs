@@ -24,8 +24,8 @@ pub async fn meta(
             service_version: version.to_string(),
             compatible_cli_xy,
             mode: match state.mode() {
-                crate::config::Mode::Hosted => "hosted".to_string(),
-                crate::config::Mode::Local => "local".to_string(),
+                crate::config::Mode::Distributed => "distributed".to_string(),
+                crate::config::Mode::Standalone => "standalone".to_string(),
             },
             capabilities: MetaCapabilities {
                 health: state.capabilities().health,

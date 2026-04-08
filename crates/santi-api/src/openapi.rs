@@ -12,8 +12,8 @@ use crate::schema::{
         SessionSendRequest, SoulMemoryRequest, SoulMemoryResponse, SoulResponse,
     },
     soul::{
-        SoulMemoryRequest as LocalSoulMemoryRequest, SoulMemoryResponse as LocalSoulMemoryResponse,
-        SoulResponse as LocalSoulResponse,
+        SoulMemoryRequest as StandaloneSoulMemoryRequest,
+        SoulMemoryResponse as StandaloneSoulMemoryResponse, SoulResponse as StandaloneSoulResponse,
     },
 };
 
@@ -48,9 +48,9 @@ use crate::schema::{
         SoulResponse,
         SoulMemoryRequest,
         SoulMemoryResponse,
-        LocalSoulResponse,
-        LocalSoulMemoryRequest,
-        LocalSoulMemoryResponse,
+        StandaloneSoulResponse,
+        StandaloneSoulMemoryRequest,
+        StandaloneSoulMemoryResponse,
         SessionSendRequest,
         SessionCompactRequest,
         SessionCompactResponse,

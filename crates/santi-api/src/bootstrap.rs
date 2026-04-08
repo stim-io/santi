@@ -8,7 +8,7 @@ use santi_db::{
     },
     db::init_postgres,
 };
-use santi_ebus::adapter::local::InMemorySubscriberSet;
+use santi_ebus::adapter::standalone::InMemorySubscriberSet;
 use santi_lock::adapter::redis::{RedisLockClient, RedisLockConfig};
 use santi_runtime::{
     hooks::{compile_hook_specs, load_hook_specs, HookEvaluator},
@@ -23,21 +23,23 @@ use crate::{
     config::{Config, Mode},
     link_client::OpenAiResponsesClient,
     state::AppState,
-    surface::{default_capabilities, HostedAdminApi, HostedSessionApi, HostedSoulApi},
+    surface::{
+        default_capabilities, DistributedAdminApi, DistributedSessionApi, DistributedSoulApi,
+    },
 };
 
 pub async fn bootstrap(
     config: &Config,
 ) -> Result<AppState, Box<dyn std::error::Error + Send + Sync>> {
     match config.mode {
-        Mode::Hosted => hosted_bootstrap(config).await,
-        Mode::Local => crate::bootstrap_local::bootstrap_local(config)
+        Mode::Distributed => distributed_bootstrap(config).await,
+        Mode::Standalone => crate::bootstrap_standalone::bootstrap_standalone(config)
             .await
             .map_err(|err| Box::<dyn std::error::Error + Send + Sync>::from(format!("{err:?}"))),
     }
 }
 
-async fn hosted_bootstrap(
+async fn distributed_bootstrap(
     config: &Config,
 ) -> Result<AppState, Box<dyn std::error::Error + Send + Sync>> {
     let provider = OpenAiResponsesClient::new(
@@ -130,7 +132,7 @@ async fn hosted_bootstrap(
     Ok(AppState::new(
         config.mode.clone(),
         default_capabilities(&config.mode),
-        Arc::new(HostedSessionApi {
+        Arc::new(DistributedSessionApi {
             query: session_query.clone(),
             memory: session_memory.clone(),
             compact: session_compact,
@@ -138,11 +140,11 @@ async fn hosted_bootstrap(
             fork: session_fork,
             effect_ledger,
         }),
-        Arc::new(HostedSoulApi {
+        Arc::new(DistributedSoulApi {
             query: session_query,
             memory: session_memory,
         }),
-        Arc::new(HostedAdminApi { send: session_send }),
+        Arc::new(DistributedAdminApi { send: session_send }),
         None,
     ))
 }

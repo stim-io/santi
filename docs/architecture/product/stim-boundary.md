@@ -39,49 +39,17 @@ Messages may be revised while pending.
 
 That revision history should be managed through event-oriented ledger semantics rather than ad hoc overwrite behavior.
 
-## Boundary
+## Product boundary
 
-The system is intentionally split into two layers.
+`stim` treats `session` as the public IM ledger and may expose selected `soul`-side mechanisms as read-only alternate views.
 
-### Public Session Ledger
+The detailed runtime split lives in `docs/contracts/data-model/session-message-model.md`.
 
-This is the IM-facing layer.
+At the product layer, the important rule is simpler:
 
-It owns:
-
-- actor-authored shared session messages
-- message ordering
-- message lifecycle such as `pending` and `fixed`
-- ledger/event semantics for public message changes
-
-It does not own:
-
-- provider-facing `role`
-- tool-call cycles
-- compact state
-- provider transcript continuity
-
-### Soul Runtime
-
-This is the actor-internal runtime layer.
-
-It owns:
-
-- provider-facing assembly state
-- compact
-- tool-call cycles
-- provider continuity state
-- runtime execution boundaries such as `turn`
-- internal runtime state and future thought-trace style views
-
-`santi` should keep these runtime concerns inside the `soul` system rather than leaking them into the public session ledger.
-
-Current first-pass runtime shape:
-
-- `soul_sessions` as the durable `soul x session` runtime container
-- `turns` as one execution attempt for one `soul_session`, with success or failure recorded on the `turn`
-- runtime artifacts such as `tool_call`, `tool_result`, and `compact`
-- `provider_state` as optional opaque provider continuation state rather than canonical transcript truth
+- the shared session ledger remains the public truth
+- product views may project that truth differently for different actors
+- `soul` may expose internal read-only mechanism views without changing public ledger semantics
 
 ## Design Rule
 
@@ -93,4 +61,4 @@ That is intentional.
 - neither projection should replace the shared ledger truth
 - provider-facing snapshot is another projection again
 
-This is one of the main reasons the session/message model must stay actor-based and provider-neutral.
+This is one of the main reasons the session/message model stays actor-based and provider-neutral.

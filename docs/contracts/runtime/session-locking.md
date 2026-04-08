@@ -1,4 +1,4 @@
-# Redis Lock Plan
+# Session Locking
 
 ## Goal
 
@@ -14,14 +14,14 @@ Prevent conflicting session mutations on the same session.
 - do not queue
 - do not silently disable protection if Redis is unavailable
 
-## Key
+## Lock key
 
 - `lock:session_send:<session_id>`
 
-Current stance:
+Rule:
 
 - `session/send`, `session/fork`, and `session/compact` share the same lock family for a given parent session id
-- the lock key name stays `lock:session_send:<session_id>` for now to keep the first pass minimal
+- the lock key name is `lock:session_send:<session_id>`
 
 ## Behavior
 

@@ -1,8 +1,8 @@
-# Provider Gateway
+# Distributed Provider Gateway
 
-## Split
+## Boundary
 
-`santi-link/` now owns the 分布式 OpenAI-compatible gateway path.
+`santi-link/` owns the 分布式 OpenAI-compatible gateway path.
 
 ### `santi-link` owns
 
@@ -16,10 +16,10 @@
 - runtime-facing send orchestration
 - the narrow distributed caller that talks to `santi-link`
 
-## Rule
+## Rules
 
 `santi-link` decides how 分布式 upstream access is reached.
 
 `santi` should not carry a standalone provider crate anymore.
 
-Distributed wiring is the primary implementation naming for this path.
+- `distributed` is the implementation naming for this path inside `santi`

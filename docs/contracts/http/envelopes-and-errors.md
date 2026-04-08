@@ -1,4 +1,4 @@
-# Meta and Error Schema
+# HTTP Envelopes and Errors
 
 ## Scope
 

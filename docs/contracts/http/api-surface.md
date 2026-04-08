@@ -1,4 +1,4 @@
-# HTTP API Contract
+# HTTP API Surface
 
 ## Scope
 

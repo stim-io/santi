@@ -1,4 +1,4 @@
-# Cold-Start Verification
+# Local Verification
 
 ## Purpose
 
@@ -6,8 +6,8 @@ This document is the operational runbook for verifying `santi/` right after a fr
 
 It complements, but does not replace:
 
-- `docs/dev-environment.md` for local setup and baseline commands
-- `docs/dev-faq.md` for troubleshooting when a verification step fails
+- `docs/operations/local-dev/setup.md` for local setup and baseline commands
+- `docs/operations/local-dev/troubleshooting.md` for troubleshooting when a verification step fails
 
 ## When to use this runbook
 
@@ -20,7 +20,7 @@ Use this flow when:
 
 ## Preconditions
 
-Do not duplicate setup here. Assume the local baseline in `docs/dev-environment.md` is already satisfied.
+Do not duplicate setup here. Assume the local baseline in `docs/operations/local-dev/setup.md` is already satisfied.
 
 In particular:
 
@@ -52,7 +52,7 @@ Expected result:
 
 If this fails:
 
-- go to `docs/dev-faq.md`
+- go to `docs/operations/local-dev/troubleshooting.md`
 
 ### 2. Main chat path
 
@@ -202,7 +202,7 @@ This step validates:
 
 ## Failure routing
 
-- health/startup problem: `docs/dev-faq.md`
+- health/startup problem: `docs/operations/local-dev/troubleshooting.md`
 - main chat path broken: fix runtime first, do not continue
 - compact/effects/fork broken while main chat path is healthy: debug the specific subsystem after confirming persistence still works
 
@@ -210,5 +210,5 @@ This step validates:
 
 Use this document for the verification order and pass/fail criteria.
 
-Use `docs/dev-environment.md` for baseline local commands and setup details.
-Use `docs/dev-faq.md` for troubleshooting and recovery steps.
+Use `docs/operations/local-dev/setup.md` for baseline local commands and setup details.
+Use `docs/operations/local-dev/troubleshooting.md` for troubleshooting and recovery steps.

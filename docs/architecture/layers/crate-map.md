@@ -1,6 +1,6 @@
-# Crate Architecture
+# Crate Map
 
-## Layering
+## Current crate map
 
 ```text
 santi-core
@@ -20,13 +20,13 @@ santi-api
   - santi-link gateway client for distributed upstream calls
 ```
 
-## Rules
+## Ownership rules
 
 - `santi-core` should not know HTTP, SQL, Redis, or provider wire details
 - infrastructure crates implement core ports
 - `santi-runtime` depends on ports, not transport
 - `santi-api` stays transport-focused
 
-## Refactor rule
+## Change rule
 
 If a boundary is wrong, move the code decisively instead of preserving compatibility glue.

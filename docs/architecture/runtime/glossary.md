@@ -1,6 +1,6 @@
-# Runtime Primitives
+# Runtime Glossary
 
-This file is a short glossary. For exact schema and invariants, use `docs/session-message-model-spec.md`.
+This file is a short glossary. For exact schema and invariants, use `docs/contracts/data-model/session-message-model.md`.
 
 ## `soul`
 

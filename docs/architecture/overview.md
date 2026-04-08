@@ -1,4 +1,4 @@
-# System Model
+# Architecture Overview
 
 ## Goal
 
@@ -6,9 +6,9 @@ We are building a customized personal agent service.
 
 The goal is not to replicate reference projects. The goal is to define a small, stable runtime model that can grow from chat into an agent with session, tools, memory, compacting, and branching.
 
-## Near-Term Direction
+## Direction
 
-The near-term goal is to make `santi` operate increasingly through its own canonical runtime paths so it can inspect, explain, and improve its own behavior.
+`santi` should operate through its own canonical runtime paths so it can inspect, explain, and improve its own behavior.
 
 ## Foundational Assumption
 
@@ -28,13 +28,13 @@ This project also assumes that both human and model-side working capacity remain
 
 In other words:
 
-- infinite context should not be treated as an available or near-term design foundation
+- infinite context should not be treated as an available design foundation
 - longer context windows do not remove the need for state management, retrieval, and compaction
 - runtime design should stay conservative and layered rather than assuming raw history can be carried forever
 
 ## Product Route
 
-The system is evolving from streaming chat into a persistent personal-agent runtime with sessions, tools, memory, compacting, and workspace resources. The concrete first-pass object model and constraints live in `docs/session-message-model-spec.md`.
+The system grows from streaming chat into a persistent personal-agent runtime with sessions, tools, memory, compacting, and workspace resources. The concrete object model and constraints live in `docs/contracts/data-model/session-message-model.md`.
 
 ## Core Principles
 
@@ -47,10 +47,10 @@ The system is evolving from streaming chat into a persistent personal-agent runt
 
 See:
 
-- `docs/runtime-primitives.md`
-- `docs/lifecycle.md`
-- `docs/stim-santi-boundary.md`
-- `docs/session-message-model-spec.md`
+- `docs/architecture/runtime/glossary.md`
+- `docs/architecture/runtime/lifecycle-and-hooks.md`
+- `docs/architecture/product/stim-boundary.md`
+- `docs/contracts/data-model/session-message-model.md`
 
 ## HTTP Exposure
 

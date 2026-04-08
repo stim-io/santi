@@ -1,4 +1,4 @@
-# Architecture ADR
+# 0001 Service Boundary
 
 ## Status
 
@@ -8,7 +8,7 @@ Accepted.
 
 `santi` is converging on a single self-contained HTTP service, with a standalone `santi-cli` as the agent-friendly command-line entrypoint.
 
-The runtime and client boundary needs to be explicit so transport, persistence, adapter topology, and compatibility rules stay stable during the refactor.
+The runtime and client boundary needs to be explicit so transport, persistence, adapter topology, and compatibility rules stay stable.
 
 The previous wording was misleading because both paths terminate in the same `santi` service boundary. The real distinction is 中文 `单机` vs `分布式` assembly, with code aligned to `standalone` / `distributed`.
 
@@ -36,11 +36,3 @@ The previous wording was misleading because both paths terminate in the same `sa
 - `santi-cli` must only target `santi` HTTP endpoints under `/api/v1`.
 - A `santi-cli` release is compatible with `santi` when the `X.Y` version pair matches.
 - Config and env may override the default standalone URL, but they do not change the protocol contract.
-
-## Migration
-
-- Move all CLI entrypoints to the standalone `santi-cli`.
-- Route CLI calls to `santi` HTTP only.
-- Normalize all exposed endpoints to `/api/v1`.
-- Keep 单机 single-process with sqlite.
-- Remove the old internal CLI host after the new separation is complete.

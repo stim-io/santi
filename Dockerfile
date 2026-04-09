@@ -44,9 +44,10 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 FROM ghcr.io/perishcode/docker/santi-runtime:v1 AS runtime
 
 ENV HOME=/root \
+    MODE=standalone \
     BIND_ADDR=0.0.0.0:8080 \
     SANTI_BASE_URL=http://127.0.0.1:8080 \
-    DATABASE_URL=postgres://santi:santi@postgres:5432/santi?sslmode=disable \
+    STANDALONE_SQLITE_PATH=/data/santi-standalone.sqlite \
     EXECUTION_ROOT=/app \
     RUNTIME_ROOT=/runtime \
     RUST_LOG=santi_api=info

@@ -61,6 +61,7 @@ Detailed system thinking belongs in `docs/`, not here.
 - `scripts/package.sh`: release packaging entrypoint for a target triple; writes archives to `dist/`
 - `scripts/verify/no-skips.sh`: fast guard that fails on skipped tests
 - `docs/operations/local-dev/verification.md`: cold-start operational verification flow for common runtime smoke checks
+- `docs/operations/testing.md`: test-construction standard for choosing smoke, integration, and focused regression coverage
 - `docs/operations/local-dev/troubleshooting.md`: local troubleshooting notes for common development and smoke/integration issues
 - `docs/contracts/runtime/session-locking.md`: concurrency lock contract for `session/send`, `fork`, and `compact`
 - `docs/architecture/layers/crate-map.md`: stable crate ownership and refactor guidance

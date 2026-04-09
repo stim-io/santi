@@ -8,7 +8,7 @@
 
 ## Required local file
 
-- `providers/auth.json`
+- `santi-link/auth.json`
 
 ## Local stack
 
@@ -17,21 +17,20 @@ Use the repository root `docker-compose.yml`.
 Ports:
 
 - `santi`: `127.0.0.1:18081`
-- `providers`: `127.0.0.1:18082`
+- `santi-link`: `127.0.0.1:18082`
 
 Note:
 
-- only `santi` and `providers` are host-exposed in the default stack
-- `postgres` and `redis` stay internal to Docker; probe them with `docker exec`, not host ports
-- `santi-api` crate defaults are container-oriented (`postgres:5432`, `redis:6379`, `127.0.0.1:8080`) and are expected to be overridden by compose/env in the stack
+- only `santi` and `santi-link` are host-exposed in the default stack
+- the default Docker cold start is standalone-only: `santi` uses sqlite at `/data/santi-standalone.sqlite`
+- standalone still uses the normal provider path through `santi-link`; the topology change is storage/locking/bootstrap, not send semantics
 
 Probe examples:
 
 ```bash
-docker compose exec postgres pg_isready -U santi -d santi
-docker compose exec postgres psql -U santi -d santi -c 'select 1;'
-docker compose exec redis redis-cli ping
-docker compose exec redis redis-cli info server
+docker compose exec santi test -f /data/santi-standalone.sqlite
+docker compose exec santi ls -l /data /runtime
+docker compose logs -f santi
 ```
 
 ## CLI
@@ -92,8 +91,6 @@ santi-cli health
 santi-cli chat 'hello'
 printf 'compact summary' | santi-cli session compact <session_id>
 ```
-
-Standalone mode still uses the normal provider path through `santi-link`; it changes storage/locking topology, not the upstream chat path.
 
 ## Rule
 

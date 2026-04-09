@@ -34,13 +34,13 @@ Use the installed CLI instead of root-level smoke scripts.
 4. `santi-cli chat 'hello'`
 5. `printf 'compact summary' | santi-cli session compact <session_id>`
 
-## how do I inspect postgres or redis now that they are not host-exposed?
+## how do I inspect standalone runtime state inside docker?
 
 Use `docker compose exec`.
 
 Examples:
 
-1. `docker compose exec postgres pg_isready -U santi -d santi`
-2. `docker compose exec postgres psql -U santi -d santi -c 'select 1;'`
-3. `docker compose exec redis redis-cli ping`
-4. `docker compose exec redis redis-cli info clients`
+1. `docker compose exec santi test -f /data/santi-standalone.sqlite`
+2. `docker compose exec santi ls -l /data /runtime`
+3. `docker compose logs -f santi`
+4. `docker compose logs -f santi-link`

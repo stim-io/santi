@@ -1,25 +1,26 @@
 use std::{fs::OpenOptions, sync::Arc};
 
 use santi_db::adapter::standalone::{
-    effect_ledger::StandaloneEffectLedger, session_compact::StandaloneSessionCompactStore,
-    session_fork::StandaloneSessionForkStore, session_store::StandaloneSessionStore,
+    effect_ledger::StandaloneEffectLedger, session_store::StandaloneSessionStore,
     soul_runtime::StandaloneSoulRuntime, soul_store::StandaloneSoulStore,
 };
 use santi_ebus::adapter::standalone::InMemorySubscriberSet;
 use santi_lock::adapter::standalone::InProcessLock;
 use santi_runtime::hooks::{compile_hook_specs, load_hook_specs, HookEvaluator};
 use santi_runtime::session::{
-    memory::SessionMemoryService, query::SessionQueryService,
-    standalone_send::StandaloneSessionSendService,
+    compact::SessionCompactService, fork::SessionForkService, memory::SessionMemoryService,
+    query::SessionQueryService, send::SessionSendService,
 };
 
 use crate::{
     config::Config,
+    link_client::OpenAiResponsesClient,
     state::AppState,
     surface::{default_capabilities, StandaloneAdminApi, StandaloneSessionApi, StandaloneSoulApi},
 };
 
 pub async fn bootstrap_standalone(config: &Config) -> santi_core::error::Result<AppState> {
+    validate_provider_config(config)?;
     let lock = acquire_standalone_bootstrap_lock(&config.standalone_sqlite_path)?;
     let send_lock: Arc<dyn santi_core::port::lock::Lock> = Arc::new(InProcessLock::default());
     let store = Arc::new(StandaloneSessionStore::new(&config.standalone_sqlite_path).await?);
@@ -27,32 +28,27 @@ pub async fn bootstrap_standalone(config: &Config) -> santi_core::error::Result<
     let soul_runtime = Arc::new(StandaloneSoulRuntime::new(&config.standalone_sqlite_path).await?);
     let effect_ledger: Arc<dyn santi_core::port::effect_ledger::EffectLedgerPort> =
         Arc::new(StandaloneEffectLedger::new(&config.standalone_sqlite_path).await?);
-    let soul_runtime_port: Arc<dyn santi_core::port::soul_runtime::SoulRuntimePort> =
-        soul_runtime.clone();
     let soul_session_query: Arc<dyn santi_core::port::soul_session_query::SoulSessionQueryPort> =
         soul_runtime.clone();
-    let fork = Arc::new(
-        StandaloneSessionForkStore::new(&config.standalone_sqlite_path, send_lock.clone()).await?,
-    );
-    let compact = Arc::new(
-        StandaloneSessionCompactStore::new(&config.standalone_sqlite_path, send_lock.clone())
-            .await?,
-    );
     let compact_ledger: Arc<dyn santi_core::port::compact_ledger::CompactLedgerPort> =
-        compact.clone();
+        soul_runtime.clone();
+    let compact_runtime: Arc<dyn santi_core::port::compact_runtime::CompactRuntimePort> =
+        soul_runtime.clone();
+    let soul_session_fork: Arc<dyn santi_core::port::soul_session_fork::SoulSessionForkPort> =
+        soul_runtime.clone();
     let session_ledger: Arc<dyn santi_core::port::session_ledger::SessionLedgerPort> =
         store.clone();
     let soul_port: Arc<dyn santi_core::port::soul::SoulPort> = soul_store;
     let soul_runtime: Arc<dyn santi_core::port::soul_runtime::SoulRuntimePort> = soul_runtime;
+    let provider: Arc<dyn santi_core::port::provider::Provider> =
+        Arc::new(OpenAiResponsesClient::new(
+            config.openai_api_key.clone(),
+            config.openai_base_url.clone(),
+        ));
     let hook_specs = load_startup_hook_specs(config.hook_source.as_ref()).await?;
     let ebus: Arc<dyn santi_core::port::ebus::SubscriberSetPort<Arc<dyn HookEvaluator>>> =
         Arc::new(InMemorySubscriberSet::<Arc<dyn HookEvaluator>>::new());
     ebus.replace_all(compile_hook_specs(&hook_specs));
-    let send = Arc::new(StandaloneSessionSendService::new(
-        send_lock,
-        session_ledger,
-        soul_runtime_port,
-    ));
     let memory = Arc::new(SessionMemoryService::new(
         soul_runtime.clone(),
         soul_session_query.clone(),
@@ -62,9 +58,38 @@ pub async fn bootstrap_standalone(config: &Config) -> santi_core::error::Result<
     let query = Arc::new(SessionQueryService::new(
         store.clone(),
         soul_port,
-        soul_session_query,
+        soul_session_query.clone(),
         compact_ledger,
         "soul_default".to_string(),
+    ));
+    let fork = Arc::new(SessionForkService::new(
+        send_lock.clone(),
+        soul_session_query.clone(),
+        soul_session_fork,
+    ));
+    let compact = Arc::new(SessionCompactService::new(
+        send_lock.clone(),
+        session_ledger.clone(),
+        soul_runtime.clone(),
+        compact_runtime.clone(),
+        "soul_default".to_string(),
+    ));
+    let send = Arc::new(SessionSendService::new(
+        config.openai_model.clone(),
+        "soul_default".to_string(),
+        send_lock,
+        session_ledger,
+        soul_runtime.clone(),
+        compact_runtime,
+        effect_ledger.clone(),
+        fork.clone(),
+        provider,
+        memory.as_ref().clone(),
+        santi_runtime::runtime::tools::ToolExecutorConfig {
+            runtime_root: config.runtime_root.clone(),
+            execution_root: config.execution_root.clone(),
+        },
+        ebus.clone(),
     ));
 
     Ok(AppState::new(
@@ -85,6 +110,26 @@ pub async fn bootstrap_standalone(config: &Config) -> santi_core::error::Result<
         Arc::new(StandaloneAdminApi { ebus }),
         Some(lock),
     ))
+}
+
+fn validate_provider_config(config: &Config) -> santi_core::error::Result<()> {
+    if config.openai_api_key.trim().is_empty() {
+        return Err(santi_core::error::Error::InvalidInput {
+            message: "missing OPENAI_API_KEY for standalone gateway path".to_string(),
+        });
+    }
+    if config.openai_base_url.trim().is_empty() {
+        return Err(santi_core::error::Error::InvalidInput {
+            message: "missing OPENAI_BASE_URL for standalone gateway path".to_string(),
+        });
+    }
+    if config.openai_model.trim().is_empty() {
+        return Err(santi_core::error::Error::InvalidInput {
+            message: "missing OPENAI_MODEL for standalone gateway path".to_string(),
+        });
+    }
+
+    Ok(())
 }
 
 async fn load_startup_hook_specs(

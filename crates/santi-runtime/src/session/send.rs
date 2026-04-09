@@ -212,6 +212,12 @@ impl SessionSendService {
         &self,
         cmd: SendSessionCommand,
     ) -> Result<SendSessionStream, SendSessionError> {
+        let guard = self
+            .lock
+            .acquire(&format!("lock:session_send:{}", cmd.session_id))
+            .await
+            .map_err(map_lock_error)?;
+
         let (tx, mut rx) = mpsc::unbounded_channel::<Result<SendSessionEvent, SendSessionError>>();
         let error_tx = tx.clone();
 
@@ -235,7 +241,9 @@ impl SessionSendService {
         };
 
         tokio::spawn(async move {
-            let result = turn_service.execute(request, Some(hooks), Some(tx)).await;
+            let result = turn_service
+                .execute_with_guard(request, Some(hooks), Some(tx), guard)
+                .await;
 
             if let Err(err) = result {
                 let _ = error_tx.send(Err(err));
@@ -266,6 +274,16 @@ impl SessionTurnService {
             .await
             .map_err(map_lock_error)?;
 
+        self.execute_with_guard(request, hooks, tx, guard).await
+    }
+
+    async fn execute_with_guard(
+        &self,
+        request: TurnExecutionRequest,
+        hooks: Option<Arc<HookRuntime>>,
+        tx: Option<mpsc::UnboundedSender<Result<SendSessionEvent, SendSessionError>>>,
+        guard: Box<dyn LockGuard + Send>,
+    ) -> Result<Turn, SendSessionError> {
         let startup = run_turn_startup(
             &self.default_soul_id,
             &request,

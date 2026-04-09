@@ -70,7 +70,7 @@ This step validates:
 - session creation
 - `session/send`
 - SSE streaming
-- provider path
+- provider path through `santi-link`
 - basic persistence
 
 If this fails:
@@ -171,7 +171,9 @@ Reload a minimal hook set through the API runtime:
 
 ```bash
 printf '[{"id":"auto-fork-handoff","enabled":true,"hook_point":"turn_completed","kind":"fork_handoff_threshold","params":{"min_messages_since_last_compact":1}}]' \
-  | santi-cli admin hooks reload
+  | curl -X PUT http://127.0.0.1:18081/api/v1/admin/hooks \
+      -H 'content-type: application/json' \
+      -d @-
 ```
 
 Then trigger a normal turn and inspect effects:
@@ -183,7 +185,7 @@ santi-cli session effects <session_id>
 
 Expected result:
 
-- hook reload reports a non-zero hook count
+- hook reload returns a non-zero `hook_count`
 - `session effects` shows the effect outcome
 - for `hook_fork_handoff`, `result_ref` should point at the child session id
 

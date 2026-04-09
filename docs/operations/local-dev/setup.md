@@ -73,13 +73,14 @@ curl -X PUT http://127.0.0.1:18081/api/v1/admin/hooks \
   -H 'content-type: application/json' \
   -d '{"hooks":[{"id":"auto-compact-threshold","enabled":true,"hook_point":"turn_completed","kind":"compact_threshold","params":{"min_messages_since_last_compact":2}}]}'
 
-# same operation through santi-cli
-printf '[{"id":"auto-compact-threshold","enabled":true,"hook_point":"turn_completed","kind":"compact_threshold","params":{"min_messages_since_last_compact":2}}]' \
-  | santi-cli admin hooks reload
-
 # path/url modes for the same reload entrypoint
-printf '{"source":"path","path":"/app/tmp/hooks.json"}' | santi-cli admin hooks reload
-printf '{"source":"url","url":"http://host.docker.internal:18765/hooks.json"}' | santi-cli admin hooks reload
+curl -X PUT http://127.0.0.1:18081/api/v1/admin/hooks \
+  -H 'content-type: application/json' \
+  -d '{"source":"path","path":"/app/tmp/hooks.json"}'
+
+curl -X PUT http://127.0.0.1:18081/api/v1/admin/hooks \
+  -H 'content-type: application/json' \
+  -d '{"source":"url","url":"http://host.docker.internal:18765/hooks.json"}'
 ```
 
 Preferred smoke sequence:
@@ -91,6 +92,8 @@ santi-cli health
 santi-cli chat 'hello'
 printf 'compact summary' | santi-cli session compact <session_id>
 ```
+
+Standalone mode still uses the normal provider path through `santi-link`; it changes storage/locking topology, not the upstream chat path.
 
 ## Rule
 

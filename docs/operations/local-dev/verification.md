@@ -70,7 +70,7 @@ This step validates:
 - session creation
 - `session/send`
 - SSE streaming
-- provider path
+- provider path through `santi-link`
 - basic persistence
 
 If this fails:

@@ -11,10 +11,6 @@ use santi_core::{
     },
     port::effect_ledger::EffectLedgerPort,
 };
-use santi_db::adapter::standalone::{
-    session_compact::{StandaloneCompactError, StandaloneSessionCompactStore},
-    session_fork::{StandaloneForkError, StandaloneSessionForkStore},
-};
 use santi_runtime::hooks::{compile_hook_specs, load_hook_specs, HookEvaluator};
 use santi_runtime::session::{
     compact::{CompactSessionError, SessionCompactService},
@@ -22,7 +18,6 @@ use santi_runtime::session::{
     memory::SessionMemoryService,
     query::SessionQueryService,
     send::{SendSessionCommand, SendSessionError, SendSessionEvent, SessionSendService},
-    standalone_send::{StandaloneSendError, StandaloneSessionSendService},
 };
 
 use crate::{
@@ -141,10 +136,10 @@ pub struct DistributedSessionApi {
 pub struct StandaloneSessionApi {
     pub query: Arc<SessionQueryService>,
     pub memory: Arc<SessionMemoryService>,
-    pub fork: Arc<StandaloneSessionForkStore>,
-    pub compact: Arc<StandaloneSessionCompactStore>,
+    pub compact: Arc<SessionCompactService>,
+    pub send: Arc<SessionSendService>,
+    pub fork: Arc<SessionForkService>,
     pub effect_ledger: Arc<dyn EffectLedgerPort>,
-    pub send: Arc<StandaloneSessionSendService>,
 }
 
 #[derive(Clone)]
@@ -243,6 +238,7 @@ impl SessionApi for DistributedSessionApi {
         session_id: &str,
         user_content: String,
     ) -> Result<SessionEventStream, ApiError> {
+        self.get_session(session_id).await?;
         let stream = self
             .send
             .start(SendSessionCommand {
@@ -267,6 +263,7 @@ impl SessionApi for DistributedSessionApi {
         fork_point: i64,
         request_id: String,
     ) -> Result<ForkResult, ApiError> {
+        self.get_session(session_id).await?;
         self.fork
             .fork_session(session_id.to_string(), fork_point, request_id)
             .await
@@ -274,6 +271,7 @@ impl SessionApi for DistributedSessionApi {
     }
 
     async fn compact_session(&self, session_id: &str, summary: &str) -> Result<Compact, ApiError> {
+        self.get_session(session_id).await?;
         self.compact
             .compact_session(session_id, summary)
             .await
@@ -319,10 +317,10 @@ impl SessionApi for StandaloneSessionApi {
 
     async fn list_session_compacts(&self, session_id: &str) -> Result<Vec<Compact>, ApiError> {
         self.get_session(session_id).await?;
-        self.compact
-            .list_compacts(session_id)
+        self.query
+            .list_session_compacts(session_id)
             .await
-            .map_err(map_standalone_core_error)
+            .map_err(ApiError::Internal)
     }
 
     async fn get_session_memory(
@@ -355,13 +353,23 @@ impl SessionApi for StandaloneSessionApi {
         session_id: &str,
         user_content: String,
     ) -> Result<SessionEventStream, ApiError> {
-        self.send
-            .send_text(session_id, &user_content)
+        self.get_session(session_id).await?;
+        let stream = self
+            .send
+            .start(SendSessionCommand {
+                session_id: session_id.to_string(),
+                user_content,
+            })
             .await
-            .map_err(map_standalone_send_error)?;
-        Ok(Box::pin(futures::stream::iter(vec![Ok(
-            SessionStreamEvent::Completed,
-        )])))
+            .map_err(map_send_error)?;
+
+        Ok(Box::pin(stream.map(|result| match result {
+            Ok(SendSessionEvent::OutputTextDelta(text)) => {
+                Ok(SessionStreamEvent::OutputTextDelta(text))
+            }
+            Ok(SendSessionEvent::Completed) => Ok(SessionStreamEvent::Completed),
+            Err(err) => Err(map_send_error(err)),
+        })))
     }
 
     async fn fork_session(
@@ -372,14 +380,9 @@ impl SessionApi for StandaloneSessionApi {
     ) -> Result<ForkResult, ApiError> {
         self.get_session(session_id).await?;
         self.fork
-            .fork_session(session_id, fork_point, &request_id)
+            .fork_session(session_id.to_string(), fork_point, request_id)
             .await
-            .map(|result| ForkResult {
-                new_session_id: result.new_session_id,
-                parent_session_id: result.parent_session_id,
-                fork_point: result.fork_point,
-            })
-            .map_err(map_standalone_fork_error)
+            .map_err(map_fork_error)
     }
 
     async fn compact_session(&self, session_id: &str, summary: &str) -> Result<Compact, ApiError> {
@@ -387,7 +390,7 @@ impl SessionApi for StandaloneSessionApi {
         self.compact
             .compact_session(session_id, summary)
             .await
-            .map_err(map_standalone_compact_error)
+            .map_err(map_compact_error)
     }
 }
 
@@ -498,53 +501,5 @@ fn map_compact_error(err: CompactSessionError) -> ApiError {
         CompactSessionError::NotFound => ApiError::NotFound("session not found".to_string()),
         CompactSessionError::Invalid(message) => ApiError::Validation(message),
         CompactSessionError::Internal(message) => ApiError::Internal(message),
-    }
-}
-
-fn map_standalone_send_error(err: StandaloneSendError) -> ApiError {
-    match err {
-        StandaloneSendError::Busy => {
-            ApiError::Conflict("session send already in progress".to_string())
-        }
-        StandaloneSendError::NotFound => ApiError::NotFound("session not found".to_string()),
-        StandaloneSendError::Internal(message) => ApiError::Internal(message),
-    }
-}
-
-fn map_standalone_fork_error(err: StandaloneForkError) -> ApiError {
-    match err {
-        StandaloneForkError::Busy => {
-            ApiError::Conflict("session fork already in progress".to_string())
-        }
-        StandaloneForkError::ParentNotFound => {
-            ApiError::NotFound("parent session not found".to_string())
-        }
-        StandaloneForkError::InvalidForkPoint(message) => ApiError::Validation(message),
-        StandaloneForkError::Internal(message) => ApiError::Internal(message),
-    }
-}
-
-fn map_standalone_compact_error(err: StandaloneCompactError) -> ApiError {
-    match err {
-        StandaloneCompactError::Busy => {
-            ApiError::Conflict("session compact already in progress".to_string())
-        }
-        StandaloneCompactError::NotFound => ApiError::NotFound("session not found".to_string()),
-        StandaloneCompactError::Invalid(message) => ApiError::Validation(message),
-        StandaloneCompactError::Internal(message) => ApiError::Internal(message),
-    }
-}
-
-fn map_standalone_core_error(err: santi_core::error::Error) -> ApiError {
-    match err {
-        santi_core::error::Error::NotFound { .. } => {
-            ApiError::NotFound("session not found".to_string())
-        }
-        santi_core::error::Error::Busy { resource } => {
-            ApiError::Conflict(format!("{resource} busy"))
-        }
-        santi_core::error::Error::InvalidInput { message } => ApiError::Validation(message),
-        santi_core::error::Error::Upstream { message }
-        | santi_core::error::Error::Internal { message } => ApiError::Internal(message),
     }
 }

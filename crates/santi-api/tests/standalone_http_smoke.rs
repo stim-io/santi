@@ -1,6 +1,9 @@
 use axum::{
     body::Body,
     http::{Request, StatusCode},
+    response::IntoResponse,
+    routing::post,
+    Router,
 };
 use santi_api::{
     app::build_router,
@@ -8,15 +11,16 @@ use santi_api::{
     config::{Config, Mode},
 };
 use serde_json::Value;
+use tokio::net::TcpListener;
 use tower::ServiceExt;
 
-fn standalone_config(path: String) -> Config {
+fn standalone_config(path: String, gateway_base_url: String) -> Config {
     Config {
         mode: Mode::Standalone,
         bind_addr: "127.0.0.1:0".parse().unwrap(),
-        openai_api_key: String::new(),
-        openai_base_url: String::new(),
-        openai_model: String::new(),
+        openai_api_key: "test-key".to_string(),
+        openai_base_url: gateway_base_url,
+        openai_model: "gpt-5.4".to_string(),
         database_url: String::new(),
         redis_url: String::new(),
         standalone_sqlite_path: path,
@@ -26,10 +30,36 @@ fn standalone_config(path: String) -> Config {
     }
 }
 
+async fn start_mock_gateway() -> String {
+    async fn responses() -> impl IntoResponse {
+        let body = concat!(
+            "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_test_1\"}}\n\n",
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello from gateway\"}\n\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test_1\"}}\n\n",
+            "data: [DONE]\n\n"
+        );
+
+        ([("content-type", "text/event-stream")], body)
+    }
+
+    let app = Router::new().route("/openai/v1/responses", post(responses));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    format!("http://{addr}/openai/v1")
+}
+
 #[tokio::test]
 async fn standalone_http_session_create_get_and_meta_smoke() {
     let dir = tempfile::tempdir().unwrap();
-    let config = standalone_config(dir.path().join("standalone.sqlite").display().to_string());
+    let gateway_base_url = start_mock_gateway().await;
+    let config = standalone_config(
+        dir.path().join("standalone.sqlite").display().to_string(),
+        gateway_base_url,
+    );
     let state = bootstrap_standalone(&config).await.unwrap();
     let app = build_router(state);
 
@@ -116,6 +146,8 @@ async fn standalone_http_session_create_get_and_meta_smoke() {
         .await
         .unwrap();
     let send_text = String::from_utf8(send_body.to_vec()).unwrap();
+    assert!(send_text.contains("response.output_text.delta"));
+    assert!(send_text.contains("hello from gateway"));
     assert!(send_text.contains("completed"));
     assert!(send_text.contains("[DONE]"));
 
@@ -161,10 +193,18 @@ async fn standalone_http_session_create_get_and_meta_smoke() {
         .unwrap();
     let messages: Value = serde_json::from_slice(&messages_body).unwrap();
     let items = messages.get("messages").and_then(Value::as_array).unwrap();
-    assert_eq!(items.len(), 1);
+    assert_eq!(items.len(), 2);
     assert_eq!(
         items[0].get("content_text").and_then(Value::as_str),
         Some("hello standalone")
+    );
+    assert_eq!(
+        items[1].get("actor_type").and_then(Value::as_str),
+        Some("soul")
+    );
+    assert_eq!(
+        items[1].get("content_text").and_then(Value::as_str),
+        Some("hello from gateway")
     );
 
     let compacts_res = app

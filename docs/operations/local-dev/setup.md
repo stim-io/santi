@@ -92,6 +92,8 @@ santi-cli chat 'hello'
 printf 'compact summary' | santi-cli session compact <session_id>
 ```
 
+Standalone mode still uses the normal provider path through `santi-link`; it changes storage/locking topology, not the upstream chat path.
+
 ## Rule
 
 If the local stack cannot satisfy `create session -> send session -> SSE -> persistence`, fix the runtime first.

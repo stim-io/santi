@@ -42,24 +42,19 @@ impl Config {
         let runtime_root =
             env::var("RUNTIME_ROOT").unwrap_or_else(|_| "/tmp/santi-runtime".to_string());
 
-        let (openai_api_key, openai_base_url, openai_model, database_url, redis_url) = match mode {
+        let openai_api_key =
+            env::var("OPENAI_API_KEY").map_err(|_| "missing OPENAI_API_KEY".to_string())?;
+        let openai_base_url =
+            env::var("OPENAI_BASE_URL").map_err(|_| "missing OPENAI_BASE_URL".to_string())?;
+        let openai_model = env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-5.4".to_string());
+        let (database_url, redis_url) = match mode {
             Mode::Distributed => (
-                env::var("OPENAI_API_KEY").map_err(|_| "missing OPENAI_API_KEY".to_string())?,
-                env::var("OPENAI_BASE_URL")
-                    .unwrap_or_else(|_| "https://api.openai.com/v1".to_string()),
-                env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-5.4".to_string()),
                 env::var("DATABASE_URL").unwrap_or_else(|_| {
                     "postgres://santi:santi@postgres:5432/santi?sslmode=disable".to_string()
                 }),
                 env::var("REDIS_URL").unwrap_or_else(|_| "redis://redis:6379/0".to_string()),
             ),
-            Mode::Standalone => (
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-            ),
+            Mode::Standalone => (String::new(), String::new()),
         };
         let standalone_sqlite_path = env::var("STANDALONE_SQLITE_PATH")
             .unwrap_or_else(|_| "./santi-standalone.sqlite".to_string());

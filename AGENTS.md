@@ -28,6 +28,7 @@ Detailed system thinking belongs in `docs/`, not here.
 - `middleware` implements those core traits through adapters.
 - `runtime` composes those traits and owns orchestration, concurrency, and business composition.
 - `santi` is always the single HTTP service host; 中文 `单机` vs `分布式` is an assembly/dependency topology distinction, not a service-boundary distinction.
+- Until the user explicitly says otherwise, all active runtime iteration should target standalone only; do not spend implementation effort on distributed-mode iteration while the standalone architecture is still being tightened.
 - `session` is the public shared ledger container and a work unit, not a security boundary.
 - HTTP capabilities are currently open; `scope` / `tenant` comes later.
 - `soul_dir` and `session_dir` are normal directories used as unified agent resource spaces.

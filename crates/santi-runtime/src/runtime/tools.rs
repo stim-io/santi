@@ -3,7 +3,7 @@ use santi_core::port::provider::{
 };
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
-use std::{path::PathBuf, process::Stdio, time::Instant};
+use std::{collections::BTreeMap, path::PathBuf, process::Stdio, time::Instant};
 use tokio::{
     io::AsyncReadExt,
     process::Command,
@@ -106,6 +106,10 @@ impl ToolExecutor {
                 "- Treat the core memory text as the stable index and the *_MEMORY_DIR directories as free-form working memory spaces.",
                 "- Use bash when the user asks you to inspect or run something in the local workspace, especially when working with files inside SANTI_SOUL_MEMORY_DIR or SANTI_SESSION_MEMORY_DIR.",
                 "- Prefer a single bash call that contains the exact command sequence needed for the current task.",
+                "- Inside the container runtime, prefer plain HTTPS git URLs for GitHub clones (for example `git clone https://github.com/owner/repo.git`).",
+                "- Do not rely on SSH GitHub clone paths inside the container unless the runtime explicitly says SSH is available.",
+                "- When GitHub tokens are present, the bash tool automatically rewrites plain `https://github.com/...` git operations to authenticated HTTPS for that command.",
+                "- Prefer `git clone https://github.com/...` over `gh repo clone` for private GitHub workspace bootstrap inside the container.",
                 "- Do not claim memory has been updated unless the tool call has completed.",
                 "- After a successful memory update, reply briefly and do not repeat the saved content unless the user asks.",
                 "</santi-tools>",
@@ -326,14 +330,22 @@ impl ToolExecutor {
             .map_err(|err| format!("failed to create workdir: {err}"))?;
 
         let started_at = Instant::now();
-        let mut child = Command::new("/bin/bash")
+        let mut command = Command::new("/bin/bash");
+        command
             .arg("-lc")
             .arg(&input.command)
             .current_dir(&workdir)
             .env("SANTI_SOUL_MEMORY_DIR", &ctx.soul_memory_dir)
             .env("SANTI_SESSION_MEMORY_DIR", &ctx.session_memory_dir)
+            .env("GIT_TERMINAL_PROMPT", "0")
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        for (key, value) in github_https_git_env() {
+            command.env(key, value);
+        }
+
+        let mut child = command
             .spawn()
             .map_err(|err| format!("failed to spawn bash: {err}"))?;
 
@@ -440,6 +452,35 @@ fn resolve_cwd(ctx: &ToolRuntimeContext, cwd: Option<&str>) -> Result<PathBuf, S
     }
 }
 
+fn github_https_git_env() -> BTreeMap<String, String> {
+    let token = std::env::var("GITHUB_TOKEN")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            std::env::var("GH_TOKEN")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        });
+
+    let Some(token) = token else {
+        return BTreeMap::new();
+    };
+
+    BTreeMap::from([
+        ("GIT_CONFIG_COUNT".to_string(), "1".to_string()),
+        (
+            "GIT_CONFIG_KEY_0".to_string(),
+            format!(
+                "url.https://x-access-token:{token}@github.com/.insteadOf"
+            ),
+        ),
+        (
+            "GIT_CONFIG_VALUE_0".to_string(),
+            "https://github.com/".to_string(),
+        ),
+    ])
+}
+
 impl ToolExecutor {
     pub fn build_context(&self, session_id: &str, soul_id: &str) -> ToolRuntimeContext {
         ToolRuntimeContext {
@@ -452,6 +493,48 @@ impl ToolExecutor {
                 .join(session_id)
                 .join("memory"),
             fallback_cwd: self.execution_root.clone(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::github_https_git_env;
+
+    #[test]
+    fn github_https_git_env_is_empty_without_tokens() {
+        unsafe {
+            std::env::remove_var("GITHUB_TOKEN");
+            std::env::remove_var("GH_TOKEN");
+        }
+
+        let env = github_https_git_env();
+
+        assert!(env.is_empty());
+    }
+
+    #[test]
+    fn github_https_git_env_prefers_github_token() {
+        unsafe {
+            std::env::set_var("GH_TOKEN", "gh-token");
+            std::env::set_var("GITHUB_TOKEN", "github-token");
+        }
+
+        let env = github_https_git_env();
+
+        assert_eq!(env.get("GIT_CONFIG_COUNT").map(String::as_str), Some("1"));
+        assert_eq!(
+            env.get("GIT_CONFIG_KEY_0").map(String::as_str),
+            Some("url.https://x-access-token:github-token@github.com/.insteadOf")
+        );
+        assert_eq!(
+            env.get("GIT_CONFIG_VALUE_0").map(String::as_str),
+            Some("https://github.com/")
+        );
+
+        unsafe {
+            std::env::remove_var("GITHUB_TOKEN");
+            std::env::remove_var("GH_TOKEN");
         }
     }
 }

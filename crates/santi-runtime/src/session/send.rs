@@ -39,8 +39,16 @@ use crate::{
         tools::{ToolExecutor, ToolExecutorConfig},
     },
     session::{
-        compact::SessionCompactService, effect::SessionEffectService, fork::SessionForkService,
-        hook_runtime::HookRuntime, memory::SessionMemoryService,
+        compact::SessionCompactService,
+        effect::SessionEffectService,
+        fork::SessionForkService,
+        hook_runtime::HookRuntime,
+        memory::SessionMemoryService,
+        watch::{
+            SessionWatchActivityChanged, SessionWatchActivityKind, SessionWatchActivityState,
+            SessionWatchEvent, SessionWatchHub, SessionWatchMessageChange,
+            SessionWatchMessageChanged, SessionWatchState, SessionWatchStateChanged,
+        },
     },
 };
 
@@ -54,6 +62,7 @@ pub struct SessionSendService {
     provider: Arc<dyn Provider>,
     tools: Arc<ToolExecutor>,
     hooks: Arc<HookRuntime>,
+    watch: Arc<SessionWatchHub>,
 }
 
 #[derive(Clone)]
@@ -65,6 +74,7 @@ pub struct SessionTurnService {
     soul_runtime: Arc<dyn SoulRuntimePort>,
     provider: Arc<dyn Provider>,
     tools: Arc<ToolExecutor>,
+    watch: Arc<SessionWatchHub>,
 }
 
 pub struct SendSessionCommand {
@@ -166,6 +176,7 @@ impl SessionSendService {
         session_memory: SessionMemoryService,
         tool_config: ToolExecutorConfig,
         ebus: Arc<dyn SubscriberSetPort<Arc<dyn HookEvaluator>>>,
+        watch: Arc<SessionWatchHub>,
     ) -> Self {
         let tools = Arc::new(ToolExecutor::new(session_memory, tool_config));
         let compact_service = Arc::new(SessionCompactService::new(
@@ -174,6 +185,7 @@ impl SessionSendService {
             soul_runtime.clone(),
             compact_runtime,
             default_soul_id.clone(),
+            watch.clone(),
         ));
         let turn_service = Arc::new(SessionTurnService {
             model: model.clone(),
@@ -183,11 +195,13 @@ impl SessionSendService {
             soul_runtime: soul_runtime.clone(),
             provider: provider.clone(),
             tools: tools.clone(),
+            watch: watch.clone(),
         });
         let effect_service = Arc::new(SessionEffectService::new(
             effect_ledger,
             fork_service,
             turn_service.clone(),
+            watch.clone(),
         ));
         Self {
             model,
@@ -198,6 +212,7 @@ impl SessionSendService {
             provider,
             tools,
             hooks: Arc::new(HookRuntime::new(ebus, compact_service, effect_service)),
+            watch,
         }
     }
 
@@ -229,16 +244,19 @@ impl SessionSendService {
             soul_runtime: self.soul_runtime.clone(),
             provider: self.provider.clone(),
             tools: self.tools.clone(),
+            watch: self.watch.clone(),
         };
         let hooks = self.hooks.clone();
+        let session_id = cmd.session_id.clone();
         let request = TurnExecutionRequest {
-            session_id: cmd.session_id,
+            session_id: session_id.clone(),
             input: TurnInput::UserText {
                 text: cmd.user_content,
             },
             emit_events: true,
             run_hooks: true,
         };
+        let watch = self.watch.clone();
 
         tokio::spawn(async move {
             let result = turn_service
@@ -246,6 +264,22 @@ impl SessionSendService {
                 .await;
 
             if let Err(err) = result {
+                watch.publish(
+                    &session_id,
+                    SessionWatchEvent::ActivityChanged(SessionWatchActivityChanged {
+                        session_id: session_id.clone(),
+                        activity: SessionWatchActivityKind::Send,
+                        state: SessionWatchActivityState::Failed,
+                        label: Some(render_send_error(&err)),
+                    }),
+                );
+                watch.publish(
+                    &session_id,
+                    SessionWatchEvent::StateChanged(SessionWatchStateChanged {
+                        session_id: session_id.clone(),
+                        state: SessionWatchState::Failed,
+                    }),
+                );
                 let _ = error_tx.send(Err(err));
             }
         });
@@ -304,6 +338,23 @@ impl SessionTurnService {
             }
         };
 
+        self.watch.publish(
+            &request.session_id,
+            SessionWatchEvent::StateChanged(SessionWatchStateChanged {
+                session_id: request.session_id.clone(),
+                state: SessionWatchState::Running,
+            }),
+        );
+        self.watch.publish(
+            &request.session_id,
+            SessionWatchEvent::ActivityChanged(SessionWatchActivityChanged {
+                session_id: request.session_id.clone(),
+                activity: SessionWatchActivityKind::Send,
+                state: SessionWatchActivityState::Started,
+                label: None,
+            }),
+        );
+
         run_turn_worker(
             self.default_soul_id.clone(),
             request,
@@ -312,6 +363,7 @@ impl SessionTurnService {
             self.session_ledger.clone(),
             self.soul_runtime.clone(),
             self.tools.clone(),
+            self.watch.clone(),
             hooks,
             startup,
             tx,
@@ -406,6 +458,7 @@ async fn run_turn_worker(
     session_ledger: Arc<dyn SessionLedgerPort>,
     soul_runtime: Arc<dyn SoulRuntimePort>,
     tools: Arc<ToolExecutor>,
+    watch: Arc<SessionWatchHub>,
     hooks: Option<Arc<HookRuntime>>,
     startup: StartupContext,
     tx: Option<mpsc::UnboundedSender<Result<SendSessionEvent, SendSessionError>>>,
@@ -434,6 +487,7 @@ async fn run_turn_worker(
         startup,
         started_turn,
         tx.clone(),
+        watch,
     )
     .await;
 
@@ -500,6 +554,7 @@ async fn run_turn_body(
     startup: StartupContext,
     turn: Turn,
     tx: Option<mpsc::UnboundedSender<Result<SendSessionEvent, SendSessionError>>>,
+    watch: Arc<SessionWatchHub>,
 ) -> Result<TurnRunOutput, SendSessionError> {
     let mut assistant_text = String::new();
     let mut previous_response_id: Option<String> = None;
@@ -582,6 +637,17 @@ async fn run_turn_body(
         .await
         .map_err(map_core_error)?;
 
+    watch.publish(
+        &request.session_id,
+        SessionWatchEvent::MessageChanged(SessionWatchMessageChanged {
+            session_id: request.session_id.clone(),
+            message_id: assistant_message.message.id.clone(),
+            session_seq: assistant_message.relation.session_seq,
+            change: SessionWatchMessageChange::Finalized,
+            actor_type: format!("{:?}", assistant_message.message.actor_type).to_lowercase(),
+        }),
+    );
+
     let assistant_entry = soul_runtime
         .append_message_ref(AppendMessageRef {
             soul_session_id: startup.soul_session_id.clone(),
@@ -607,6 +673,23 @@ async fn run_turn_body(
         })
         .await
         .map_err(map_core_error)?;
+
+    watch.publish(
+        &request.session_id,
+        SessionWatchEvent::ActivityChanged(SessionWatchActivityChanged {
+            session_id: request.session_id.clone(),
+            activity: SessionWatchActivityKind::Send,
+            state: SessionWatchActivityState::Completed,
+            label: None,
+        }),
+    );
+    watch.publish(
+        &request.session_id,
+        SessionWatchEvent::StateChanged(SessionWatchStateChanged {
+            session_id: request.session_id.clone(),
+            state: SessionWatchState::Completed,
+        }),
+    );
 
     Ok(TurnRunOutput {
         turn,
@@ -661,7 +744,7 @@ fn text_content(text: &str) -> MessageContent {
 
 fn render_send_error(err: &SendSessionError) -> String {
     match err {
-        SendSessionError::Busy => "session send busy".to_string(),
+        SendSessionError::Busy => "session send already in progress".to_string(),
         SendSessionError::NotFound => "session not found".to_string(),
         SendSessionError::Internal(message) => message.clone(),
     }

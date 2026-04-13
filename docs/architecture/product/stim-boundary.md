@@ -62,3 +62,16 @@ That is intentional.
 - provider-facing snapshot is another projection again
 
 This is one of the main reasons the session/message model stays actor-based and provider-neutral.
+
+## Client Platform Rule
+
+`stim` should treat cross-platform rendering differences as a client-side UI concern, not as a reason to move heavy product or agent logic into the client.
+
+Implications:
+
+- heavy communication and business logic should stay behind server boundaries (`stim-server` and `santi`), not inside platform-specific UI code
+- client UI should keep a platform-safe shared foundation where possible
+- platform differences should be made explicit rather than hidden: shared UI framework, shared base CSS, and clearly separated platform-specific CSS are all acceptable
+- if WebKit and Chromium need different presentation treatment, expose that split deliberately at build time instead of letting compatibility hacks spread implicitly through product logic
+
+This keeps platform variance local to presentation while preserving stable server-side communication and runtime boundaries.

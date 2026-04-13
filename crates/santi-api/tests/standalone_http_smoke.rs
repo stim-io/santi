@@ -161,6 +161,39 @@ async fn standalone_http_main_path_smoke() {
         Some(0)
     );
 
+    let (status, watch_snapshot) = request_json(
+        &app,
+        Request::builder()
+            .method("GET")
+            .uri(format!("/api/v1/sessions/{session_id}/watch-snapshot"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        watch_snapshot.get("session_id").and_then(Value::as_str),
+        Some(session_id.as_str())
+    );
+    assert_eq!(
+        watch_snapshot.get("latest_seq").and_then(Value::as_i64),
+        Some(0)
+    );
+    assert_eq!(
+        watch_snapshot
+            .get("messages")
+            .and_then(Value::as_array)
+            .map(Vec::len),
+        Some(0)
+    );
+    assert_eq!(
+        watch_snapshot
+            .get("effects")
+            .and_then(Value::as_array)
+            .map(Vec::len),
+        Some(0)
+    );
+
     let (status, send_text) = request_text(
         &app,
         Request::builder()
@@ -201,6 +234,38 @@ async fn standalone_http_main_path_smoke() {
     );
     assert_eq!(
         items[1].get("content_text").and_then(Value::as_str),
+        Some("hello from gateway")
+    );
+
+    let (status, watch_snapshot) = request_json(
+        &app,
+        Request::builder()
+            .method("GET")
+            .uri(format!("/api/v1/sessions/{session_id}/watch-snapshot"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        watch_snapshot.get("latest_seq").and_then(Value::as_i64),
+        Some(2)
+    );
+    let watch_messages = watch_snapshot
+        .get("messages")
+        .and_then(Value::as_array)
+        .unwrap();
+    assert_eq!(watch_messages.len(), 2);
+    assert_eq!(
+        watch_messages[0]
+            .get("content_text")
+            .and_then(Value::as_str),
+        Some("hello standalone")
+    );
+    assert_eq!(
+        watch_messages[1]
+            .get("content_text")
+            .and_then(Value::as_str),
         Some("hello from gateway")
     );
 
@@ -343,6 +408,28 @@ async fn standalone_http_missing_session_routes_return_not_found() {
         Request::builder()
             .method("GET")
             .uri("/api/v1/sessions/missing-session/messages")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (status, _) = request_json(
+        &app,
+        Request::builder()
+            .method("GET")
+            .uri("/api/v1/sessions/missing-session/watch-snapshot")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (status, _) = request_json(
+        &app,
+        Request::builder()
+            .method("GET")
+            .uri("/api/v1/sessions/missing-session/watch")
             .body(Body::empty())
             .unwrap(),
     )

@@ -24,6 +24,10 @@ pub fn build_router(state: AppState) -> Router {
             post(handler::session::send_session),
         )
         .route(
+            "/api/v1/sessions/:id/watch",
+            get(handler::session::watch_session),
+        )
+        .route(
             "/api/v1/sessions/:id/fork",
             post(handler::session::fork_session),
         )
@@ -38,6 +42,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/sessions/:id/messages",
             get(handler::session::list_session_messages),
+        )
+        .route(
+            "/api/v1/sessions/:id/watch-snapshot",
+            get(handler::session::get_session_watch_snapshot),
         )
         .route(
             "/api/v1/sessions/:id/effects",

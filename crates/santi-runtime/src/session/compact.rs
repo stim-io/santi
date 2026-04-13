@@ -13,6 +13,11 @@ use santi_core::{
 };
 use uuid::Uuid;
 
+use crate::session::watch::{
+    SessionWatchActivityChanged, SessionWatchActivityKind, SessionWatchActivityState,
+    SessionWatchEvent, SessionWatchHub,
+};
+
 #[derive(Clone, Debug)]
 pub struct CompactRequest {
     pub session_id: String,
@@ -29,6 +34,7 @@ pub struct SessionCompactService {
     soul_runtime: Arc<dyn SoulRuntimePort>,
     compact_runtime: Arc<dyn CompactRuntimePort>,
     default_soul_id: String,
+    watch: Arc<SessionWatchHub>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -46,6 +52,7 @@ impl SessionCompactService {
         soul_runtime: Arc<dyn SoulRuntimePort>,
         compact_runtime: Arc<dyn CompactRuntimePort>,
         default_soul_id: String,
+        watch: Arc<SessionWatchHub>,
     ) -> Self {
         Self {
             lock,
@@ -53,6 +60,7 @@ impl SessionCompactService {
             soul_runtime,
             compact_runtime,
             default_soul_id,
+            watch,
         }
     }
 
@@ -128,6 +136,16 @@ impl SessionCompactService {
             ));
         }
 
+        self.watch.publish(
+            &request.session_id,
+            SessionWatchEvent::ActivityChanged(SessionWatchActivityChanged {
+                session_id: request.session_id.clone(),
+                activity: SessionWatchActivityKind::Compact,
+                state: SessionWatchActivityState::Started,
+                label: None,
+            }),
+        );
+
         let turn = self
             .soul_runtime
             .start_turn(StartTurn {
@@ -164,7 +182,18 @@ impl SessionCompactService {
         guard.release().await.map_err(map_lock_error)?;
 
         match compact.target {
-            AssemblyTarget::Compact(compact) => Ok(compact),
+            AssemblyTarget::Compact(compact) => {
+                self.watch.publish(
+                    &request.session_id,
+                    SessionWatchEvent::ActivityChanged(SessionWatchActivityChanged {
+                        session_id: request.session_id.clone(),
+                        activity: SessionWatchActivityKind::Compact,
+                        state: SessionWatchActivityState::Completed,
+                        label: None,
+                    }),
+                );
+                Ok(compact)
+            }
             _ => Err(CompactSessionError::Internal(
                 "unexpected assembly target while compacting session".to_string(),
             )),
@@ -204,6 +233,8 @@ mod tests {
             soul_runtime::SoulRuntimePort,
         },
     };
+
+    use crate::session::watch::SessionWatchHub;
 
     use super::{CompactSessionError, SessionCompactService};
 
@@ -343,6 +374,7 @@ mod tests {
             Arc::new(UnusedSoulRuntime),
             Arc::new(UnusedCompactRuntime),
             "soul_default".to_string(),
+            Arc::new(SessionWatchHub::new()),
         );
 
         let err = service

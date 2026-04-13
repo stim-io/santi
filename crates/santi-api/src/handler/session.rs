@@ -8,15 +8,15 @@ use futures::StreamExt;
 use std::convert::Infallible;
 
 use crate::{
-    handler::session_events::{done_event, encode_session_sse_event},
+    handler::session_events::{done_event, encode_session_sse_event, encode_watch_sse_event},
     schema::{
         common::ErrorResponse,
         session::{
             ForkRequest, ForkResponse, SessionCompactRequest, SessionCompactResponse,
             SessionCompactsResponse, SessionEffectsResponse, SessionMemoryRequest,
             SessionMemoryResponse, SessionMessagesResponse, SessionResponse,
-            SessionSendContentPart, SessionSendRequest, SoulMemoryRequest, SoulMemoryResponse,
-            SoulResponse,
+            SessionSendContentPart, SessionSendRequest, SessionWatchSnapshotResponse,
+            SoulMemoryRequest, SoulMemoryResponse, SoulResponse,
         },
         session_events::SessionStreamEvent,
     },
@@ -80,6 +80,32 @@ pub async fn list_session_messages(
         Ok(messages) => (
             StatusCode::OK,
             Json(SessionMessagesResponse::from_messages(messages)),
+        )
+            .into_response(),
+        Err(err) => err.into_error_response().into_response(),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/sessions/{id}/watch-snapshot",
+    tag = "session",
+    params(
+        ("id" = String, Path, description = "Session id")
+    ),
+    responses(
+        (status = 200, description = "Session watch snapshot", body = SessionWatchSnapshotResponse),
+        (status = 404, description = "Session not found", body = ErrorResponse)
+    )
+)]
+pub async fn get_session_watch_snapshot(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match state.session_api().get_session_watch_snapshot(&id).await {
+        Ok(snapshot) => (
+            StatusCode::OK,
+            Json(SessionWatchSnapshotResponse::from(snapshot)),
         )
             .into_response(),
         Err(err) => err.into_error_response().into_response(),
@@ -282,6 +308,43 @@ pub async fn send_session(
         }));
 
     Sse::new(stream).into_response()
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/sessions/{id}/watch",
+    tag = "session",
+    params(
+        ("id" = String, Path, description = "Session id")
+    ),
+    responses(
+        (status = 200, description = "Session watch stream"),
+        (status = 404, description = "Session not found", body = ErrorResponse)
+    )
+)]
+pub async fn watch_session(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    let stream = match state.session_api().watch_session(&id).await {
+        Ok(stream) => stream,
+        Err(err) => return err.into_error_response().into_response(),
+    };
+
+    let sse_stream = stream.map(|item| -> Result<axum::response::sse::Event, Infallible> {
+        match item {
+            Ok(event) => Ok(encode_watch_sse_event(event)),
+            Err(err) => {
+                let (_, body) = err.into_error_response();
+                Ok(axum::response::sse::Event::default().data(
+                    serde_json::to_string(&serde_json::json!({
+                        "type": "session_watch.error",
+                        "message": body.0.error.message,
+                    }))
+                    .unwrap_or_else(|_| "{}".to_string()),
+                ))
+            }
+        }
+    });
+
+    Sse::new(sse_stream).into_response()
 }
 
 #[utoipa::path(

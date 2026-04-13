@@ -9,11 +9,17 @@ use santi_core::{
 };
 use uuid::Uuid;
 
+use crate::session::watch::{
+    SessionWatchActivityChanged, SessionWatchActivityKind, SessionWatchActivityState,
+    SessionWatchEvent, SessionWatchHub,
+};
+
 #[derive(Clone)]
 pub struct SessionForkService {
     lock: Arc<dyn Lock>,
     soul_session_query: Arc<dyn SoulSessionQueryPort>,
     soul_session_fork: Arc<dyn SoulSessionForkPort>,
+    watch: Arc<SessionWatchHub>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,11 +42,13 @@ impl SessionForkService {
         lock: Arc<dyn Lock>,
         soul_session_query: Arc<dyn SoulSessionQueryPort>,
         soul_session_fork: Arc<dyn SoulSessionForkPort>,
+        watch: Arc<SessionWatchHub>,
     ) -> Self {
         Self {
             lock,
             soul_session_query,
             soul_session_fork,
+            watch,
         }
     }
 
@@ -103,6 +111,16 @@ impl SessionForkService {
 
         let new_soul_session_id = format!("ss_{}", Uuid::new_v4().simple());
 
+        self.watch.publish(
+            &parent_session_id,
+            SessionWatchEvent::ActivityChanged(SessionWatchActivityChanged {
+                session_id: parent_session_id.clone(),
+                activity: SessionWatchActivityKind::Fork,
+                state: SessionWatchActivityState::Started,
+                label: None,
+            }),
+        );
+
         self.soul_session_fork
             .fork_soul_session(
                 &parent_soul_session.id,
@@ -114,6 +132,16 @@ impl SessionForkService {
             .map_err(map_core_error)?;
 
         guard.release().await.map_err(map_lock_error)?;
+
+        self.watch.publish(
+            &parent_session_id,
+            SessionWatchEvent::ActivityChanged(SessionWatchActivityChanged {
+                session_id: parent_session_id.clone(),
+                activity: SessionWatchActivityKind::Fork,
+                state: SessionWatchActivityState::Completed,
+                label: Some(new_session_id.clone()),
+            }),
+        );
 
         Ok(ForkResult {
             new_session_id,
@@ -158,6 +186,8 @@ mod tests {
         },
     };
     use uuid::Uuid;
+
+    use crate::session::watch::SessionWatchHub;
 
     use super::{ForkError, SessionForkService};
 
@@ -381,6 +411,7 @@ mod tests {
             Arc::new(FakeLock::default()),
             runtime.clone(),
             fork_port.clone(),
+            Arc::new(SessionWatchHub::new()),
         );
 
         let result = service
@@ -400,6 +431,7 @@ mod tests {
             Arc::new(FakeLock::default()),
             runtime.clone(),
             fork_port.clone(),
+            Arc::new(SessionWatchHub::new()),
         );
 
         let err = service

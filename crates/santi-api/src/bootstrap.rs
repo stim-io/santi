@@ -14,8 +14,12 @@ use santi_runtime::{
     hooks::{compile_hook_specs, load_hook_specs, HookEvaluator},
     runtime::tools::ToolExecutorConfig,
     session::{
-        compact::SessionCompactService, fork::SessionForkService, memory::SessionMemoryService,
-        query::SessionQueryService, send::SessionSendService,
+        compact::SessionCompactService,
+        fork::SessionForkService,
+        memory::SessionMemoryService,
+        query::SessionQueryService,
+        send::SessionSendService,
+        watch::{SessionWatchHub, SessionWatchService},
     },
 };
 
@@ -94,12 +98,19 @@ async fn distributed_bootstrap(
         compact_ledger,
         default_soul_id.clone(),
     ));
+    let watch_hub = Arc::new(SessionWatchHub::new());
     let session_compact = Arc::new(SessionCompactService::new(
         lock.clone(),
         session_ledger.clone(),
         soul_runtime.clone(),
         compact_runtime,
         default_soul_id.clone(),
+        watch_hub.clone(),
+    ));
+    let session_watch = Arc::new(SessionWatchService::new(
+        session_query.clone(),
+        effect_ledger.clone(),
+        watch_hub.clone(),
     ));
     let hook_specs = load_startup_hook_specs(config.hook_source.as_ref()).await?;
     let ebus: Arc<dyn santi_core::port::ebus::SubscriberSetPort<Arc<dyn HookEvaluator>>> =
@@ -109,6 +120,7 @@ async fn distributed_bootstrap(
         lock.clone(),
         soul_session_query,
         soul_session_fork,
+        watch_hub.clone(),
     ));
 
     let session_send = Arc::new(SessionSendService::new(
@@ -127,6 +139,7 @@ async fn distributed_bootstrap(
             execution_root: config.execution_root.clone(),
         },
         ebus,
+        watch_hub,
     ));
 
     Ok(AppState::new(
@@ -134,6 +147,7 @@ async fn distributed_bootstrap(
         default_capabilities(&config.mode),
         Arc::new(DistributedSessionApi {
             query: session_query.clone(),
+            watch: session_watch,
             memory: session_memory.clone(),
             compact: session_compact,
             send: session_send.clone(),

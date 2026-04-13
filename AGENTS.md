@@ -72,7 +72,7 @@ Detailed system thinking belongs in `docs/`, not here.
 - `docs/contracts/http/api-surface.md`: minimal stable `/api/v1` HTTP contract for the current resource set
 - `docs/contracts/http/envelopes-and-errors.md`: shared success meta and error schema for HTTP, CLI, and 单机 / 分布式 assembly
 - `docs/architecture/decisions/0001-service-boundary.md`: decision record for the `santi` service boundary, CLI split, and compatibility rules
-- `../AGENTS.md`: repo-root product and deployment boundary across `santi/`, `santi-link/`, and `santi-cli/`
+- `../../AGENTS.md`: repo-root product and deployment boundary across `modules/santi/`, `modules/santi-link/`, and `modules/santi-cli/`
 
 ## Release Policy
 

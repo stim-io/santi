@@ -10,6 +10,10 @@ use uuid::Uuid;
 use crate::session::{
     fork::{ForkError, ForkResult, SessionForkService},
     send::{SendSessionError, SessionTurnService, TurnExecutionRequest, TurnInput},
+    watch::{
+        SessionWatchActivityChanged, SessionWatchActivityKind, SessionWatchActivityState,
+        SessionWatchEvent, SessionWatchHub,
+    },
 };
 
 const EFFECT_TYPE_FORK_HANDOFF: &str = "hook_fork_handoff";
@@ -84,6 +88,7 @@ pub struct SessionEffectService {
     ledger: Arc<dyn EffectLedgerPort>,
     fork_service: Arc<dyn ForkExecutor>,
     seeded_send: Arc<dyn SeededSendExecutor>,
+    watch: Arc<SessionWatchHub>,
 }
 
 impl SessionEffectService {
@@ -91,11 +96,13 @@ impl SessionEffectService {
         ledger: Arc<dyn EffectLedgerPort>,
         fork_service: Arc<SessionForkService>,
         seeded_send: Arc<SessionTurnService>,
+        watch: Arc<SessionWatchHub>,
     ) -> Self {
         Self {
             ledger,
             fork_service,
             seeded_send,
+            watch,
         }
     }
 
@@ -124,7 +131,12 @@ impl SessionEffectService {
 
             let rerun = self.run_fork_handoff(&request).await;
             return self
-                .finish_effect(existing.id, existing.result_ref, rerun)
+                .finish_effect(
+                    request.parent_session_id.clone(),
+                    existing.id,
+                    existing.result_ref,
+                    rerun,
+                )
                 .await;
         }
 
@@ -145,7 +157,18 @@ impl SessionEffectService {
             .await
             .map_err(render_core_error)?;
 
+        self.watch.publish(
+            &request.parent_session_id,
+            SessionWatchEvent::ActivityChanged(SessionWatchActivityChanged {
+                session_id: request.parent_session_id.clone(),
+                activity: SessionWatchActivityKind::Hook,
+                state: SessionWatchActivityState::Started,
+                label: Some(request.source_hook_id.clone()),
+            }),
+        );
+
         self.finish_effect(
+            request.parent_session_id.clone(),
             effect_id,
             created.result_ref,
             self.run_fork_handoff(&request).await,
@@ -188,33 +211,54 @@ impl SessionEffectService {
 
     async fn finish_effect(
         &self,
+        session_id: String,
         effect_id: String,
         prior_result_ref: Option<String>,
         run_result: Result<String, (Option<String>, String)>,
     ) -> Result<SessionEffect, String> {
         match run_result {
-            Ok(result_ref) => self
-                .ledger
-                .update_effect(UpdateSessionEffect {
-                    effect_id,
-                    status: "completed".to_string(),
-                    result_ref: Some(result_ref),
-                    error_text: None,
-                })
-                .await
-                .map_err(render_core_error)?
-                .ok_or_else(|| "effect disappeared before completion".to_string()),
-            Err((result_ref, err)) => self
-                .ledger
-                .update_effect(UpdateSessionEffect {
-                    effect_id,
-                    status: "failed".to_string(),
-                    result_ref: result_ref.or(prior_result_ref),
-                    error_text: Some(err.clone()),
-                })
-                .await
-                .map_err(render_core_error)?
-                .ok_or(err),
+            Ok(result_ref) => {
+                self.watch.publish(
+                    &session_id,
+                    SessionWatchEvent::ActivityChanged(SessionWatchActivityChanged {
+                        session_id: session_id.clone(),
+                        activity: SessionWatchActivityKind::Hook,
+                        state: SessionWatchActivityState::Completed,
+                        label: Some(result_ref.clone()),
+                    }),
+                );
+                self.ledger
+                    .update_effect(UpdateSessionEffect {
+                        effect_id,
+                        status: "completed".to_string(),
+                        result_ref: Some(result_ref),
+                        error_text: None,
+                    })
+                    .await
+                    .map_err(render_core_error)?
+                    .ok_or_else(|| "effect disappeared before completion".to_string())
+            }
+            Err((result_ref, err)) => {
+                self.watch.publish(
+                    &session_id,
+                    SessionWatchEvent::ActivityChanged(SessionWatchActivityChanged {
+                        session_id: session_id.clone(),
+                        activity: SessionWatchActivityKind::Hook,
+                        state: SessionWatchActivityState::Failed,
+                        label: Some(err.clone()),
+                    }),
+                );
+                self.ledger
+                    .update_effect(UpdateSessionEffect {
+                        effect_id,
+                        status: "failed".to_string(),
+                        result_ref: result_ref.or(prior_result_ref),
+                        error_text: Some(err.clone()),
+                    })
+                    .await
+                    .map_err(render_core_error)?
+                    .ok_or(err)
+            }
         }
     }
 }
@@ -258,6 +302,7 @@ mod tests {
         ForkError, ForkHandoffEffectRequest, ForkResult, SeededSendExecutor, SessionEffectService,
     };
     use crate::session::send::SendSessionError;
+    use crate::session::watch::SessionWatchHub;
 
     #[derive(Default)]
     struct FakeLedger {
@@ -364,6 +409,7 @@ mod tests {
             ledger: ledger.clone(),
             fork_service: Arc::new(FakeFork),
             seeded_send: Arc::new(FailingSeededSend),
+            watch: Arc::new(SessionWatchHub::new()),
         };
 
         let effect = service

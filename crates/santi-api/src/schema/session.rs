@@ -8,6 +8,7 @@ use crate::model::{
     session::{Session, SessionMessage},
     soul::Soul,
 };
+use santi_runtime::session::watch::SessionWatchSnapshot;
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
 pub struct SessionResponse {
@@ -169,6 +170,37 @@ pub struct SessionEffectsResponse {
     pub effects: Vec<SessionEffectResponse>,
 }
 
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub struct SessionWatchMessageSummaryResponse {
+    pub id: String,
+    pub actor_type: String,
+    pub actor_id: String,
+    pub session_seq: i64,
+    pub content_text: String,
+    pub state: String,
+    pub created_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub struct SessionWatchEffectSummaryResponse {
+    pub id: String,
+    pub effect_type: String,
+    pub status: String,
+    pub source_hook_id: String,
+    pub result_ref: Option<String>,
+    pub error_text: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub struct SessionWatchSnapshotResponse {
+    pub session_id: String,
+    pub latest_seq: i64,
+    pub messages: Vec<SessionWatchMessageSummaryResponse>,
+    pub effects: Vec<SessionWatchEffectSummaryResponse>,
+}
+
 impl From<SessionMessage> for SessionMessageResponse {
     fn from(value: SessionMessage) -> Self {
         Self {
@@ -226,6 +258,42 @@ impl SessionEffectsResponse {
     pub fn from_effects(effects: Vec<SessionEffect>) -> Self {
         Self {
             effects: effects.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<SessionWatchSnapshot> for SessionWatchSnapshotResponse {
+    fn from(value: SessionWatchSnapshot) -> Self {
+        Self {
+            session_id: value.session_id,
+            latest_seq: value.latest_seq,
+            messages: value
+                .messages
+                .into_iter()
+                .map(|message| SessionWatchMessageSummaryResponse {
+                    id: message.id,
+                    actor_type: message.actor_type,
+                    actor_id: message.actor_id,
+                    session_seq: message.session_seq,
+                    content_text: message.content_text,
+                    state: message.state,
+                    created_at: message.created_at,
+                })
+                .collect(),
+            effects: value
+                .effects
+                .into_iter()
+                .map(|effect| SessionWatchEffectSummaryResponse {
+                    id: effect.id,
+                    effect_type: effect.effect_type,
+                    status: effect.status,
+                    source_hook_id: effect.source_hook_id,
+                    result_ref: effect.result_ref,
+                    error_text: effect.error_text,
+                    created_at: effect.created_at,
+                    updated_at: effect.updated_at,
+                })
+                .collect(),
         }
     }
 }

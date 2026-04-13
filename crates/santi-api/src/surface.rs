@@ -18,6 +18,7 @@ use santi_runtime::session::{
     memory::SessionMemoryService,
     query::SessionQueryService,
     send::{SendSessionCommand, SendSessionError, SendSessionEvent, SessionSendService},
+    watch::{SessionWatchError, SessionWatchEvent, SessionWatchService, SessionWatchSnapshot},
 };
 
 use crate::{
@@ -29,6 +30,8 @@ use crate::{
 
 pub type SessionEventStream =
     Pin<Box<dyn Stream<Item = Result<SessionStreamEvent, ApiError>> + Send>>;
+pub type SessionWatchEventStream =
+    Pin<Box<dyn Stream<Item = Result<SessionWatchEvent, ApiError>> + Send>>;
 
 #[derive(Clone)]
 pub struct ApiCapabilities {
@@ -88,6 +91,11 @@ pub trait SessionApi: Send + Sync {
         &self,
         session_id: &str,
     ) -> Result<Vec<SessionMessage>, ApiError>;
+    async fn get_session_watch_snapshot(
+        &self,
+        session_id: &str,
+    ) -> Result<SessionWatchSnapshot, ApiError>;
+    async fn watch_session(&self, session_id: &str) -> Result<SessionWatchEventStream, ApiError>;
     async fn list_session_effects(&self, session_id: &str) -> Result<Vec<SessionEffect>, ApiError>;
     async fn list_session_compacts(&self, session_id: &str) -> Result<Vec<Compact>, ApiError>;
     async fn get_session_memory(&self, session_id: &str)
@@ -125,6 +133,7 @@ pub trait AdminApi: Send + Sync {
 #[derive(Clone)]
 pub struct DistributedSessionApi {
     pub query: Arc<SessionQueryService>,
+    pub watch: Arc<SessionWatchService>,
     pub memory: Arc<SessionMemoryService>,
     pub compact: Arc<SessionCompactService>,
     pub send: Arc<SessionSendService>,
@@ -135,6 +144,7 @@ pub struct DistributedSessionApi {
 #[derive(Clone)]
 pub struct StandaloneSessionApi {
     pub query: Arc<SessionQueryService>,
+    pub watch: Arc<SessionWatchService>,
     pub memory: Arc<SessionMemoryService>,
     pub compact: Arc<SessionCompactService>,
     pub send: Arc<SessionSendService>,
@@ -190,6 +200,28 @@ impl SessionApi for DistributedSessionApi {
             .list_session_messages(session_id)
             .await
             .map_err(ApiError::Internal)
+    }
+
+    async fn get_session_watch_snapshot(
+        &self,
+        session_id: &str,
+    ) -> Result<SessionWatchSnapshot, ApiError> {
+        self.watch
+            .get_session_watch_snapshot(session_id)
+            .await
+            .map_err(ApiError::Internal)?
+            .ok_or_else(|| ApiError::NotFound("session not found".to_string()))
+    }
+
+    async fn watch_session(&self, session_id: &str) -> Result<SessionWatchEventStream, ApiError> {
+        let stream = self
+            .watch
+            .watch_session(session_id)
+            .await
+            .map_err(map_watch_error)?;
+        Ok(Box::pin(
+            stream.map(|result| result.map_err(map_watch_error)),
+        ))
     }
 
     async fn list_session_effects(&self, session_id: &str) -> Result<Vec<SessionEffect>, ApiError> {
@@ -305,6 +337,28 @@ impl SessionApi for StandaloneSessionApi {
             .list_session_messages(session_id)
             .await
             .map_err(ApiError::Internal)
+    }
+
+    async fn get_session_watch_snapshot(
+        &self,
+        session_id: &str,
+    ) -> Result<SessionWatchSnapshot, ApiError> {
+        self.watch
+            .get_session_watch_snapshot(session_id)
+            .await
+            .map_err(ApiError::Internal)?
+            .ok_or_else(|| ApiError::NotFound("session not found".to_string()))
+    }
+
+    async fn watch_session(&self, session_id: &str) -> Result<SessionWatchEventStream, ApiError> {
+        let stream = self
+            .watch
+            .watch_session(session_id)
+            .await
+            .map_err(map_watch_error)?;
+        Ok(Box::pin(
+            stream.map(|result| result.map_err(map_watch_error)),
+        ))
     }
 
     async fn list_session_effects(&self, session_id: &str) -> Result<Vec<SessionEffect>, ApiError> {
@@ -501,5 +555,12 @@ fn map_compact_error(err: CompactSessionError) -> ApiError {
         CompactSessionError::NotFound => ApiError::NotFound("session not found".to_string()),
         CompactSessionError::Invalid(message) => ApiError::Validation(message),
         CompactSessionError::Internal(message) => ApiError::Internal(message),
+    }
+}
+
+fn map_watch_error(err: SessionWatchError) -> ApiError {
+    match err {
+        SessionWatchError::NotFound => ApiError::NotFound("session not found".to_string()),
+        SessionWatchError::Internal(message) => ApiError::Internal(message),
     }
 }

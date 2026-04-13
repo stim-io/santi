@@ -8,8 +8,12 @@ use santi_ebus::adapter::standalone::InMemorySubscriberSet;
 use santi_lock::adapter::standalone::InProcessLock;
 use santi_runtime::hooks::{compile_hook_specs, load_hook_specs, HookEvaluator};
 use santi_runtime::session::{
-    compact::SessionCompactService, fork::SessionForkService, memory::SessionMemoryService,
-    query::SessionQueryService, send::SessionSendService,
+    compact::SessionCompactService,
+    fork::SessionForkService,
+    memory::SessionMemoryService,
+    query::SessionQueryService,
+    send::SessionSendService,
+    watch::{SessionWatchHub, SessionWatchService},
 };
 
 use crate::{
@@ -62,10 +66,17 @@ pub async fn bootstrap_standalone(config: &Config) -> santi_core::error::Result<
         compact_ledger,
         "soul_default".to_string(),
     ));
+    let watch_hub = Arc::new(SessionWatchHub::new());
     let fork = Arc::new(SessionForkService::new(
         send_lock.clone(),
         soul_session_query.clone(),
         soul_session_fork,
+        watch_hub.clone(),
+    ));
+    let watch = Arc::new(SessionWatchService::new(
+        query.clone(),
+        effect_ledger.clone(),
+        watch_hub.clone(),
     ));
     let compact = Arc::new(SessionCompactService::new(
         send_lock.clone(),
@@ -73,6 +84,7 @@ pub async fn bootstrap_standalone(config: &Config) -> santi_core::error::Result<
         soul_runtime.clone(),
         compact_runtime.clone(),
         "soul_default".to_string(),
+        watch_hub.clone(),
     ));
     let send = Arc::new(SessionSendService::new(
         config.openai_model.clone(),
@@ -90,6 +102,7 @@ pub async fn bootstrap_standalone(config: &Config) -> santi_core::error::Result<
             execution_root: config.execution_root.clone(),
         },
         ebus.clone(),
+        watch_hub,
     ));
 
     Ok(AppState::new(
@@ -97,6 +110,7 @@ pub async fn bootstrap_standalone(config: &Config) -> santi_core::error::Result<
         default_capabilities(&config.mode),
         Arc::new(StandaloneSessionApi {
             query: query.clone(),
+            watch,
             memory: memory.clone(),
             fork,
             compact,

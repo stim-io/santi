@@ -18,12 +18,12 @@ pub enum StandaloneCompactError {
 }
 
 #[derive(Clone)]
-pub struct StandaloneSessionCompactStore {
+pub struct StandaloneSessionCompact {
     pool: SqlitePool,
     lock: Arc<dyn Lock>,
 }
 
-impl StandaloneSessionCompactStore {
+impl StandaloneSessionCompact {
     pub async fn new(path: impl AsRef<Path>, lock: Arc<dyn Lock>) -> Result<Self> {
         let path = path.as_ref();
         if let Some(parent) = path.parent() {
@@ -203,7 +203,7 @@ impl StandaloneSessionCompactStore {
 }
 
 #[async_trait::async_trait]
-impl CompactLedgerPort for StandaloneSessionCompactStore {
+impl CompactLedgerPort for StandaloneSessionCompact {
     async fn list_compacts(&self, soul_session_id: &str) -> Result<Vec<Compact>> {
         let session_id: String = sqlx::query_scalar(
             r#"SELECT session_id FROM standalone_soul_sessions WHERE id = ?1 LIMIT 1"#,
@@ -217,7 +217,7 @@ impl CompactLedgerPort for StandaloneSessionCompactStore {
         .ok_or(Error::NotFound {
             resource: "standalone_soul_session",
         })?;
-        StandaloneSessionCompactStore::list_compacts(self, &session_id).await
+        StandaloneSessionCompact::list_compacts(self, &session_id).await
     }
 }
 

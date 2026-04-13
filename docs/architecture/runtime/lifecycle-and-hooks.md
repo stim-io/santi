@@ -16,6 +16,37 @@ The exact schema lives in `docs/contracts/data-model/session-message-model.md`.
 - keep lifecycle split as `start_turn` / `complete_turn` / `fail_turn`
 - do not collapse turn lifecycle into a single `mark_turn` abstraction
 
+## `session::send` boundary
+
+`session::send` owns one bounded runtime path: take a session-triggered input, assemble provider-visible context, run one turn, and publish the resulting watch/tool side effects.
+
+Keep that boundary split into small local module responsibilities when the file shape requires it:
+
+- service entry and lock/watch orchestration
+- turn execution and tool-call loop
+- assembly/projection from session and soul-session items into provider input
+
+The split is local to the `session::send` runtime boundary. It does not create a new cross-crate abstraction.
+
+Assembly/projection rules for this boundary:
+
+- public session messages remain the canonical provider-visible history input
+- effective compacts may replace covered message ranges
+- tool calls and tool results are runtime artifacts, not direct provider input items
+- hook execution remains post-turn work rather than part of provider-stream assembly
+
+## `session::watch` boundary
+
+`session::watch` owns the runtime-local observation surface for one session.
+
+Keep that boundary split into small local module responsibilities when file shape requires it:
+
+- watch event and snapshot data shapes
+- snapshot projection from canonical query/effect state
+- live subscription fanout from the runtime watch hub
+
+The watch boundary is read-oriented. It does not own send/fork/compact execution; it only projects and streams their visible observation state.
+
 ## Fork rules
 
 - fork is an explicit session API, not a hook-defined semantic

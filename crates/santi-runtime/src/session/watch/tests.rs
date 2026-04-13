@@ -123,7 +123,10 @@ impl SoulRuntimePort for FakeSoulRuntime {
 
 #[async_trait::async_trait]
 impl SoulSessionQueryPort for FakeSoulRuntime {
-    async fn get_soul_session_by_session_id(&self, _session_id: &str) -> Result<Option<SoulSession>> {
+    async fn get_soul_session_by_session_id(
+        &self,
+        _session_id: &str,
+    ) -> Result<Option<SoulSession>> {
         Ok(None)
     }
 }
@@ -273,7 +276,10 @@ async fn returns_snapshot_with_messages_effects_and_latest_seq() {
     assert_eq!(snapshot.messages[1].actor_type, "soul");
     assert_eq!(snapshot.effects.len(), 1);
     assert_eq!(snapshot.effects[0].status, "completed");
-    assert_eq!(snapshot.effects[0].result_ref.as_deref(), Some("sess_child"));
+    assert_eq!(
+        snapshot.effects[0].result_ref.as_deref(),
+        Some("sess_child")
+    );
 }
 
 #[tokio::test]

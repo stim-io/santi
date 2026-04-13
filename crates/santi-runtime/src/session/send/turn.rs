@@ -9,7 +9,9 @@ use santi_core::{
     },
     port::{
         lock::LockGuard,
-        provider::{FunctionCallOutput, Provider, ProviderEvent, ProviderFunctionCall, ProviderRequest},
+        provider::{
+            FunctionCallOutput, Provider, ProviderEvent, ProviderFunctionCall, ProviderRequest,
+        },
         session_ledger::{AppendSessionMessage, SessionLedgerPort},
         soul_runtime::{
             AcquireSoulSession, AppendMessageRef, AppendToolCall, AppendToolResult, CompleteTurn,
@@ -24,7 +26,9 @@ use uuid::Uuid;
 
 use crate::{
     hooks::TurnCompletedHookInput,
-    runtime::{context::ToolRuntimeContext, prompt::render_runtime_instructions, tools::ToolExecutor},
+    runtime::{
+        context::ToolRuntimeContext, prompt::render_runtime_instructions, tools::ToolExecutor,
+    },
     session::{
         hook_runtime::HookRuntime,
         watch::{
@@ -36,8 +40,9 @@ use crate::{
 };
 
 use super::{
-    assembly::{assembly_to_provider_input, build_assembly_items}, map_core_error, map_lock_error,
-    render_send_error, SendSessionError, SendSessionEvent, TurnExecutionRequest, TurnInput,
+    assembly::{assembly_to_provider_input, build_assembly_items},
+    map_core_error, map_lock_error, render_send_error, SendSessionError, SendSessionEvent,
+    TurnExecutionRequest, TurnInput,
 };
 
 pub(super) struct TurnRunOutput {

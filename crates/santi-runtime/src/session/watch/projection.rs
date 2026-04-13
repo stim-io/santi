@@ -5,9 +5,7 @@ use santi_core::{
 
 use crate::session::query::SessionQueryService;
 
-use super::shapes::{
-    SessionWatchEffectSummary, SessionWatchMessageSummary, SessionWatchSnapshot,
-};
+use super::shapes::{SessionWatchEffectSummary, SessionWatchMessageSummary, SessionWatchSnapshot};
 
 pub(super) async fn get_session_watch_snapshot(
     query: &SessionQueryService,

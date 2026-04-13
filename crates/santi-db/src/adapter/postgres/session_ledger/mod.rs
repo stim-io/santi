@@ -2,14 +2,16 @@ use sqlx::{PgPool, Row};
 
 use santi_core::{
     error::{Error, Result},
-    model::{session::{Session, SessionMessage, SessionMessageRef}},
+    model::session::{Session, SessionMessage, SessionMessageRef},
     port::session_ledger::{AppendSessionMessage, ApplyMessageEvent, SessionLedgerPort},
 };
 
 mod mapping;
 mod mutation;
 
-use mapping::{actor_type_str, map_message_row, map_session_message_row, message_state_str, payload_action_str};
+use mapping::{
+    actor_type_str, map_message_row, map_session_message_row, message_state_str, payload_action_str,
+};
 use mutation::apply_message_event_to_message;
 
 #[derive(Clone)]
@@ -304,7 +306,10 @@ impl SessionLedgerPort for DbSessionLedger {
         .ok_or(Error::NotFound { resource: "message" })?;
 
         let session_message = map_session_message_row(row)?;
-        let is_delete = matches!(input.payload, santi_core::model::message::MessageEventPayload::Delete { .. });
+        let is_delete = matches!(
+            input.payload,
+            santi_core::model::message::MessageEventPayload::Delete { .. }
+        );
         let updated_message = apply_message_event_to_message(
             session_message.message,
             &input.actor_type,

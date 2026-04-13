@@ -82,8 +82,7 @@ impl SessionWatchService {
         &self,
         session_id: &str,
     ) -> Result<Option<SessionWatchSnapshot>, String> {
-        projection::get_session_watch_snapshot(&*self.query, &*self.effect_ledger, session_id)
-            .await
+        projection::get_session_watch_snapshot(&*self.query, &*self.effect_ledger, session_id).await
     }
 
     pub async fn watch_session(

@@ -21,7 +21,10 @@ use super::{
 
 #[async_trait::async_trait]
 impl SoulRuntimePort for StandaloneSoulRuntime {
-    async fn acquire_soul_session(&self, input: AcquireSoulSession) -> Result<santi_core::model::runtime::SoulSession> {
+    async fn acquire_soul_session(
+        &self,
+        input: AcquireSoulSession,
+    ) -> Result<santi_core::model::runtime::SoulSession> {
         self.ensure_acquired_soul_session(&input).await
     }
 

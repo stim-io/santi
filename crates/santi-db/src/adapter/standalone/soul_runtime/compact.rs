@@ -1,6 +1,8 @@
 use santi_core::{
     error::{Error, Result},
-    model::runtime::{AssemblyItem, AssemblyTarget, Compact, SoulSessionEntry, SoulSessionTargetType},
+    model::runtime::{
+        AssemblyItem, AssemblyTarget, Compact, SoulSessionEntry, SoulSessionTargetType,
+    },
     port::{
         compact_ledger::CompactLedgerPort,
         compact_runtime::{AppendCompact, CompactRuntimePort},

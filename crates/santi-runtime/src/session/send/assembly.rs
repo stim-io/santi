@@ -73,9 +73,9 @@ pub(super) fn assembly_to_provider_input(items: &[AssemblyItem]) -> Vec<Provider
             AssemblyTarget::Compact(_) if effective_compact_indexes.contains(&index) => {
                 assembly_item_to_input_message(item)
             }
-            AssemblyTarget::Compact(_) | AssemblyTarget::ToolCall(_) | AssemblyTarget::ToolResult(_) => {
-                None
-            }
+            AssemblyTarget::Compact(_)
+            | AssemblyTarget::ToolCall(_)
+            | AssemblyTarget::ToolResult(_) => None,
         })
         .collect()
 }

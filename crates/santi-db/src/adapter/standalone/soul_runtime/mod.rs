@@ -1,9 +1,7 @@
 use std::path::Path;
 
 use santi_core::{
-    error::Result,
-    model::runtime::SoulSession,
-    port::soul_runtime::AcquireSoulSession,
+    error::Result, model::runtime::SoulSession, port::soul_runtime::AcquireSoulSession,
 };
 use sqlx::SqlitePool;
 
@@ -24,7 +22,10 @@ impl StandaloneSoulRuntime {
         Ok(Self { pool })
     }
 
-    async fn ensure_acquired_soul_session(&self, input: &AcquireSoulSession) -> Result<SoulSession> {
+    async fn ensure_acquired_soul_session(
+        &self,
+        input: &AcquireSoulSession,
+    ) -> Result<SoulSession> {
         self.ensure_soul_session(&input.soul_id, &input.session_id)
             .await?;
         self.fetch_soul_session_by_session_id(&input.session_id)

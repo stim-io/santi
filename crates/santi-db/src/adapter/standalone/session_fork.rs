@@ -24,12 +24,12 @@ pub enum StandaloneForkError {
 }
 
 #[derive(Clone)]
-pub struct StandaloneSessionForkStore {
+pub struct StandaloneSessionFork {
     pool: SqlitePool,
     lock: Arc<dyn Lock>,
 }
 
-impl StandaloneSessionForkStore {
+impl StandaloneSessionFork {
     pub async fn new(path: impl AsRef<Path>, lock: Arc<dyn Lock>) -> Result<Self> {
         let path = path.as_ref();
         if let Some(parent) = path.parent() {

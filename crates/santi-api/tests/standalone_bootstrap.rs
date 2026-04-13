@@ -4,8 +4,8 @@ use santi_api::{
 };
 use santi_core::port::lock::Lock;
 use santi_db::adapter::standalone::{
-    session_compact::StandaloneSessionCompactStore, session_store::StandaloneSessionStore,
-    soul_runtime::StandaloneSoulRuntime, soul_store::StandaloneSoulStore,
+    session_compact::StandaloneSessionCompact, session_store::StandaloneSessionLedger,
+    soul_runtime::StandaloneSoulRuntime, soul_store::StandaloneSoul,
 };
 use santi_lock::adapter::standalone::InProcessLock;
 use santi_runtime::session::query::SessionQueryService;
@@ -71,12 +71,12 @@ async fn standalone_query_service_lists_compacts_via_fork_compact_store() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("standalone.sqlite");
 
-    let store = Arc::new(StandaloneSessionStore::new(&db_path).await.unwrap());
-    let soul_store = Arc::new(StandaloneSoulStore::new(&db_path).await.unwrap());
+    let store = Arc::new(StandaloneSessionLedger::new(&db_path).await.unwrap());
+    let soul_store = Arc::new(StandaloneSoul::new(&db_path).await.unwrap());
     let soul_runtime = Arc::new(StandaloneSoulRuntime::new(&db_path).await.unwrap());
     let send_lock: Arc<dyn Lock> = Arc::new(InProcessLock::default());
     let compact_ledger = Arc::new(
-        StandaloneSessionCompactStore::new(&db_path, send_lock)
+        StandaloneSessionCompact::new(&db_path, send_lock)
             .await
             .unwrap(),
     );

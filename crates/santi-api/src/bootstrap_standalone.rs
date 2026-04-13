@@ -1,8 +1,8 @@
 use std::{fs::OpenOptions, sync::Arc};
 
 use santi_db::adapter::standalone::{
-    effect_ledger::StandaloneEffectLedger, session_store::StandaloneSessionStore,
-    soul_runtime::StandaloneSoulRuntime, soul_store::StandaloneSoulStore,
+    effect_ledger::StandaloneEffectLedger, session_store::StandaloneSessionLedger,
+    soul_runtime::StandaloneSoulRuntime, soul_store::StandaloneSoul,
 };
 use santi_ebus::adapter::standalone::InMemorySubscriberSet;
 use santi_lock::adapter::standalone::InProcessLock;
@@ -27,8 +27,8 @@ pub async fn bootstrap_standalone(config: &Config) -> santi_core::error::Result<
     validate_provider_config(config)?;
     let lock = acquire_standalone_bootstrap_lock(&config.standalone_sqlite_path)?;
     let send_lock: Arc<dyn santi_core::port::lock::Lock> = Arc::new(InProcessLock::default());
-    let store = Arc::new(StandaloneSessionStore::new(&config.standalone_sqlite_path).await?);
-    let soul_store = Arc::new(StandaloneSoulStore::new(&config.standalone_sqlite_path).await?);
+    let store = Arc::new(StandaloneSessionLedger::new(&config.standalone_sqlite_path).await?);
+    let soul_store = Arc::new(StandaloneSoul::new(&config.standalone_sqlite_path).await?);
     let soul_runtime = Arc::new(StandaloneSoulRuntime::new(&config.standalone_sqlite_path).await?);
     let effect_ledger: Arc<dyn santi_core::port::effect_ledger::EffectLedgerPort> =
         Arc::new(StandaloneEffectLedger::new(&config.standalone_sqlite_path).await?);

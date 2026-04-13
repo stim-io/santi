@@ -12,11 +12,11 @@ use santi_core::{
 };
 
 #[derive(Clone)]
-pub struct StandaloneSessionStore {
+pub struct StandaloneSessionLedger {
     pool: SqlitePool,
 }
 
-impl StandaloneSessionStore {
+impl StandaloneSessionLedger {
     pub async fn new(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         if let Some(parent) = path.parent() {
@@ -259,13 +259,13 @@ impl StandaloneSessionStore {
 }
 
 #[async_trait::async_trait]
-impl SessionLedgerPort for StandaloneSessionStore {
+impl SessionLedgerPort for StandaloneSessionLedger {
     async fn create_session(&self, session_id: &str) -> Result<Session> {
-        StandaloneSessionStore::create_session(self, session_id).await
+        StandaloneSessionLedger::create_session(self, session_id).await
     }
 
     async fn get_session(&self, session_id: &str) -> Result<Option<Session>> {
-        StandaloneSessionStore::get_session(self, session_id).await
+        StandaloneSessionLedger::get_session(self, session_id).await
     }
 
     async fn get_message(&self, message_id: &str) -> Result<Option<SessionMessage>> {
@@ -314,7 +314,7 @@ impl SessionLedgerPort for StandaloneSessionStore {
         session_id: &str,
         _after_session_seq: Option<i64>,
     ) -> Result<Vec<SessionMessage>> {
-        StandaloneSessionStore::list_messages(self, session_id).await
+        StandaloneSessionLedger::list_messages(self, session_id).await
     }
 
     async fn append_message(&self, input: AppendSessionMessage) -> Result<SessionMessage> {

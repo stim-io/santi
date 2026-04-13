@@ -9,11 +9,11 @@ use santi_core::{
 };
 
 #[derive(Clone)]
-pub struct StandaloneSoulStore {
+pub struct StandaloneSoul {
     pool: SqlitePool,
 }
 
-impl StandaloneSoulStore {
+impl StandaloneSoul {
     pub async fn new(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         if let Some(parent) = path.parent() {
@@ -106,7 +106,7 @@ impl StandaloneSoulStore {
 }
 
 #[async_trait::async_trait]
-impl SoulPort for StandaloneSoulStore {
+impl SoulPort for StandaloneSoul {
     async fn get_soul(&self, soul_id: &str) -> Result<Option<Soul>> {
         if soul_id != "soul_default" {
             return Ok(None);

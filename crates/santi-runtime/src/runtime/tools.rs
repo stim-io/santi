@@ -1,9 +1,10 @@
 use santi_core::port::provider::{
     FunctionCallOutput, ProviderFunctionCall, ProviderFunctionTool, ProviderTool,
 };
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
-use std::{collections::BTreeMap, path::PathBuf, process::Stdio, time::Instant};
+use std::{path::PathBuf, process::Stdio, time::Instant};
 use tokio::{
     io::AsyncReadExt,
     process::Command,
@@ -11,6 +12,10 @@ use tokio::{
 };
 
 use crate::{runtime::context::ToolRuntimeContext, session::memory::SessionMemoryService};
+
+mod github_https_git_env;
+
+use self::github_https_git_env::github_https_git_env;
 
 #[derive(Clone, Debug)]
 pub struct ToolExecutorConfig {
@@ -179,98 +184,9 @@ impl ToolExecutor {
         call: &ProviderFunctionCall,
     ) -> Result<ToolDispatchResult, String> {
         match call.name.as_str() {
-            "write_soul_memory" => {
-                let args: WriteSessionMemoryArgs =
-                    match serde_json::from_value(call.arguments.clone()) {
-                        Ok(args) => args,
-                        Err(err) => {
-                            return Ok(build_failed_dispatch_result(
-                                &call.name,
-                                &call.call_id,
-                                format!("invalid write_soul_memory arguments: {err}"),
-                            ))
-                        }
-                    };
-                let result = match self.write_soul_memory(ctx, args.text).await {
-                    Ok(result) => result,
-                    Err(err) => {
-                        return Ok(build_failed_dispatch_result(&call.name, &call.call_id, err))
-                    }
-                };
-                let tool_output = serde_json::to_value(&result)
-                    .map_err(|err| format!("serialize tool output failed: {err}"))?;
-
-                Ok(ToolDispatchResult {
-                    tool_name: call.name.clone(),
-                    ok: true,
-                    function_call_output: FunctionCallOutput {
-                        call_id: call.call_id.clone(),
-                        output: tool_output.to_string(),
-                    },
-                    tool_output,
-                })
-            }
-            "write_session_memory" => {
-                let args: WriteSessionMemoryArgs =
-                    match serde_json::from_value(call.arguments.clone()) {
-                        Ok(args) => args,
-                        Err(err) => {
-                            return Ok(build_failed_dispatch_result(
-                                &call.name,
-                                &call.call_id,
-                                format!("invalid write_session_memory arguments: {err}"),
-                            ))
-                        }
-                    };
-                let result = match self.write_session_memory(ctx, args.text).await {
-                    Ok(result) => result,
-                    Err(err) => {
-                        return Ok(build_failed_dispatch_result(&call.name, &call.call_id, err))
-                    }
-                };
-                let tool_output = serde_json::to_value(&result)
-                    .map_err(|err| format!("serialize tool output failed: {err}"))?;
-
-                Ok(ToolDispatchResult {
-                    tool_name: call.name.clone(),
-                    ok: true,
-                    function_call_output: FunctionCallOutput {
-                        call_id: call.call_id.clone(),
-                        output: tool_output.to_string(),
-                    },
-                    tool_output,
-                })
-            }
-            "bash" => {
-                let args: BashToolInput = match serde_json::from_value(call.arguments.clone()) {
-                    Ok(args) => args,
-                    Err(err) => {
-                        return Ok(build_failed_dispatch_result(
-                            &call.name,
-                            &call.call_id,
-                            format!("invalid bash arguments: {err}"),
-                        ))
-                    }
-                };
-                let result = match self.bash(ctx, args).await {
-                    Ok(result) => result,
-                    Err(err) => {
-                        return Ok(build_failed_dispatch_result(&call.name, &call.call_id, err))
-                    }
-                };
-                let tool_output = serde_json::to_value(&result)
-                    .map_err(|err| format!("serialize tool output failed: {err}"))?;
-
-                Ok(ToolDispatchResult {
-                    tool_name: call.name.clone(),
-                    ok: true,
-                    function_call_output: FunctionCallOutput {
-                        call_id: call.call_id.clone(),
-                        output: tool_output.to_string(),
-                    },
-                    tool_output,
-                })
-            }
+            "write_soul_memory" => self.dispatch_write_soul_memory(ctx, call).await,
+            "write_session_memory" => self.dispatch_write_session_memory(ctx, call).await,
+            "bash" => self.dispatch_bash(ctx, call).await,
             name => Ok(build_failed_dispatch_result(
                 name,
                 &call.call_id,
@@ -412,6 +328,89 @@ impl ToolExecutor {
             },
         })
     }
+
+    async fn dispatch_write_soul_memory(
+        &self,
+        ctx: &ToolRuntimeContext,
+        call: &ProviderFunctionCall,
+    ) -> Result<ToolDispatchResult, String> {
+        let args = match parse_tool_args::<WriteSessionMemoryArgs>(call, "write_soul_memory") {
+            Ok(args) => args,
+            Err(result) => return Ok(result),
+        };
+        let result = match self.write_soul_memory(ctx, args.text).await {
+            Ok(result) => result,
+            Err(err) => return Ok(build_failed_dispatch_result(&call.name, &call.call_id, err)),
+        };
+
+        build_success_dispatch_result(&call.name, &call.call_id, &result)
+    }
+
+    async fn dispatch_write_session_memory(
+        &self,
+        ctx: &ToolRuntimeContext,
+        call: &ProviderFunctionCall,
+    ) -> Result<ToolDispatchResult, String> {
+        let args = match parse_tool_args::<WriteSessionMemoryArgs>(call, "write_session_memory") {
+            Ok(args) => args,
+            Err(result) => return Ok(result),
+        };
+        let result = match self.write_session_memory(ctx, args.text).await {
+            Ok(result) => result,
+            Err(err) => return Ok(build_failed_dispatch_result(&call.name, &call.call_id, err)),
+        };
+
+        build_success_dispatch_result(&call.name, &call.call_id, &result)
+    }
+
+    async fn dispatch_bash(
+        &self,
+        ctx: &ToolRuntimeContext,
+        call: &ProviderFunctionCall,
+    ) -> Result<ToolDispatchResult, String> {
+        let args = match parse_tool_args::<BashToolInput>(call, "bash") {
+            Ok(args) => args,
+            Err(result) => return Ok(result),
+        };
+        let result = match self.bash(ctx, args).await {
+            Ok(result) => result,
+            Err(err) => return Ok(build_failed_dispatch_result(&call.name, &call.call_id, err)),
+        };
+
+        build_success_dispatch_result(&call.name, &call.call_id, &result)
+    }
+}
+
+fn parse_tool_args<T: DeserializeOwned>(
+    call: &ProviderFunctionCall,
+    tool_name: &str,
+) -> Result<T, ToolDispatchResult> {
+    serde_json::from_value(call.arguments.clone()).map_err(|err| {
+        build_failed_dispatch_result(
+            &call.name,
+            &call.call_id,
+            format!("invalid {tool_name} arguments: {err}"),
+        )
+    })
+}
+
+fn build_success_dispatch_result<T: Serialize>(
+    tool_name: &str,
+    call_id: &str,
+    result: &T,
+) -> Result<ToolDispatchResult, String> {
+    let tool_output = serde_json::to_value(result)
+        .map_err(|err| format!("serialize tool output failed: {err}"))?;
+
+    Ok(ToolDispatchResult {
+        tool_name: tool_name.to_string(),
+        ok: true,
+        function_call_output: FunctionCallOutput {
+            call_id: call_id.to_string(),
+            output: tool_output.to_string(),
+        },
+        tool_output,
+    })
 }
 
 fn build_failed_dispatch_result(
@@ -452,38 +451,6 @@ fn resolve_cwd(ctx: &ToolRuntimeContext, cwd: Option<&str>) -> Result<PathBuf, S
     }
 }
 
-fn github_https_git_env() -> BTreeMap<String, String> {
-    github_https_git_env_from(
-        std::env::var("GITHUB_TOKEN").ok().as_deref(),
-        std::env::var("GH_TOKEN").ok().as_deref(),
-    )
-}
-
-fn github_https_git_env_from(
-    github_token: Option<&str>,
-    gh_token: Option<&str>,
-) -> BTreeMap<String, String> {
-    let token = github_token
-        .filter(|value| !value.trim().is_empty())
-        .or_else(|| gh_token.filter(|value| !value.trim().is_empty()));
-
-    let Some(token) = token else {
-        return BTreeMap::new();
-    };
-
-    BTreeMap::from([
-        ("GIT_CONFIG_COUNT".to_string(), "1".to_string()),
-        (
-            "GIT_CONFIG_KEY_0".to_string(),
-            format!("url.https://x-access-token:{token}@github.com/.insteadOf"),
-        ),
-        (
-            "GIT_CONFIG_VALUE_0".to_string(),
-            "https://github.com/".to_string(),
-        ),
-    ])
-}
-
 impl ToolExecutor {
     pub fn build_context(&self, session_id: &str, soul_id: &str) -> ToolRuntimeContext {
         ToolRuntimeContext {
@@ -497,32 +464,5 @@ impl ToolExecutor {
                 .join("memory"),
             fallback_cwd: self.execution_root.clone(),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::github_https_git_env_from;
-
-    #[test]
-    fn github_https_git_env_is_empty_without_tokens() {
-        let env = github_https_git_env_from(None, None);
-
-        assert!(env.is_empty());
-    }
-
-    #[test]
-    fn github_https_git_env_prefers_github_token() {
-        let env = github_https_git_env_from(Some("github-token"), Some("gh-token"));
-
-        assert_eq!(env.get("GIT_CONFIG_COUNT").map(String::as_str), Some("1"));
-        assert_eq!(
-            env.get("GIT_CONFIG_KEY_0").map(String::as_str),
-            Some("url.https://x-access-token:github-token@github.com/.insteadOf")
-        );
-        assert_eq!(
-            env.get("GIT_CONFIG_VALUE_0").map(String::as_str),
-            Some("https://github.com/")
-        );
     }
 }

@@ -28,13 +28,25 @@
 - when runtime needs richer reads, introduce smaller seams and compose them in runtime
 - do not widen contracts merely because one adapter family has a more convenient implementation
 
+## Local adapter decomposition rule
+
+Inside one adapter family, oversized implementation files may split into small local modules when that reduces file-size pressure without changing the public adapter entry path.
+
+Preferred local split points:
+
+- schema/bootstrap setup
+- persistence operations grouped by the port behavior they implement
+- row mapping / encoding helpers
+
+Keep those splits repo-local to the adapter implementation. Do not turn them into new runtime-facing contracts.
+
 ## Current implementation map
 
 | port | standalone | postgres |
 | --- | --- | --- |
-| `SessionLedgerPort` | `StandaloneSessionStore` | `DbSessionLedger` |
+| `SessionLedgerPort` | `StandaloneSessionLedger` | `DbSessionLedger` |
 | `EffectLedgerPort` | `StandaloneEffectLedger` | `DbEffectLedger` |
-| `SoulPort` | `StandaloneSoulStore` | `DbSoul` |
+| `SoulPort` | `StandaloneSoul` | `DbSoul` |
 | `SoulRuntimePort` | `StandaloneSoulRuntime` | `DbSoulRuntime` |
 
 ## Known pressure points

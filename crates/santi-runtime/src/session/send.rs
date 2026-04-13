@@ -318,42 +318,19 @@ impl SessionTurnService {
         tx: Option<mpsc::UnboundedSender<Result<SendSessionEvent, SendSessionError>>>,
         guard: Box<dyn LockGuard + Send>,
     ) -> Result<Turn, SendSessionError> {
-        let startup = run_turn_startup(
+        let startup = match run_turn_startup(
             &self.default_soul_id,
             &request,
             self.session_ledger.clone(),
             self.soul_runtime.clone(),
             self.tools.clone(),
         )
-        .await;
-
-        let (startup, guard) = match startup {
-            Ok(startup) => (startup, guard),
-            Err(err) => {
-                let release_result = guard.release().await.map_err(map_lock_error);
-                return Err(match release_result {
-                    Ok(()) => err,
-                    Err(release_err) => release_err,
-                });
-            }
+        .await {
+            Ok(startup) => startup,
+            Err(err) => return release_guard_on_error(guard, err).await,
         };
 
-        self.watch.publish(
-            &request.session_id,
-            SessionWatchEvent::StateChanged(SessionWatchStateChanged {
-                session_id: request.session_id.clone(),
-                state: SessionWatchState::Running,
-            }),
-        );
-        self.watch.publish(
-            &request.session_id,
-            SessionWatchEvent::ActivityChanged(SessionWatchActivityChanged {
-                session_id: request.session_id.clone(),
-                activity: SessionWatchActivityKind::Send,
-                state: SessionWatchActivityState::Started,
-                label: None,
-            }),
-        );
+        publish_turn_started(&self.watch, &request.session_id);
 
         run_turn_worker(
             self.default_soul_id.clone(),
@@ -491,55 +468,135 @@ async fn run_turn_worker(
     )
     .await;
 
-    if let Err(err) = &run_result {
+    fail_turn_on_error(&soul_runtime, &turn_id, &run_result).await;
+
+    let output = finish_turn_run(run_result, guard).await?;
+
+    run_turn_completed_hooks(
+        &request,
+        hooks,
+        &output,
+        session_ledger,
+        soul_runtime,
+    )
+    .await?;
+
+    emit_turn_completed_event(&request, tx.as_ref());
+
+    Ok(output.turn)
+}
+
+fn publish_turn_started(watch: &SessionWatchHub, session_id: &str) {
+    watch.publish(
+        session_id,
+        SessionWatchEvent::StateChanged(SessionWatchStateChanged {
+            session_id: session_id.to_string(),
+            state: SessionWatchState::Running,
+        }),
+    );
+    watch.publish(
+        session_id,
+        SessionWatchEvent::ActivityChanged(SessionWatchActivityChanged {
+            session_id: session_id.to_string(),
+            activity: SessionWatchActivityKind::Send,
+            state: SessionWatchActivityState::Started,
+            label: None,
+        }),
+    );
+}
+
+async fn release_guard_on_error<T>(
+    guard: Box<dyn LockGuard + Send>,
+    err: SendSessionError,
+) -> Result<T, SendSessionError> {
+    match guard.release().await.map_err(map_lock_error) {
+        Ok(()) => Err(err),
+        Err(release_err) => Err(release_err),
+    }
+}
+
+async fn fail_turn_on_error(
+    soul_runtime: &Arc<dyn SoulRuntimePort>,
+    turn_id: &str,
+    run_result: &Result<TurnRunOutput, SendSessionError>,
+) {
+    if let Err(err) = run_result {
         let _ = soul_runtime
             .fail_turn(FailTurn {
-                turn_id,
+                turn_id: turn_id.to_string(),
                 error_text: render_send_error(err),
             })
             .await;
     }
+}
 
+async fn finish_turn_run(
+    run_result: Result<TurnRunOutput, SendSessionError>,
+    guard: Box<dyn LockGuard + Send>,
+) -> Result<TurnRunOutput, SendSessionError> {
     let release_result = guard.release().await.map_err(map_lock_error);
-    match (run_result, release_result) {
-        (Err(err), _) => Err(err),
-        (Ok(_turn), Err(err)) => Err(err),
-        (Ok(output), Ok(())) => {
-            if request.run_hooks {
-                if let Some(hooks) = hooks {
-                    if let Some(soul_session) = soul_runtime
-                        .get_soul_session(&output.soul_session_id)
-                        .await
-                        .map_err(map_core_error)?
-                    {
-                        let assembly = build_assembly_items(
-                            session_ledger.clone(),
-                            &output.session.id,
-                            &output.soul_session_id,
-                        )
-                        .await?;
+    let output = match run_result {
+        Ok(output) => output,
+        Err(err) => return Err(err),
+    };
 
-                        let _ = hooks
-                            .run_turn_completed(TurnCompletedHookInput {
-                                turn: &output.turn,
-                                session: &output.session,
-                                soul_session: &soul_session,
-                                assistant_message: Some(&output.assistant_message),
-                                assembly_tail: &assembly,
-                            })
-                            .await;
-                    }
-                }
-            }
+    release_result?;
+    Ok(output)
+}
 
-            if request.emit_events {
-                if let Some(tx) = &tx {
-                    let _ = tx.send(Ok(SendSessionEvent::Completed));
-                }
-            }
+async fn run_turn_completed_hooks(
+    request: &TurnExecutionRequest,
+    hooks: Option<Arc<HookRuntime>>,
+    output: &TurnRunOutput,
+    session_ledger: Arc<dyn SessionLedgerPort>,
+    soul_runtime: Arc<dyn SoulRuntimePort>,
+) -> Result<(), SendSessionError> {
+    if !request.run_hooks {
+        return Ok(());
+    }
 
-            Ok(output.turn)
-        }
+    let Some(hooks) = hooks else {
+        return Ok(());
+    };
+
+    let Some(soul_session) = soul_runtime
+        .get_soul_session(&output.soul_session_id)
+        .await
+        .map_err(map_core_error)?
+    else {
+        return Ok(());
+    };
+
+    let assembly = build_assembly_items(
+        session_ledger,
+        &output.session.id,
+        &output.soul_session_id,
+    )
+    .await?;
+
+    let _ = hooks
+        .run_turn_completed(TurnCompletedHookInput {
+            turn: &output.turn,
+            session: &output.session,
+            soul_session: &soul_session,
+            assistant_message: Some(&output.assistant_message),
+            assembly_tail: &assembly,
+        })
+        .await;
+
+    Ok(())
+}
+
+fn emit_turn_completed_event(
+    request: &TurnExecutionRequest,
+    tx: Option<&mpsc::UnboundedSender<Result<SendSessionEvent, SendSessionError>>>,
+) {
+    if !request.emit_events {
+        return;
+    }
+
+    if let Some(tx) = tx {
+        let _ = tx.send(Ok(SendSessionEvent::Completed));
     }
 }
 

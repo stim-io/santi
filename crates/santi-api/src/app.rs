@@ -18,41 +18,41 @@ pub fn build_router(state: AppState) -> Router {
             put(handler::session::set_default_soul_memory),
         )
         .route("/api/v1/sessions", post(handler::session::create_session))
-        .route("/api/v1/sessions/:id", get(handler::session::get_session))
+        .route("/api/v1/sessions/{id}", get(handler::session::get_session))
         .route(
-            "/api/v1/sessions/:id/send",
+            "/api/v1/sessions/{id}/send",
             post(handler::session::send_session),
         )
         .route(
-            "/api/v1/sessions/:id/watch",
+            "/api/v1/sessions/{id}/watch",
             get(handler::session::watch_session),
         )
         .route(
-            "/api/v1/sessions/:id/fork",
+            "/api/v1/sessions/{id}/fork",
             post(handler::session::fork_session),
         )
         .route(
-            "/api/v1/sessions/:id/compact",
+            "/api/v1/sessions/{id}/compact",
             post(handler::session::compact_session),
         )
         .route(
-            "/api/v1/sessions/:id/memory",
+            "/api/v1/sessions/{id}/memory",
             get(handler::session::get_session_memory).put(handler::session::set_session_memory),
         )
         .route(
-            "/api/v1/sessions/:id/messages",
+            "/api/v1/sessions/{id}/messages",
             get(handler::session::list_session_messages),
         )
         .route(
-            "/api/v1/sessions/:id/watch-snapshot",
+            "/api/v1/sessions/{id}/watch-snapshot",
             get(handler::session::get_session_watch_snapshot),
         )
         .route(
-            "/api/v1/sessions/:id/effects",
+            "/api/v1/sessions/{id}/effects",
             get(handler::session::list_session_effects),
         )
         .route(
-            "/api/v1/sessions/:id/compacts",
+            "/api/v1/sessions/{id}/compacts",
             get(handler::session::list_session_compacts),
         )
         .merge(SwaggerUi::new("/api/docs").url("/api/openapi.json", ApiDoc::openapi()))

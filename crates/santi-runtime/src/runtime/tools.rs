@@ -1,6 +1,7 @@
 use santi_core::port::provider::{
     FunctionCallOutput, ProviderFunctionCall, ProviderFunctionTool, ProviderTool,
 };
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
 use std::{collections::BTreeMap, path::PathBuf, process::Stdio, time::Instant};
@@ -179,98 +180,9 @@ impl ToolExecutor {
         call: &ProviderFunctionCall,
     ) -> Result<ToolDispatchResult, String> {
         match call.name.as_str() {
-            "write_soul_memory" => {
-                let args: WriteSessionMemoryArgs =
-                    match serde_json::from_value(call.arguments.clone()) {
-                        Ok(args) => args,
-                        Err(err) => {
-                            return Ok(build_failed_dispatch_result(
-                                &call.name,
-                                &call.call_id,
-                                format!("invalid write_soul_memory arguments: {err}"),
-                            ))
-                        }
-                    };
-                let result = match self.write_soul_memory(ctx, args.text).await {
-                    Ok(result) => result,
-                    Err(err) => {
-                        return Ok(build_failed_dispatch_result(&call.name, &call.call_id, err))
-                    }
-                };
-                let tool_output = serde_json::to_value(&result)
-                    .map_err(|err| format!("serialize tool output failed: {err}"))?;
-
-                Ok(ToolDispatchResult {
-                    tool_name: call.name.clone(),
-                    ok: true,
-                    function_call_output: FunctionCallOutput {
-                        call_id: call.call_id.clone(),
-                        output: tool_output.to_string(),
-                    },
-                    tool_output,
-                })
-            }
-            "write_session_memory" => {
-                let args: WriteSessionMemoryArgs =
-                    match serde_json::from_value(call.arguments.clone()) {
-                        Ok(args) => args,
-                        Err(err) => {
-                            return Ok(build_failed_dispatch_result(
-                                &call.name,
-                                &call.call_id,
-                                format!("invalid write_session_memory arguments: {err}"),
-                            ))
-                        }
-                    };
-                let result = match self.write_session_memory(ctx, args.text).await {
-                    Ok(result) => result,
-                    Err(err) => {
-                        return Ok(build_failed_dispatch_result(&call.name, &call.call_id, err))
-                    }
-                };
-                let tool_output = serde_json::to_value(&result)
-                    .map_err(|err| format!("serialize tool output failed: {err}"))?;
-
-                Ok(ToolDispatchResult {
-                    tool_name: call.name.clone(),
-                    ok: true,
-                    function_call_output: FunctionCallOutput {
-                        call_id: call.call_id.clone(),
-                        output: tool_output.to_string(),
-                    },
-                    tool_output,
-                })
-            }
-            "bash" => {
-                let args: BashToolInput = match serde_json::from_value(call.arguments.clone()) {
-                    Ok(args) => args,
-                    Err(err) => {
-                        return Ok(build_failed_dispatch_result(
-                            &call.name,
-                            &call.call_id,
-                            format!("invalid bash arguments: {err}"),
-                        ))
-                    }
-                };
-                let result = match self.bash(ctx, args).await {
-                    Ok(result) => result,
-                    Err(err) => {
-                        return Ok(build_failed_dispatch_result(&call.name, &call.call_id, err))
-                    }
-                };
-                let tool_output = serde_json::to_value(&result)
-                    .map_err(|err| format!("serialize tool output failed: {err}"))?;
-
-                Ok(ToolDispatchResult {
-                    tool_name: call.name.clone(),
-                    ok: true,
-                    function_call_output: FunctionCallOutput {
-                        call_id: call.call_id.clone(),
-                        output: tool_output.to_string(),
-                    },
-                    tool_output,
-                })
-            }
+            "write_soul_memory" => self.dispatch_write_soul_memory(ctx, call).await,
+            "write_session_memory" => self.dispatch_write_session_memory(ctx, call).await,
+            "bash" => self.dispatch_bash(ctx, call).await,
             name => Ok(build_failed_dispatch_result(
                 name,
                 &call.call_id,
@@ -412,6 +324,89 @@ impl ToolExecutor {
             },
         })
     }
+
+    async fn dispatch_write_soul_memory(
+        &self,
+        ctx: &ToolRuntimeContext,
+        call: &ProviderFunctionCall,
+    ) -> Result<ToolDispatchResult, String> {
+        let args = match parse_tool_args::<WriteSessionMemoryArgs>(call, "write_soul_memory") {
+            Ok(args) => args,
+            Err(result) => return Ok(result),
+        };
+        let result = match self.write_soul_memory(ctx, args.text).await {
+            Ok(result) => result,
+            Err(err) => return Ok(build_failed_dispatch_result(&call.name, &call.call_id, err)),
+        };
+
+        build_success_dispatch_result(&call.name, &call.call_id, &result)
+    }
+
+    async fn dispatch_write_session_memory(
+        &self,
+        ctx: &ToolRuntimeContext,
+        call: &ProviderFunctionCall,
+    ) -> Result<ToolDispatchResult, String> {
+        let args = match parse_tool_args::<WriteSessionMemoryArgs>(call, "write_session_memory") {
+            Ok(args) => args,
+            Err(result) => return Ok(result),
+        };
+        let result = match self.write_session_memory(ctx, args.text).await {
+            Ok(result) => result,
+            Err(err) => return Ok(build_failed_dispatch_result(&call.name, &call.call_id, err)),
+        };
+
+        build_success_dispatch_result(&call.name, &call.call_id, &result)
+    }
+
+    async fn dispatch_bash(
+        &self,
+        ctx: &ToolRuntimeContext,
+        call: &ProviderFunctionCall,
+    ) -> Result<ToolDispatchResult, String> {
+        let args = match parse_tool_args::<BashToolInput>(call, "bash") {
+            Ok(args) => args,
+            Err(result) => return Ok(result),
+        };
+        let result = match self.bash(ctx, args).await {
+            Ok(result) => result,
+            Err(err) => return Ok(build_failed_dispatch_result(&call.name, &call.call_id, err)),
+        };
+
+        build_success_dispatch_result(&call.name, &call.call_id, &result)
+    }
+}
+
+fn parse_tool_args<T: DeserializeOwned>(
+    call: &ProviderFunctionCall,
+    tool_name: &str,
+) -> Result<T, ToolDispatchResult> {
+    serde_json::from_value(call.arguments.clone()).map_err(|err| {
+        build_failed_dispatch_result(
+            &call.name,
+            &call.call_id,
+            format!("invalid {tool_name} arguments: {err}"),
+        )
+    })
+}
+
+fn build_success_dispatch_result<T: Serialize>(
+    tool_name: &str,
+    call_id: &str,
+    result: &T,
+) -> Result<ToolDispatchResult, String> {
+    let tool_output = serde_json::to_value(result)
+        .map_err(|err| format!("serialize tool output failed: {err}"))?;
+
+    Ok(ToolDispatchResult {
+        tool_name: tool_name.to_string(),
+        ok: true,
+        function_call_output: FunctionCallOutput {
+            call_id: call_id.to_string(),
+            output: tool_output.to_string(),
+        },
+        tool_output,
+    })
 }
 
 fn build_failed_dispatch_result(

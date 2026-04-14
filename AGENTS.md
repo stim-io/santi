@@ -77,6 +77,8 @@ Detailed system thinking belongs in `docs/`, not here.
 
 - This workspace follows a long-lived beta-only `0.1.0-beta.N` release line.
 - Keep packaging and verification entrypoints aligned with that beta-only workflow.
+- Keep repo-owned Python scripts as the canonical verification and packaging logic; GitHub workflows should stay thin wrappers around those entrypoints.
+- Keep beta tags as post-success release markers rather than imperative workflow triggers.
 - Skipped tests are not allowed in committed sources; `scripts/verify.py` owns that guard inside the required verification gate.
 
 ## Update Rules

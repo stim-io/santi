@@ -11,6 +11,7 @@ It keeps the current resource shape and only normalizes how the surface is named
 - All API routes use the `/api/v1` prefix.
 - No new top-level resources are introduced here.
 - Existing resources remain the source of truth: `health`, `meta`, `soul`, `sessions`, `messages`, `effects`, `compacts`, `memory`, and admin hooks.
+- `stim` protocol participation may add a narrow `stim`-scoped entrypoint when the shared `stim-proto` envelope/ack contract needs a real HTTP landing surface.
 
 ## Resource map
 
@@ -48,6 +49,11 @@ It keeps the current resource shape and only normalizes how the surface is named
   - compacted session state views
 - `PUT /api/v1/admin/hooks`
   - operational hooks used by trusted standalone/admin flows
+- `POST /api/v1/stim/envelopes`
+  - narrow `stim-proto` protocol participation surface
+  - accepts a shared `MessageEnvelope`
+  - returns a shared `ProtocolAcknowledgement`
+  - should stay protocol-shaped rather than turning into a second product chat API
 
 ## `/health` vs `/meta`
 
@@ -86,5 +92,7 @@ It keeps the current resource shape and only normalizes how the surface is named
 ## Stability rule
 
 Do not introduce new primary resources in the HTTP contract until the runtime model needs them.
+
+`/api/v1/stim/envelopes` is allowed because `santi` now needs one explicit protocol-shaped landing surface for `stim-proto` participation rather than forcing `stim` to couple directly to the existing product session routes.
 
 Keep this surface aligned with the current resource set and avoid speculative expansion.

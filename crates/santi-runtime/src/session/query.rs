@@ -38,8 +38,12 @@ impl SessionQueryService {
 
     pub async fn create_session(&self) -> Result<Session, String> {
         let session_id = format!("sess_{}", Uuid::new_v4().simple());
+        self.create_session_with_id(&session_id).await
+    }
+
+    pub async fn create_session_with_id(&self, session_id: &str) -> Result<Session, String> {
         self.session_ledger
-            .create_session(&session_id)
+            .create_session(session_id)
             .await
             .map_err(render_error)
     }

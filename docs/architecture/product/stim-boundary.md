@@ -51,6 +51,20 @@ At the product layer, the important rule is simpler:
 - product views may project that truth differently for different actors
 - `soul` may expose internal read-only mechanism views without changing public ledger semantics
 
+For `stim-proto` participation, `santi` should expose a narrow protocol-shaped surface rather than forcing `stim` controller to couple directly to the current chat/session product HTTP surface.
+
+That means:
+
+- `santi` may internally bridge incoming `stim-proto` envelopes into its runtime/session model
+- but the cross-repo contract should remain the shared `stim-proto` envelope + acknowledgement semantics
+- `stim` controller should integrate against that protocol surface first, not against ad hoc `santi` product routes
+
+The same rule applies to reply semantics.
+
+- if `stim` needs durable assistant-reply semantics from `santi`, those semantics should move into `stim-proto`
+- do not preserve a separate cross-repo private reply path just because it appeared first during execution
+- but also do not copy every current `santi` product-route detail into `stim-proto`; only the durable shared reply boundary belongs there
+
 ## Design Rule
 
 The same underlying truth may be interpreted differently by different layers.

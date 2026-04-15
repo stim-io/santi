@@ -44,3 +44,16 @@ Examples:
 2. `docker compose exec santi ls -l /data /runtime`
 3. `docker compose logs -f santi`
 4. `docker compose logs -f santi-link`
+
+## how do I get back to a clean standalone compose state?
+
+If old sqlite/runtime state is polluting local verification, reset the compose volumes instead of trying to preserve old standalone-only dev data.
+
+1. `docker compose down -v`
+2. `docker compose up -d --build`
+
+Typical symptom that means you should do this reset first:
+
+- `500` from `/api/v1/stim/envelopes` or normal send paths with sqlite errors like `table session_messages has no column named updated_at`
+
+That usually means the compose sqlite volume still contains stale standalone-era schema/data that is no longer worth preserving for local verification.

@@ -6,6 +6,7 @@ pub mod handler;
 pub mod link_client;
 pub mod model;
 pub mod openapi;
+pub mod protocol_reply;
 pub mod schema;
 pub mod state;
 pub mod surface;

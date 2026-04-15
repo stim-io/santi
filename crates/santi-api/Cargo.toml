@@ -23,6 +23,7 @@ santi-db = { path = "../santi-db" }
 santi-ebus = { path = "../santi-ebus" }
 santi-runtime = { path = "../santi-runtime" }
 santi-lock = { path = "../santi-lock" }
+stim-proto = { path = "../../../stim-proto/crates/stim-proto" }
 async-trait = "0.1"
 fs2 = "0.4"
 

@@ -2440,6 +2440,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 [[package]]
 name = "stim-proto"
 version = "0.1.0-dev.0"
+source = "git+https://github.com/stim-io/stim-proto.git?rev=8cde6ee324be6e232b464b43fc605af0a9d5d337#8cde6ee324be6e232b464b43fc605af0a9d5d337"
 dependencies = [
  "serde",
  "serde_json",

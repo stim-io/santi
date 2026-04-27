@@ -23,7 +23,7 @@ santi-db = { path = "../santi-db" }
 santi-ebus = { path = "../santi-ebus" }
 santi-runtime = { path = "../santi-runtime" }
 santi-lock = { path = "../santi-lock" }
-stim-proto = { path = "../../../stim-proto/crates/stim-proto" }
+stim-proto = { git = "https://github.com/stim-io/stim-proto.git", rev = "8cde6ee324be6e232b464b43fc605af0a9d5d337" }
 async-trait = "0.1"
 fs2 = "0.4"
 

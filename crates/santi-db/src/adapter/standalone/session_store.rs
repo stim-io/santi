@@ -75,10 +75,12 @@ impl StandaloneSessionLedger {
             message: format!("migrate sqlite session_messages failed: {err}"),
         })?;
 
-        sqlx::query(r#"ALTER TABLE session_messages ADD COLUMN version INTEGER NOT NULL DEFAULT 1"#)
-            .execute(&pool)
-            .await
-            .ok();
+        sqlx::query(
+            r#"ALTER TABLE session_messages ADD COLUMN version INTEGER NOT NULL DEFAULT 1"#,
+        )
+        .execute(&pool)
+        .await
+        .ok();
         sqlx::query(
             r#"ALTER TABLE session_messages ADD COLUMN updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP"#,
         )

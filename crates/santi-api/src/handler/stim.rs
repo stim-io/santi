@@ -13,13 +13,16 @@ use santi_core::{
     },
     port::session_ledger::{AppendSessionMessage, ApplyMessageEvent},
 };
+use std::convert::Infallible;
 use stim_proto::{
     AcknowledgementResult, ContentPart, MessageEnvelope, MessageOperation, MessageState,
     MutationPayload, ProtocolAcknowledgement, ProtocolSubmission, ReplySnapshot,
 };
-use std::convert::Infallible;
 
-use crate::{handler::session_events::done_event, schema::common::ErrorResponse, state::AppState, surface::ApiError};
+use crate::{
+    handler::session_events::done_event, schema::common::ErrorResponse, state::AppState,
+    surface::ApiError,
+};
 
 #[utoipa::path(
     post,
@@ -134,7 +137,11 @@ async fn apply_stim_envelope(
         });
     }
 
-    match state.session_api().get_session(&envelope.conversation_id).await {
+    match state
+        .session_api()
+        .get_session(&envelope.conversation_id)
+        .await
+    {
         Ok(_) => {}
         Err(ApiError::NotFound(_)) => {
             if envelope.session_bootstrap.is_none() {
@@ -355,7 +362,9 @@ fn map_core_error(error: CoreError) -> ApiError {
         CoreError::NotFound { resource } => ApiError::NotFound(resource.into()),
         CoreError::Busy { resource } => ApiError::Conflict(resource.into()),
         CoreError::InvalidInput { message } => ApiError::Validation(message),
-        CoreError::Upstream { message } | CoreError::Internal { message } => ApiError::Internal(message),
+        CoreError::Upstream { message } | CoreError::Internal { message } => {
+            ApiError::Internal(message)
+        }
     }
 }
 
@@ -378,9 +387,10 @@ async fn start_protocol_reply(
     envelope: &MessageEnvelope,
 ) -> Result<Option<stim_proto::ReplyHandle>, ApiError> {
     let user_content = message_text_for_reply(state, envelope).await?;
-    let handle = state
-        .protocol_replies()
-        .create_reply(envelope.conversation_id.clone(), envelope.message_id.clone());
+    let handle = state.protocol_replies().create_reply(
+        envelope.conversation_id.clone(),
+        envelope.message_id.clone(),
+    );
 
     let reply_id = handle.reply_id.clone();
     let session_id = envelope.conversation_id.clone();
@@ -392,7 +402,9 @@ async fn start_protocol_reply(
             Ok(mut stream) => {
                 while let Some(event) = stream.next().await {
                     match event {
-                        Ok(crate::schema::session_events::SessionStreamEvent::OutputTextDelta(delta)) => {
+                        Ok(crate::schema::session_events::SessionStreamEvent::OutputTextDelta(
+                            delta,
+                        )) => {
                             protocol_replies.emit_text_delta(&reply_id, delta);
                         }
                         Ok(crate::schema::session_events::SessionStreamEvent::Completed) => {
@@ -400,7 +412,11 @@ async fn start_protocol_reply(
                             return;
                         }
                         Err(err) => {
-                            protocol_replies.fail(&reply_id, "reply_runtime_failed", format!("{err:?}"));
+                            protocol_replies.fail(
+                                &reply_id,
+                                "reply_runtime_failed",
+                                format!("{err:?}"),
+                            );
                             return;
                         }
                     }
@@ -421,7 +437,10 @@ async fn start_protocol_reply(
     Ok(Some(handle))
 }
 
-async fn message_text_for_reply(state: &AppState, envelope: &MessageEnvelope) -> Result<String, ApiError> {
+async fn message_text_for_reply(
+    state: &AppState,
+    envelope: &MessageEnvelope,
+) -> Result<String, ApiError> {
     let messages = state
         .session_api()
         .list_session_messages(&envelope.conversation_id)
@@ -444,13 +463,14 @@ async fn message_text_for_reply(state: &AppState, envelope: &MessageEnvelope) ->
                 .join("\n\n")
         })
         .filter(|text| !text.trim().is_empty())
-        .ok_or_else(|| ApiError::Internal("protocol reply text not found for fixed message".into()))?;
+        .ok_or_else(|| {
+            ApiError::Internal("protocol reply text not found for fixed message".into())
+        })?;
 
     Ok(text)
 }
 
 fn encode_reply_event(event: stim_proto::ReplyEvent) -> axum::response::sse::Event {
-    axum::response::sse::Event::default().data(
-        serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string()),
-    )
+    axum::response::sse::Event::default()
+        .data(serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string()))
 }

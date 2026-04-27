@@ -383,7 +383,9 @@ async fn standalone_http_accepts_stim_protocol_envelope() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
-        submission.pointer("/acknowledgement/ack_result").and_then(Value::as_str),
+        submission
+            .pointer("/acknowledgement/ack_result")
+            .and_then(Value::as_str),
         Some("applied")
     );
     assert_eq!(
@@ -437,7 +439,9 @@ async fn standalone_http_accepts_stim_protocol_envelope() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
-        submission.pointer("/acknowledgement/ack_version").and_then(Value::as_u64),
+        submission
+            .pointer("/acknowledgement/ack_version")
+            .and_then(Value::as_u64),
         Some(2)
     );
     assert_eq!(submission.get("reply"), Some(&Value::Null));
@@ -496,7 +500,9 @@ async fn standalone_http_accepts_stim_protocol_envelope() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
-        submission.pointer("/acknowledgement/ack_version").and_then(Value::as_u64),
+        submission
+            .pointer("/acknowledgement/ack_version")
+            .and_then(Value::as_u64),
         Some(3)
     );
     assert_eq!(submission.get("reply"), Some(&Value::Null));
@@ -534,7 +540,9 @@ async fn standalone_http_accepts_stim_protocol_envelope() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
-        submission.pointer("/acknowledgement/ack_version").and_then(Value::as_u64),
+        submission
+            .pointer("/acknowledgement/ack_version")
+            .and_then(Value::as_u64),
         Some(4)
     );
     assert_eq!(submission.get("reply"), Some(&Value::Null));
@@ -572,7 +580,9 @@ async fn standalone_http_accepts_stim_protocol_envelope() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
-        submission.pointer("/acknowledgement/ack_version").and_then(Value::as_u64),
+        submission
+            .pointer("/acknowledgement/ack_version")
+            .and_then(Value::as_u64),
         Some(5)
     );
     let reply_id = submission
@@ -605,7 +615,10 @@ async fn standalone_http_accepts_stim_protocol_envelope() {
         snapshot.get("output_text").and_then(Value::as_str),
         Some("hello from gateway")
     );
-    assert_eq!(snapshot.get("status").and_then(Value::as_str), Some("completed"));
+    assert_eq!(
+        snapshot.get("status").and_then(Value::as_str),
+        Some("completed")
+    );
 
     let (status, messages) = request_json(
         &app,

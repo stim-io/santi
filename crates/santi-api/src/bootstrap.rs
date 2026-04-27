@@ -154,6 +154,7 @@ async fn distributed_bootstrap(
             fork: session_fork,
             effect_ledger,
         }),
+        session_ledger,
         Arc::new(DistributedSoulApi {
             query: session_query,
             memory: session_memory,

@@ -117,6 +117,7 @@ pub async fn bootstrap_standalone(config: &Config) -> santi_core::error::Result<
             effect_ledger,
             send,
         }),
+        store.clone(),
         Arc::new(StandaloneSoulApi {
             session_query: query,
             memory,

@@ -18,6 +18,18 @@ pub fn build_router(state: AppState) -> Router {
             put(handler::session::set_default_soul_memory),
         )
         .route("/api/v1/sessions", post(handler::session::create_session))
+        .route(
+            "/api/v1/stim/envelopes",
+            post(handler::stim::accept_envelope),
+        )
+        .route(
+            "/api/v1/stim/replies/{reply_id}",
+            get(handler::stim::get_reply_snapshot),
+        )
+        .route(
+            "/api/v1/stim/replies/{reply_id}/events",
+            get(handler::stim::stream_reply_events),
+        )
         .route("/api/v1/sessions/{id}", get(handler::session::get_session))
         .route(
             "/api/v1/sessions/{id}/send",

@@ -5,38 +5,18 @@ FROM ghcr.io/perishcode/docker/santi-builder:v1 AS builder
 WORKDIR /app
 
 COPY Cargo.toml Cargo.lock ./
-COPY crates/santi-core/Cargo.toml crates/santi-core/Cargo.toml
-COPY crates/santi-api/Cargo.toml crates/santi-api/Cargo.toml
-COPY crates/santi-db/Cargo.toml crates/santi-db/Cargo.toml
-COPY crates/santi-ebus/Cargo.toml crates/santi-ebus/Cargo.toml
-COPY crates/santi-lock/Cargo.toml crates/santi-lock/Cargo.toml
-COPY crates/santi-runtime/Cargo.toml crates/santi-runtime/Cargo.toml
-
-RUN mkdir -p \
-    crates/santi-core/src \
-    crates/santi-api/src \
-    crates/santi-db/src \
-    crates/santi-ebus/src \
-    crates/santi-lock/src \
-    crates/santi-runtime/src
-
-COPY crates/santi-core/src/lib.rs crates/santi-core/src/lib.rs
-COPY crates/santi-api/src/lib.rs crates/santi-api/src/lib.rs
-COPY crates/santi-api/src/main.rs crates/santi-api/src/main.rs
-COPY crates/santi-db/src/lib.rs crates/santi-db/src/lib.rs
-COPY crates/santi-ebus/src/lib.rs crates/santi-ebus/src/lib.rs
-COPY crates/santi-lock/src/lib.rs crates/santi-lock/src/lib.rs
-COPY crates/santi-runtime/src/lib.rs crates/santi-runtime/src/lib.rs
+COPY crates ./crates
+COPY --from=stim_proto_context . /stim-proto
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     cargo fetch --manifest-path crates/santi-api/Cargo.toml --locked
 
-COPY crates ./crates
-
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/tmp/cargo-target \
+    rm -rf /tmp/cargo-target/container-dev /tmp/cargo-target/debug /tmp/cargo-target/release \
+    && \
     cargo build --locked --profile container-dev -p santi-api \
     && mkdir -p /opt/artifacts \
     && cp /tmp/cargo-target/container-dev/santi-api /opt/artifacts/santi-api

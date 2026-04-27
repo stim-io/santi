@@ -86,6 +86,7 @@ impl ApiError {
 #[async_trait]
 pub trait SessionApi: Send + Sync {
     async fn create_session(&self) -> Result<Session, ApiError>;
+    async fn create_session_with_id(&self, session_id: &str) -> Result<Session, ApiError>;
     async fn get_session(&self, session_id: &str) -> Result<Session, ApiError>;
     async fn list_session_messages(
         &self,
@@ -252,6 +253,13 @@ where
     async fn create_session(&self) -> Result<Session, ApiError> {
         self.query()
             .create_session()
+            .await
+            .map_err(ApiError::Internal)
+    }
+
+    async fn create_session_with_id(&self, session_id: &str) -> Result<Session, ApiError> {
+        self.query()
+            .create_session_with_id(session_id)
             .await
             .map_err(ApiError::Internal)
     }

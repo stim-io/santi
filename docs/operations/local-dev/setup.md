@@ -33,6 +33,17 @@ docker compose exec santi ls -l /data /runtime
 docker compose logs -f santi
 ```
 
+Reset the standalone compose state when you need a clean local proof and old sqlite/runtime contents are getting in the way:
+
+```bash
+docker compose down -v
+docker compose up -d --build
+```
+
+Use reset for local verification hygiene. Do not add a migration layer just to preserve old standalone compose-only dev state.
+
+If you hit sqlite/schema mismatch errors during local verification (for example `table session_messages has no column named updated_at`), treat that as a reset-first local state problem rather than as a migration task.
+
 ## CLI
 
 - install: `./scripts/cli/setup.sh`

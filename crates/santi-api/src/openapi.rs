@@ -1,6 +1,6 @@
 use utoipa::OpenApi;
 
-use crate::handler::{admin, health, meta, session};
+use crate::handler::{admin, health, meta, session, stim};
 use crate::schema::{
     admin as admin_schema,
     common::ErrorResponse,
@@ -27,6 +27,9 @@ use crate::schema::{
         session::get_default_soul,
         session::set_default_soul_memory,
         session::create_session,
+        stim::accept_envelope,
+        stim::get_reply_snapshot,
+        stim::stream_reply_events,
         session::get_session,
         session::watch_session,
         session::send_session,
@@ -62,6 +65,15 @@ use crate::schema::{
         SessionWatchMessageSummaryResponse,
         SessionWatchEffectSummaryResponse,
         SessionWatchSnapshotResponse,
+        stim_proto::MessageEnvelope,
+        stim_proto::ProtocolAcknowledgement,
+        stim_proto::ProtocolSubmission,
+        stim_proto::ReplyHandle,
+        stim_proto::ReplySnapshot,
+        stim_proto::ReplyEvent,
+        stim_proto::ReplyEventKind,
+        stim_proto::ReplyFailure,
+        stim_proto::ReplyStatus,
     )),
     tags(
         (name = "health"),
@@ -69,6 +81,7 @@ use crate::schema::{
         (name = "admin"),
         (name = "soul"),
         (name = "session"),
+        (name = "stim"),
     )
 )]
 pub struct ApiDoc;

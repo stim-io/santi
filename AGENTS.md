@@ -59,7 +59,6 @@ Detailed system thinking belongs in `docs/`, not here.
 - `docs/architecture/runtime/lifecycle-and-hooks.md`: soul/session lifecycle, hook points, and reload boundary
 - `docs/operations/local-dev/setup.md`: local development baseline and smoke entrypoints
 - `scripts/verify.py`: workspace verify entrypoint; runs the skipped-test guard, fmt check, clippy, and locked workspace tests
-- `scripts/release_beta.py`: beta packaging entrypoint for a target triple; writes archives to `dist/`
 - `docs/operations/local-dev/verification.md`: cold-start operational verification flow for common runtime smoke checks
 - `docs/operations/testing.md`: test-construction standard for choosing smoke, integration, and focused regression coverage
 - `docs/operations/local-dev/troubleshooting.md`: local troubleshooting notes for common development and smoke/integration issues
@@ -75,10 +74,8 @@ Detailed system thinking belongs in `docs/`, not here.
 
 ## Release Policy
 
-- This workspace follows a long-lived beta-only `0.1.0-beta.N` release line.
-- Keep packaging and verification entrypoints aligned with that beta-only workflow.
-- Keep repo-owned Python scripts as the canonical verification and packaging logic; GitHub workflows should stay thin wrappers around those entrypoints.
-- Keep beta tags as post-success release markers rather than imperative workflow triggers.
+- Do not publish Rust release artifacts from this workspace until there is a concrete external distribution need.
+- Keep repo-owned Python scripts as the canonical verification logic; GitHub workflows should stay thin wrappers around those entrypoints.
 - Skipped tests are not allowed in committed sources; `scripts/verify.py` owns that guard inside the required verification gate.
 
 ## Update Rules

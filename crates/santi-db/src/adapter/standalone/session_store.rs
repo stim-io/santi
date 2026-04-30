@@ -1,15 +1,20 @@
 use std::path::Path;
 
-use serde_json::{Map, Value};
-use sqlx::{sqlite::SqlitePoolOptions, Row, SqlitePool};
+use sqlx::{Row, SqlitePool};
+
+mod mapping;
+mod message_events;
+mod schema;
+
+use mapping::{actor_type_db, content_to_json, content_to_text, map_session_message_row, state_db};
+use message_events::apply_message_event_to_message;
+use schema::setup_sqlite_pool;
 
 use santi_core::{
     error::{Error, Result},
     model::{
-        message::{
-            ActorType, Message, MessageContent, MessageEventPayload, MessagePart, MessageState,
-        },
-        session::{Session, SessionMessage, SessionMessageRef},
+        message::{ActorType, MessageContent, MessagePart, MessageState},
+        session::{Session, SessionMessage},
     },
     port::session_ledger::{AppendSessionMessage, ApplyMessageEvent, SessionLedgerPort},
 };
@@ -21,78 +26,9 @@ pub struct StandaloneSessionLedger {
 
 impl StandaloneSessionLedger {
     pub async fn new(path: impl AsRef<Path>) -> Result<Self> {
-        let path = path.as_ref();
-        if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent)
-                .await
-                .map_err(|err| Error::Internal {
-                    message: format!("create sqlite parent dir failed: {err}"),
-                })?;
-        }
-
-        let database_url = format!("sqlite://{}?mode=rwc", path.display());
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect(&database_url)
-            .await
-            .map_err(|err| Error::Internal {
-                message: format!("connect sqlite failed: {err}"),
-            })?;
-
-        sqlx::query(
-            r#"CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, parent_session_id TEXT NULL, fork_point INTEGER NULL, session_memory TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"#,
-        )
-        .execute(&pool)
-        .await
-        .map_err(|err| Error::Internal {
-            message: format!("migrate sqlite sessions failed: {err}"),
-        })?;
-
-        sqlx::query(r#"ALTER TABLE sessions ADD COLUMN session_memory TEXT NOT NULL DEFAULT ''"#)
-            .execute(&pool)
-            .await
-            .ok();
-
-        sqlx::query(
-            r#"CREATE TABLE IF NOT EXISTS session_messages (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                session_seq INTEGER NOT NULL,
-                actor_type TEXT NOT NULL,
-                actor_id TEXT NOT NULL,
-                content_text TEXT NOT NULL,
-                content_json TEXT NULL,
-                state TEXT NOT NULL,
-                version INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(session_id, session_seq)
-            )"#,
-        )
-        .execute(&pool)
-        .await
-        .map_err(|err| Error::Internal {
-            message: format!("migrate sqlite session_messages failed: {err}"),
-        })?;
-
-        sqlx::query(
-            r#"ALTER TABLE session_messages ADD COLUMN version INTEGER NOT NULL DEFAULT 1"#,
-        )
-        .execute(&pool)
-        .await
-        .ok();
-        sqlx::query(
-            r#"ALTER TABLE session_messages ADD COLUMN updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP"#,
-        )
-        .execute(&pool)
-        .await
-        .ok();
-        sqlx::query(r#"ALTER TABLE session_messages ADD COLUMN content_json TEXT NULL"#)
-            .execute(&pool)
-            .await
-            .ok();
-
-        Ok(Self { pool })
+        Ok(Self {
+            pool: setup_sqlite_pool(path.as_ref()).await?,
+        })
     }
 
     pub async fn create_session(&self, session_id: &str) -> Result<Session> {
@@ -361,213 +297,5 @@ impl SessionLedgerPort for StandaloneSessionLedger {
             .ok_or(Error::NotFound {
                 resource: "message",
             })
-    }
-}
-
-fn map_session_message_row(row: sqlx::sqlite::SqliteRow) -> SessionMessage {
-    SessionMessage {
-        message: Message {
-            id: row.get("id"),
-            actor_type: actor_type(&row.get::<String, _>("actor_type")),
-            actor_id: row.get("actor_id"),
-            content: content_from_row(&row),
-            state: message_state(&row.get::<String, _>("state")),
-            created_at: row.get("created_at"),
-            updated_at: row.get("updated_at"),
-            deleted_at: None,
-            version: row.get("version"),
-        },
-        relation: SessionMessageRef {
-            message_id: row.get("id"),
-            session_id: row.get("session_id"),
-            session_seq: row.get("session_seq"),
-            created_at: row.get("created_at"),
-        },
-    }
-}
-
-fn content_from_row(row: &sqlx::sqlite::SqliteRow) -> MessageContent {
-    row.try_get::<String, _>("content_json")
-        .ok()
-        .and_then(|raw| serde_json::from_str::<MessageContent>(&raw).ok())
-        .unwrap_or_else(|| MessageContent {
-            parts: vec![MessagePart::Text {
-                text: row.get("content_text"),
-            }],
-        })
-}
-
-fn actor_type(raw: &str) -> ActorType {
-    match raw {
-        "soul" => ActorType::Soul,
-        "system" => ActorType::System,
-        _ => ActorType::Account,
-    }
-}
-
-fn actor_type_db(actor_type: &ActorType) -> &'static str {
-    match actor_type {
-        ActorType::Account => "account",
-        ActorType::Soul => "soul",
-        ActorType::System => "system",
-    }
-}
-
-fn message_state(raw: &str) -> MessageState {
-    match raw {
-        "fixed" => MessageState::Fixed,
-        _ => MessageState::Pending,
-    }
-}
-
-fn state_db(state: &MessageState) -> &'static str {
-    match state {
-        MessageState::Pending => "pending",
-        MessageState::Fixed => "fixed",
-    }
-}
-
-fn content_to_text(content: &MessageContent) -> Result<String> {
-    let parts = content
-        .parts
-        .iter()
-        .map(|part| match part {
-            MessagePart::Text { text } => Ok(text.as_str()),
-            MessagePart::Image { .. } => Err(Error::InvalidInput {
-                message: "standalone stim message lifecycle supports text parts only".to_string(),
-            }),
-        })
-        .collect::<Result<Vec<_>>>()?;
-
-    Ok(parts.join("\n\n"))
-}
-
-fn content_to_json(content: &MessageContent) -> Result<String> {
-    serde_json::to_string(content).map_err(|err| Error::Internal {
-        message: format!("message content serialize failed: {err}"),
-    })
-}
-
-fn apply_message_event_to_message(
-    mut message: Message,
-    actor_type: &ActorType,
-    actor_id: &str,
-    base_version: i64,
-    payload: &MessageEventPayload,
-) -> Result<Message> {
-    if &message.actor_type != actor_type || message.actor_id != actor_id {
-        return Err(Error::InvalidInput {
-            message: "only the original actor may mutate a message".to_string(),
-        });
-    }
-
-    if message.version != base_version {
-        return Err(Error::InvalidInput {
-            message: format!(
-                "message version mismatch: expected {}, got {}",
-                message.version, base_version
-            ),
-        });
-    }
-
-    if message.deleted_at.is_some() {
-        return Err(Error::InvalidInput {
-            message: "deleted messages cannot be mutated".to_string(),
-        });
-    }
-
-    if message.state == MessageState::Fixed {
-        return Err(Error::InvalidInput {
-            message: "fixed messages cannot be mutated".to_string(),
-        });
-    }
-
-    match payload {
-        MessageEventPayload::Patch { patches } => {
-            let mut parts = message.content.parts.clone();
-            for patch in patches {
-                let index = valid_index(parts.len(), patch.index, "patch")?;
-                parts[index] = merge_message_part(&parts[index], &patch.merge)?;
-            }
-            message.content = MessageContent { parts };
-        }
-        MessageEventPayload::Insert { items } => {
-            let mut parts = message.content.parts.clone();
-            let mut sorted_items = items.clone();
-            sorted_items.sort_by_key(|item| item.index);
-            for item in sorted_items {
-                let index = valid_insert_index(parts.len(), item.index)?;
-                parts.insert(index, item.part);
-            }
-            message.content = MessageContent { parts };
-        }
-        MessageEventPayload::Remove { indexes } => {
-            let mut unique_indexes = indexes.clone();
-            unique_indexes.sort_unstable();
-            unique_indexes.dedup();
-            let parts_len = message.content.parts.len();
-            for index in &unique_indexes {
-                let _ = valid_index(parts_len, *index, "remove")?;
-            }
-
-            let mut parts = message.content.parts.clone();
-            for index in unique_indexes.into_iter().rev() {
-                parts.remove(index as usize);
-            }
-            message.content = MessageContent { parts };
-        }
-        MessageEventPayload::Fix => {
-            message.state = MessageState::Fixed;
-        }
-        MessageEventPayload::Delete { .. } => {
-            message.deleted_at = Some(String::new());
-        }
-    }
-
-    message.version += 1;
-    Ok(message)
-}
-
-fn valid_index(len: usize, raw: i64, action: &str) -> Result<usize> {
-    if raw < 0 || raw as usize >= len {
-        return Err(Error::InvalidInput {
-            message: format!("{action} index out of bounds: {raw}"),
-        });
-    }
-    Ok(raw as usize)
-}
-
-fn valid_insert_index(len: usize, raw: i64) -> Result<usize> {
-    if raw < 0 || raw as usize > len {
-        return Err(Error::InvalidInput {
-            message: format!("insert index out of bounds: {raw}"),
-        });
-    }
-    Ok(raw as usize)
-}
-
-fn merge_message_part(part: &MessagePart, merge: &Value) -> Result<MessagePart> {
-    let mut base = serde_json::to_value(part).map_err(|err| Error::Internal {
-        message: format!("message part serialize failed: {err}"),
-    })?;
-
-    let merge_object = merge.as_object().ok_or(Error::InvalidInput {
-        message: "patch merge must be an object".to_string(),
-    })?;
-
-    let base_object = base.as_object_mut().ok_or(Error::Internal {
-        message: "message part must serialize to an object".to_string(),
-    })?;
-
-    merge_json_object(base_object, merge_object);
-
-    serde_json::from_value(base).map_err(|err| Error::InvalidInput {
-        message: format!("patch produced invalid message part: {err}"),
-    })
-}
-
-fn merge_json_object(base: &mut Map<String, Value>, merge: &Map<String, Value>) {
-    for (key, value) in merge {
-        base.insert(key.clone(), value.clone());
     }
 }

@@ -1,4 +1,4 @@
-name: verify
+name: guard
 
 on:
   push:
@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  verify:
+  guard:
     strategy:
       fail-fast: false
       matrix:
@@ -31,5 +31,5 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Run verification
-        run: python scripts/verify.py
+      - name: Run guard
+        run: python3 scripts/guard.py

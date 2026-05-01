@@ -386,7 +386,6 @@ async fn start_protocol_reply(
     state: &AppState,
     envelope: &MessageEnvelope,
 ) -> Result<Option<stim_proto::ReplyHandle>, ApiError> {
-    let user_content = message_text_for_reply(state, envelope).await?;
     let handle = state.protocol_replies().create_reply(
         envelope.conversation_id.clone(),
         envelope.message_id.clone(),
@@ -394,11 +393,15 @@ async fn start_protocol_reply(
 
     let reply_id = handle.reply_id.clone();
     let session_id = envelope.conversation_id.clone();
+    let message_id = envelope.message_id.clone();
     let session_api = state.session_api();
     let protocol_replies = state.protocol_replies();
 
     tokio::spawn(async move {
-        match session_api.send_session(&session_id, user_content).await {
+        match session_api
+            .reply_to_session_message(&session_id, &message_id)
+            .await
+        {
             Ok(mut stream) => {
                 while let Some(event) = stream.next().await {
                     match event {
@@ -435,39 +438,6 @@ async fn start_protocol_reply(
     });
 
     Ok(Some(handle))
-}
-
-async fn message_text_for_reply(
-    state: &AppState,
-    envelope: &MessageEnvelope,
-) -> Result<String, ApiError> {
-    let messages = state
-        .session_api()
-        .list_session_messages(&envelope.conversation_id)
-        .await?;
-
-    let text = messages
-        .into_iter()
-        .find(|message| message.message.id == envelope.message_id)
-        .map(|message| {
-            message
-                .message
-                .content
-                .parts
-                .into_iter()
-                .filter_map(|part| match part {
-                    MessagePart::Text { text } => Some(text),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n\n")
-        })
-        .filter(|text| !text.trim().is_empty())
-        .ok_or_else(|| {
-            ApiError::Internal("protocol reply text not found for fixed message".into())
-        })?;
-
-    Ok(text)
 }
 
 fn encode_reply_event(event: stim_proto::ReplyEvent) -> axum::response::sse::Event {

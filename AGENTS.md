@@ -30,6 +30,9 @@ Detailed system thinking belongs in `docs/`, not here.
 - `santi` is always the single HTTP service host; 中文 `单机` vs `分布式` is an assembly/dependency topology distinction, not a service-boundary distinction.
 - Until the user explicitly says otherwise, all active runtime iteration should target standalone only; do not spend implementation effort on distributed-mode iteration while the standalone architecture is still being tightened.
 - `session` is the public shared ledger container and a work unit, not a security boundary.
+- `santi` does not own the long-term `stim` product IM ledger; that belongs to `stim-server`. `santi` owns agent/runtime ledger views needed to participate in the product protocol and run agents.
+- Keep `santi`'s IM-facing ledger view distinct from its LLM/runtime ledger view. The IM-facing view carries protocol/session facts needed for agent participation; the LLM/runtime view carries turns, provider assembly, tool calls/results, compacts, and runtime artifacts.
+- Do not collapse IM ledger facts, LLM/provider snapshots, and runtime artifacts into one universal messages table. Use explicit relation rows, references, correlation ids, and causation ids when crossing ledger views.
 - HTTP capabilities are currently open; `scope` / `tenant` comes later.
 - `soul_dir` and `session_dir` are normal directories used as unified agent resource spaces.
 - Testing should start from executable smoke and integration checks on the main path, add focused `crates/santi-api/tests` only where those checks reveal weak spots, and keep tracing strong enough to diagnose known classes of failure.

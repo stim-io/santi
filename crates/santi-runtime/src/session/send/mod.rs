@@ -69,6 +69,11 @@ pub struct SendSessionCommand {
     pub user_content: String,
 }
 
+pub struct ReplyToSessionMessageCommand {
+    pub session_id: String,
+    pub message_id: String,
+}
+
 #[derive(Clone, Debug)]
 pub enum SendSessionError {
     Busy,
@@ -88,6 +93,7 @@ pub type SendSessionStream =
 pub enum TurnInput {
     UserText { text: String },
     SystemSeed { actor_id: String, text: String },
+    ExistingMessage { message_id: String },
 }
 
 #[derive(Clone)]
@@ -163,9 +169,39 @@ impl SessionSendService {
         &self,
         cmd: SendSessionCommand,
     ) -> Result<SendSessionStream, SendSessionError> {
+        self.start_turn_stream(TurnExecutionRequest {
+            session_id: cmd.session_id,
+            input: TurnInput::UserText {
+                text: cmd.user_content,
+            },
+            emit_events: true,
+            run_hooks: true,
+        })
+        .await
+    }
+
+    pub async fn reply_to_session_message(
+        &self,
+        cmd: ReplyToSessionMessageCommand,
+    ) -> Result<SendSessionStream, SendSessionError> {
+        self.start_turn_stream(TurnExecutionRequest {
+            session_id: cmd.session_id,
+            input: TurnInput::ExistingMessage {
+                message_id: cmd.message_id,
+            },
+            emit_events: true,
+            run_hooks: true,
+        })
+        .await
+    }
+
+    async fn start_turn_stream(
+        &self,
+        request: TurnExecutionRequest,
+    ) -> Result<SendSessionStream, SendSessionError> {
         let guard = self
             .lock
-            .acquire(&format!("lock:session_send:{}", cmd.session_id))
+            .acquire(&format!("lock:session_send:{}", request.session_id))
             .await
             .map_err(map_lock_error)?;
 
@@ -183,15 +219,7 @@ impl SessionSendService {
             watch: self.watch.clone(),
         };
         let hooks = self.hooks.clone();
-        let session_id = cmd.session_id.clone();
-        let request = TurnExecutionRequest {
-            session_id: session_id.clone(),
-            input: TurnInput::UserText {
-                text: cmd.user_content,
-            },
-            emit_events: true,
-            run_hooks: true,
-        };
+        let session_id = request.session_id.clone();
         let watch = self.watch.clone();
 
         tokio::spawn(async move {

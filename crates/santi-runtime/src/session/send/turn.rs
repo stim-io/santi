@@ -85,25 +85,49 @@ pub(super) async fn run_turn_startup(
         .map_err(map_core_error)?
         .ok_or(SendSessionError::NotFound)?;
 
-    let trigger_message = session_ledger
-        .append_message(AppendSessionMessage {
-            session_id: session.id.clone(),
-            message_id: format!("msg_{}", Uuid::new_v4().simple()),
-            actor_type: match &request.input {
-                TurnInput::UserText { .. } => ActorType::Account,
-                TurnInput::SystemSeed { .. } => ActorType::System,
-            },
-            actor_id: match &request.input {
-                TurnInput::UserText { .. } => "account_local".to_string(),
-                TurnInput::SystemSeed { actor_id, .. } => actor_id.clone(),
-            },
-            content: text_content(match &request.input {
-                TurnInput::UserText { text } | TurnInput::SystemSeed { text, .. } => text,
-            }),
-            state: MessageState::Fixed,
-        })
-        .await
-        .map_err(map_core_error)?;
+    let trigger_message = match &request.input {
+        TurnInput::UserText { text } => {
+            append_trigger_message(
+                session_ledger.clone(),
+                &session.id,
+                ActorType::Account,
+                "account_local".to_string(),
+                text,
+            )
+            .await?
+        }
+        TurnInput::SystemSeed { actor_id, text } => {
+            append_trigger_message(
+                session_ledger.clone(),
+                &session.id,
+                ActorType::System,
+                actor_id.clone(),
+                text,
+            )
+            .await?
+        }
+        TurnInput::ExistingMessage { message_id } => {
+            let Some(message) = session_ledger
+                .get_message(message_id)
+                .await
+                .map_err(map_core_error)?
+            else {
+                return Err(SendSessionError::NotFound);
+            };
+
+            if message.relation.session_id != session.id {
+                return Err(SendSessionError::NotFound);
+            }
+
+            if message.message.state != MessageState::Fixed {
+                return Err(SendSessionError::Internal(
+                    "existing trigger message must be fixed before reply generation".to_string(),
+                ));
+            }
+
+            message
+        }
+    };
 
     soul_runtime
         .append_message_ref(AppendMessageRef {
@@ -132,13 +156,35 @@ pub(super) async fn run_turn_startup(
         instructions,
         soul_session_id: soul_session.id,
         trigger_type: match &request.input {
-            TurnInput::UserText { .. } => TurnTriggerType::SessionSend,
+            TurnInput::UserText { .. } | TurnInput::ExistingMessage { .. } => {
+                TurnTriggerType::SessionSend
+            }
             TurnInput::SystemSeed { .. } => TurnTriggerType::System,
         },
         input_through_session_seq: trigger_message.relation.session_seq,
         trigger_message_id: trigger_message.message.id,
         runtime_context,
     })
+}
+
+async fn append_trigger_message(
+    session_ledger: Arc<dyn SessionLedgerPort>,
+    session_id: &str,
+    actor_type: ActorType,
+    actor_id: String,
+    text: &str,
+) -> Result<SessionMessage, SendSessionError> {
+    session_ledger
+        .append_message(AppendSessionMessage {
+            session_id: session_id.to_string(),
+            message_id: format!("msg_{}", Uuid::new_v4().simple()),
+            actor_type,
+            actor_id,
+            content: text_content(text),
+            state: MessageState::Fixed,
+        })
+        .await
+        .map_err(map_core_error)
 }
 
 #[allow(clippy::too_many_arguments)]

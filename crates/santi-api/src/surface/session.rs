@@ -11,7 +11,10 @@ use santi_runtime::session::{
     fork::{ForkError, ForkResult, SessionForkService},
     memory::SessionMemoryService,
     query::SessionQueryService,
-    send::{SendSessionCommand, SendSessionError, SendSessionEvent, SessionSendService},
+    send::{
+        ReplyToSessionMessageCommand, SendSessionCommand, SendSessionError, SendSessionEvent,
+        SessionSendService,
+    },
     watch::{SessionWatchError, SessionWatchEvent, SessionWatchService, SessionWatchSnapshot},
 };
 
@@ -51,6 +54,11 @@ pub trait SessionApi: Send + Sync {
         &self,
         session_id: &str,
         user_content: String,
+    ) -> Result<SessionEventStream, ApiError>;
+    async fn reply_to_session_message(
+        &self,
+        session_id: &str,
+        message_id: &str,
     ) -> Result<SessionEventStream, ApiError>;
     async fn fork_session(
         &self,
@@ -265,6 +273,30 @@ where
             .start(SendSessionCommand {
                 session_id: session_id.to_string(),
                 user_content,
+            })
+            .await
+            .map_err(map_send_error)?;
+
+        Ok(Box::pin(stream.map(|result| match result {
+            Ok(SendSessionEvent::OutputTextDelta(text)) => {
+                Ok(SessionStreamEvent::OutputTextDelta(text))
+            }
+            Ok(SendSessionEvent::Completed) => Ok(SessionStreamEvent::Completed),
+            Err(err) => Err(map_send_error(err)),
+        })))
+    }
+
+    async fn reply_to_session_message(
+        &self,
+        session_id: &str,
+        message_id: &str,
+    ) -> Result<SessionEventStream, ApiError> {
+        self.get_session(session_id).await?;
+        let stream = self
+            .send()
+            .reply_to_session_message(ReplyToSessionMessageCommand {
+                session_id: session_id.to_string(),
+                message_id: message_id.to_string(),
             })
             .await
             .map_err(map_send_error)?;

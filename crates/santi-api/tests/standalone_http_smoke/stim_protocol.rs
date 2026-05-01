@@ -307,18 +307,22 @@ async fn standalone_http_accepts_stim_protocol_envelope() {
     .await;
     assert_eq!(status, StatusCode::OK);
     let items = messages.get("messages").and_then(Value::as_array).unwrap();
-    assert_eq!(items.len(), 3);
+    assert_eq!(items.len(), 2);
     assert_eq!(
         items[0].get("content_text").and_then(Value::as_str),
         Some("hello from patched stim envelope")
     );
     assert_eq!(items[0].get("state").and_then(Value::as_str), Some("fixed"));
     assert_eq!(
-        items[1].get("content_text").and_then(Value::as_str),
-        Some("hello from patched stim envelope")
+        items[0].get("actor_type").and_then(Value::as_str),
+        Some("account")
     );
     assert_eq!(
-        items[2].get("content_text").and_then(Value::as_str),
+        items[1].get("content_text").and_then(Value::as_str),
         Some("hello from gateway")
+    );
+    assert_eq!(
+        items[1].get("actor_type").and_then(Value::as_str),
+        Some("soul")
     );
 }

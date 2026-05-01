@@ -1,14 +1,22 @@
 # Session Message Model
 
-Canonical implementation-oriented model for the `session + message` system.
+Canonical implementation-oriented model for `santi`'s `session + message` system.
+
+This is the `santi` model, not the durable `stim-server` product IM message ledger. `santi` may correlate with product-ledger ids, but it must keep its agent/runtime ownership distinct from product ledger ownership.
 
 ## Model split
 
-- **public ledger**: shared session facts visible across actors
-- **soul runtime**: per-`soul × session` execution state, provider continuity, and runtime artifacts
+- **IM-facing ledger view**: `santi` session facts visible across actors and usable for `stim-proto` participation
+- **LLM/runtime ledger view**: per-`soul × session` execution state, provider continuity, provider assembly, turns, tools, and runtime artifacts
 - provider snapshots are projections assembled from both layers; they are not source-of-truth objects
 
-## Public ledger
+The IM-facing view and LLM/runtime view are intentionally separate. Do not collapse actor-authored IM facts, provider-facing snapshots, tool artifacts, and turn lifecycle into one universal message table.
+
+## IM-facing ledger view
+
+This layer is public inside `santi`: it is the actor-authored conversation view that `santi` uses to participate in protocol conversations. It is not the `stim-server` product message ledger.
+
+When this layer receives product/protocol facts, keep external product ids as explicit references or metadata. Do not rely on coincidental shared `conversation_id` or `message_id` values as the durable cross-ledger ownership model.
 
 ### `sessions`
 
@@ -55,6 +63,7 @@ Fields:
 Rules:
 
 - public messages are actor-authored ledger facts
+- public messages are `santi` IM-facing ledger facts, not `stim-server` product-ledger rows
 - public messages do not store `role`, `tool_call`, `tool_result`, or `compact`
 - `content.parts[]` is the canonical content shape
 - supported parts are:
@@ -118,7 +127,7 @@ Rules:
 - effect rows are the source of truth for hook idempotency and recursion control
 - `status` stays lightweight; detailed stage traces belong in logs
 
-## Soul runtime
+## LLM/runtime ledger view
 
 Boundary rules:
 
@@ -126,6 +135,7 @@ Boundary rules:
 - middleware implements those traits through adapters
 - runtime owns orchestration, concurrency, and business composition
 - `acquire` is the sanctioned get-or-create atom; it is not lock semantics
+- this layer owns agent execution facts, not product transcript ownership
 
 ### `soul_sessions`
 
@@ -288,6 +298,7 @@ Constraints:
 
 - every public message specifies exactly one `actor_type + actor_id`
 - public messages are session-local facts ordered through `r_session_messages`
+- product-ledger ids from `stim-server` are external references unless an explicit contract maps them into `santi` ids
 - public messages support only `pending` and `fixed`
 - `delete` is soft delete only
 - `fixed` messages cannot mutate further
@@ -300,6 +311,7 @@ Constraints:
 - `provider_state` is optional opaque continuation state only
 - `turn` is the runtime execution boundary
 - all relation tables use the `r_` prefix
+- IM-facing ledger rows, runtime relation rows, and provider snapshots have different ownership and should remain independently reconstructable
 
 ## Snapshot construction
 
@@ -319,10 +331,12 @@ Assembly rules:
 - `compact`, `tool_call`, and `tool_result` enter provider snapshot only through `r_soul_session_messages`
 - relation rows are assembly material, not snapshot rows
 
+Provider snapshots are LLM/runtime projections over the IM-facing view plus runtime artifacts. They are not product IM ledger rows and should not become the cross-repo transcript contract.
+
 The snapshot is a projection, not the source of truth.
 
 ## Open edges
 
 - exact `system.actor_id` persistence shape
 - exact size limits and storage policy for `image.data_base64`
-- final audit/reference link between public messages and runtime traces
+- final audit/reference link between external product-ledger facts, `santi` IM-facing messages, and runtime traces

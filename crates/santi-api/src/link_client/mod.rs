@@ -8,7 +8,7 @@ use request::{
     build_prompt_cache_key, map_function_call_outputs, map_tools, UpstreamResponsesRequest,
 };
 use reqwest::Client;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     pin::Pin,
@@ -202,7 +202,7 @@ impl OpenAiResponsesClient {
             return Ok(Value::Array(mapped));
         }
 
-        Ok(serde_json::to_value(input).expect("responses input serialize failed"))
+        Ok(map_provider_input_messages(input))
     }
 
     fn cache_response_output(&self, response_id: String, output: Vec<Value>) {
@@ -233,6 +233,28 @@ impl OpenAiResponsesClient {
     }
 }
 
+fn map_provider_input_messages(input: Vec<ProviderInputMessage>) -> Value {
+    Value::Array(input.into_iter().map(map_provider_input_message).collect())
+}
+
+fn map_provider_input_message(message: ProviderInputMessage) -> Value {
+    let content_type = if message.role == "assistant" {
+        "output_text"
+    } else {
+        "input_text"
+    };
+
+    json!({
+        "role": message.role,
+        "content": [
+            {
+                "type": content_type,
+                "text": message.content,
+            }
+        ],
+    })
+}
+
 impl Provider for OpenAiResponsesClient {
     fn stream(
         &self,
@@ -259,5 +281,61 @@ impl Provider for OpenAiResponsesClient {
                 }
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use santi_core::{port::provider::ProviderRequest, provider::ProviderInputMessage};
+
+    use super::OpenAiResponsesClient;
+
+    #[test]
+    fn maps_transcript_messages_to_responses_content_parts() {
+        let client = OpenAiResponsesClient::new("test-key".into(), "http://gateway.test".into());
+
+        let request = client
+            .map_request(ProviderRequest {
+                model: "test-model".into(),
+                instructions: None,
+                input: vec![
+                    ProviderInputMessage {
+                        role: "user".into(),
+                        content: "first marker".into(),
+                    },
+                    ProviderInputMessage {
+                        role: "assistant".into(),
+                        content: "first marker".into(),
+                    },
+                    ProviderInputMessage {
+                        role: "user".into(),
+                        content: "what did I send before?".into(),
+                    },
+                ],
+                tools: None,
+                previous_response_id: None,
+                function_call_outputs: None,
+            })
+            .expect("request should map");
+
+        assert_eq!(
+            request.input,
+            json!([
+                {
+                    "role": "user",
+                    "content": [{ "type": "input_text", "text": "first marker" }],
+                },
+                {
+                    "role": "assistant",
+                    "content": [{ "type": "output_text", "text": "first marker" }],
+                },
+                {
+                    "role": "user",
+                    "content": [{ "type": "input_text", "text": "what did I send before?" }],
+                },
+            ])
+        );
     }
 }

@@ -13,6 +13,7 @@ Detailed system thinking belongs in `docs/`, not here.
 ## Core Constraints
 
 - We are building a customized personal agent service, not recreating `opencode` or `openclaw`.
+- Judge `santi/` runtime work by how it strengthens the integrated `stim -> santi` Agent-Native IM loop: context continuity, agent response quality, runtime/tool visibility, and reliable protocol participation.
 - Reference projects are used to extract reusable principles, not implementation parity.
 - Explore external projects only when needed by the current task.
 - Sync back only durable knowledge that affects product, architecture, safety, or operating decisions.
@@ -37,6 +38,7 @@ Detailed system thinking belongs in `docs/`, not here.
 - `soul_dir` and `session_dir` are normal directories used as unified agent resource spaces.
 - Testing should start from executable smoke and integration checks on the main path, add focused `crates/santi-api/tests` only where those checks reveal weak spots, and keep tracing strong enough to diagnose known classes of failure.
 - Tests must target non-real model API call scenarios only; any verification that depends on real API calls belongs in docs or runbooks, not automated test logic or scripts.
+- Non-real-provider tests and deterministic checks are required for fast automated confidence, but they must not redefine the real product behavior expected by the end-to-end `stim -> santi` chain.
 - concurrent `session/send` on the same session is a fail-fast conflict: return `409`, do not queue, silently serialize, or retry implicitly.
 
 ## Reference Project Index

@@ -52,7 +52,7 @@ It keeps the current resource shape and only normalizes how the surface is named
 - `POST /api/v1/stim/envelopes`
   - narrow `stim-proto` protocol participation surface
   - accepts a shared `MessageEnvelope`
-  - returns a shared `ProtocolAcknowledgement`
+  - returns a shared `ProtocolSubmission` containing `ProtocolAcknowledgement` and an optional reply handle
   - should stay protocol-shaped rather than turning into a second product chat API
 
 ## `/health` vs `/meta`

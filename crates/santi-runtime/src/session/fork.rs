@@ -228,8 +228,10 @@ mod tests {
 
     #[derive(Clone)]
     struct FakeSoulSessionFork {
-        fork_calls: Arc<Mutex<Vec<(String, i64, String, String)>>>,
+        fork_calls: Arc<Mutex<Vec<ForkCall>>>,
     }
+
+    type ForkCall = (String, i64, String, String);
 
     impl FakeSoulRuntime {
         fn new(parent: Option<SoulSession>, existing_child: Option<SoulSession>) -> Self {
@@ -332,6 +334,13 @@ mod tests {
                 }
             }
             Ok(None)
+        }
+
+        async fn list_tool_activities(
+            &self,
+            _soul_session_id: &str,
+        ) -> santi_core::error::Result<Vec<santi_core::model::runtime::ToolActivity>> {
+            Ok(vec![])
         }
     }
 

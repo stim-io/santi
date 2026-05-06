@@ -129,6 +129,13 @@ impl SoulSessionQueryPort for FakeSoulRuntime {
     ) -> Result<Option<SoulSession>> {
         Ok(None)
     }
+
+    async fn list_tool_activities(
+        &self,
+        _soul_session_id: &str,
+    ) -> Result<Vec<santi_core::model::runtime::ToolActivity>> {
+        Ok(vec![])
+    }
 }
 
 struct FakeCompactLedger;

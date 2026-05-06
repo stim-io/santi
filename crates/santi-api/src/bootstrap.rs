@@ -18,13 +18,14 @@ use santi_runtime::{
         fork::SessionForkService,
         memory::SessionMemoryService,
         query::SessionQueryService,
-        send::SessionSendService,
+        send::{SessionSendService, SessionSendServiceDeps},
         watch::{SessionWatchHub, SessionWatchService},
     },
 };
 
 use crate::{
-    config::{Config, Mode},
+    chat_client::ChatCompletionsClient,
+    config::{Config, Mode, ProviderApi},
     link_client::OpenAiResponsesClient,
     state::AppState,
     surface::{
@@ -46,10 +47,7 @@ pub async fn bootstrap(
 async fn distributed_bootstrap(
     config: &Config,
 ) -> Result<AppState, Box<dyn std::error::Error + Send + Sync>> {
-    let provider = OpenAiResponsesClient::new(
-        config.openai_api_key.clone(),
-        config.openai_base_url.clone(),
-    );
+    let provider = build_provider(config);
     let pool = init_postgres(&config.database_url).await?;
     let lock_client = Arc::new(
         RedisLockClient::new(
@@ -65,9 +63,7 @@ async fn distributed_bootstrap(
     );
 
     let default_soul_id = "soul_default".to_string();
-    let provider = Arc::new(provider);
     let lock: Arc<dyn santi_core::port::lock::Lock> = lock_client;
-    let provider: Arc<dyn santi_core::port::provider::Provider> = provider;
     let session_ledger: Arc<dyn santi_core::port::session_ledger::SessionLedgerPort> =
         Arc::new(DbSessionLedger::new(pool.clone()));
     let effect_ledger: Arc<dyn santi_core::port::effect_ledger::EffectLedgerPort> =
@@ -123,24 +119,25 @@ async fn distributed_bootstrap(
         watch_hub.clone(),
     ));
 
-    let session_send = Arc::new(SessionSendService::new(
-        config.openai_model.clone(),
+    let session_send = Arc::new(SessionSendService::new(SessionSendServiceDeps {
+        model: config.openai_model.clone(),
         default_soul_id,
-        lock.clone(),
-        session_ledger.clone(),
-        soul_runtime.clone(),
-        soul_runtime_impl.clone(),
-        effect_ledger.clone(),
-        session_fork.clone(),
+        lock: lock.clone(),
+        session_ledger: session_ledger.clone(),
+        soul_runtime: soul_runtime.clone(),
+        compact_runtime: soul_runtime_impl.clone(),
+        effect_ledger: effect_ledger.clone(),
+        fork_service: session_fork.clone(),
         provider,
-        session_memory.as_ref().clone(),
-        ToolExecutorConfig {
+        runtime_facts: config.runtime_self_facts(),
+        session_memory: session_memory.as_ref().clone(),
+        tool_config: ToolExecutorConfig {
             runtime_root: config.runtime_root.clone(),
             execution_root: config.execution_root.clone(),
         },
         ebus,
-        watch_hub,
-    ));
+        watch: watch_hub,
+    }));
 
     Ok(AppState::new(
         config.mode.clone(),
@@ -162,6 +159,19 @@ async fn distributed_bootstrap(
         Arc::new(DistributedAdminApi { send: session_send }),
         None,
     ))
+}
+
+fn build_provider(config: &Config) -> Arc<dyn santi_core::port::provider::Provider> {
+    match config.provider_api {
+        ProviderApi::Responses => Arc::new(OpenAiResponsesClient::new(
+            config.openai_api_key.clone(),
+            config.openai_base_url.clone(),
+        )),
+        ProviderApi::ChatCompletions => Arc::new(ChatCompletionsClient::new(
+            config.openai_api_key.clone(),
+            config.openai_base_url.clone(),
+        )),
+    }
 }
 
 async fn load_startup_hook_specs(source: Option<&HookSpecSource>) -> Result<Vec<HookSpec>, String> {

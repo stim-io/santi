@@ -10,7 +10,7 @@ It keeps the current resource shape and only normalizes how the surface is named
 
 - All API routes use the `/api/v1` prefix.
 - No new top-level resources are introduced here.
-- Existing resources remain the source of truth: `health`, `meta`, `soul`, `sessions`, `messages`, `effects`, `compacts`, `memory`, and admin hooks.
+- Existing resources remain the source of truth: `health`, `meta`, `soul`, `sessions`, `messages`, `effects`, `compacts`, `tool-activities`, `memory`, and admin hooks.
 - `stim` protocol participation may add a narrow `stim`-scoped entrypoint when the shared `stim-proto` envelope/ack contract needs a real HTTP landing surface.
 
 ## Resource map
@@ -47,6 +47,9 @@ It keeps the current resource shape and only normalizes how the surface is named
   - effect records produced by runtime actions
 - `GET /api/v1/sessions/{id}/compacts`
   - compacted session state views
+- `GET /api/v1/sessions/{id}/tool-activities`
+  - runtime-owned tool call/result activity summaries for the session's active soul-session view
+  - exposes inspection-safe summaries, not full tool stdout/stderr or raw arguments
 - `PUT /api/v1/admin/hooks`
   - operational hooks used by trusted standalone/admin flows
 - `POST /api/v1/stim/envelopes`

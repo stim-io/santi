@@ -12,12 +12,13 @@ use santi_runtime::session::{
     fork::SessionForkService,
     memory::SessionMemoryService,
     query::SessionQueryService,
-    send::SessionSendService,
+    send::{SessionSendService, SessionSendServiceDeps},
     watch::{SessionWatchHub, SessionWatchService},
 };
 
 use crate::{
-    config::Config,
+    chat_client::ChatCompletionsClient,
+    config::{Config, ProviderApi},
     link_client::OpenAiResponsesClient,
     state::AppState,
     surface::{default_capabilities, StandaloneAdminApi, StandaloneSessionApi, StandaloneSoulApi},
@@ -44,11 +45,7 @@ pub async fn bootstrap_standalone(config: &Config) -> santi_core::error::Result<
         store.clone();
     let soul_port: Arc<dyn santi_core::port::soul::SoulPort> = soul_store;
     let soul_runtime: Arc<dyn santi_core::port::soul_runtime::SoulRuntimePort> = soul_runtime;
-    let provider: Arc<dyn santi_core::port::provider::Provider> =
-        Arc::new(OpenAiResponsesClient::new(
-            config.openai_api_key.clone(),
-            config.openai_base_url.clone(),
-        ));
+    let provider = build_provider(config);
     let hook_specs = load_startup_hook_specs(config.hook_source.as_ref()).await?;
     let ebus: Arc<dyn santi_core::port::ebus::SubscriberSetPort<Arc<dyn HookEvaluator>>> =
         Arc::new(InMemorySubscriberSet::<Arc<dyn HookEvaluator>>::new());
@@ -86,24 +83,25 @@ pub async fn bootstrap_standalone(config: &Config) -> santi_core::error::Result<
         "soul_default".to_string(),
         watch_hub.clone(),
     ));
-    let send = Arc::new(SessionSendService::new(
-        config.openai_model.clone(),
-        "soul_default".to_string(),
-        send_lock,
+    let send = Arc::new(SessionSendService::new(SessionSendServiceDeps {
+        model: config.openai_model.clone(),
+        default_soul_id: "soul_default".to_string(),
+        lock: send_lock,
         session_ledger,
-        soul_runtime.clone(),
+        soul_runtime: soul_runtime.clone(),
         compact_runtime,
-        effect_ledger.clone(),
-        fork.clone(),
+        effect_ledger: effect_ledger.clone(),
+        fork_service: fork.clone(),
         provider,
-        memory.as_ref().clone(),
-        santi_runtime::runtime::tools::ToolExecutorConfig {
+        runtime_facts: config.runtime_self_facts(),
+        session_memory: memory.as_ref().clone(),
+        tool_config: santi_runtime::runtime::tools::ToolExecutorConfig {
             runtime_root: config.runtime_root.clone(),
             execution_root: config.execution_root.clone(),
         },
-        ebus.clone(),
-        watch_hub,
-    ));
+        ebus: ebus.clone(),
+        watch: watch_hub,
+    }));
 
     Ok(AppState::new(
         config.mode.clone(),
@@ -125,6 +123,19 @@ pub async fn bootstrap_standalone(config: &Config) -> santi_core::error::Result<
         Arc::new(StandaloneAdminApi { ebus }),
         Some(lock),
     ))
+}
+
+fn build_provider(config: &Config) -> Arc<dyn santi_core::port::provider::Provider> {
+    match config.provider_api {
+        ProviderApi::Responses => Arc::new(OpenAiResponsesClient::new(
+            config.openai_api_key.clone(),
+            config.openai_base_url.clone(),
+        )),
+        ProviderApi::ChatCompletions => Arc::new(ChatCompletionsClient::new(
+            config.openai_api_key.clone(),
+            config.openai_base_url.clone(),
+        )),
+    }
 }
 
 fn validate_provider_config(config: &Config) -> santi_core::error::Result<()> {
@@ -170,6 +181,7 @@ fn acquire_standalone_bootstrap_lock(
 
     let lock_file = OpenOptions::new()
         .create(true)
+        .truncate(false)
         .read(true)
         .write(true)
         .open(&lock_path)

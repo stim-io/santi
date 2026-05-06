@@ -43,6 +43,10 @@ pub trait SessionApi: Send + Sync {
     async fn watch_session(&self, session_id: &str) -> Result<SessionWatchEventStream, ApiError>;
     async fn list_session_effects(&self, session_id: &str) -> Result<Vec<SessionEffect>, ApiError>;
     async fn list_session_compacts(&self, session_id: &str) -> Result<Vec<Compact>, ApiError>;
+    async fn list_session_tool_activities(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<santi_core::model::runtime::ToolActivity>, ApiError>;
     async fn get_session_memory(&self, session_id: &str)
         -> Result<SessionMemoryResponse, ApiError>;
     async fn set_session_memory(
@@ -233,6 +237,17 @@ where
         self.get_session(session_id).await?;
         self.query()
             .list_session_compacts(session_id)
+            .await
+            .map_err(ApiError::Internal)
+    }
+
+    async fn list_session_tool_activities(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<santi_core::model::runtime::ToolActivity>, ApiError> {
+        self.get_session(session_id).await?;
+        self.query()
+            .list_session_tool_activities(session_id)
             .await
             .map_err(ApiError::Internal)
     }

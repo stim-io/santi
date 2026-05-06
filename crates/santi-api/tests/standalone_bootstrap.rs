@@ -1,6 +1,6 @@
 use santi_api::{
     bootstrap_standalone::bootstrap_standalone,
-    config::{Config, Mode},
+    config::{Config, Mode, ProviderApi},
 };
 use santi_core::port::lock::Lock;
 use santi_db::adapter::standalone::{
@@ -17,6 +17,8 @@ async fn standalone_bootstrap_injects_session_store() {
     let config = Config {
         mode: Mode::Standalone,
         bind_addr: "127.0.0.1:0".parse().unwrap(),
+        launch_profile: None,
+        provider_api: ProviderApi::Responses,
         openai_api_key: "test-key".to_string(),
         openai_base_url: "http://127.0.0.1:9999/openai/v1".to_string(),
         openai_model: "gpt-5.4".to_string(),
@@ -40,6 +42,8 @@ async fn standalone_bootstrap_fails_when_lock_is_held() {
     let config = Config {
         mode: Mode::Standalone,
         bind_addr: "127.0.0.1:0".parse().unwrap(),
+        launch_profile: None,
+        provider_api: ProviderApi::Responses,
         openai_api_key: "test-key".to_string(),
         openai_base_url: "http://127.0.0.1:9999/openai/v1".to_string(),
         openai_model: "gpt-5.4".to_string(),

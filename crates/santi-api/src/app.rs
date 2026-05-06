@@ -67,6 +67,10 @@ pub fn build_router(state: AppState) -> Router {
             "/api/v1/sessions/{id}/compacts",
             get(handler::session::list_session_compacts),
         )
+        .route(
+            "/api/v1/sessions/{id}/tool-activities",
+            get(handler::session::list_session_tool_activities),
+        )
         .merge(SwaggerUi::new("/api/docs").url("/api/openapi.json", ApiDoc::openapi()))
         .with_state(state)
 }

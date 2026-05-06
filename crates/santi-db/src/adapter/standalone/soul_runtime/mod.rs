@@ -45,7 +45,9 @@ mod tests {
     use tempfile::tempdir;
 
     use super::StandaloneSoulRuntime;
-    use santi_core::port::soul_runtime::SoulRuntimePort;
+    use santi_core::port::{
+        soul_runtime::SoulRuntimePort, soul_session_query::SoulSessionQueryPort,
+    };
 
     #[tokio::test]
     async fn standalone_tool_call_and_result_append_allocate_entries() {
@@ -119,5 +121,22 @@ mod tests {
             }
             _ => panic!("expected tool result target"),
         }
+
+        let activities = runtime
+            .list_tool_activities(&soul_session.id)
+            .await
+            .expect("tool activities");
+        assert_eq!(activities.len(), 1);
+        assert_eq!(activities[0].tool_call.id, "call_1");
+        assert_eq!(activities[0].tool_call.tool_name, "bash");
+        assert_eq!(activities[0].tool_call_seq, 1);
+        assert_eq!(
+            activities[0]
+                .tool_result
+                .as_ref()
+                .map(|result| result.id.as_str()),
+            Some("result_1")
+        );
+        assert_eq!(activities[0].tool_result_seq, Some(2));
     }
 }

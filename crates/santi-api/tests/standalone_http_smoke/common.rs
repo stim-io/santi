@@ -1,3 +1,8 @@
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
+
 use axum::{
     body::Body,
     http::{Request, StatusCode},
@@ -8,7 +13,7 @@ use axum::{
 use santi_api::{
     app::build_router,
     bootstrap_standalone::bootstrap_standalone,
-    config::{Config, Mode},
+    config::{Config, Mode, ProviderApi},
 };
 use serde_json::Value;
 use tokio::net::TcpListener;
@@ -20,6 +25,8 @@ pub async fn bootstrap_test_app(gateway_base_url: String) -> (tempfile::TempDir,
     let config = standalone_config(
         dir.path().join("standalone.sqlite").display().to_string(),
         gateway_base_url,
+        dir.path().display().to_string(),
+        dir.path().join("runtime").display().to_string(),
     );
     let state = bootstrap_standalone(&config).await.unwrap();
     (dir, build_router(state))
@@ -85,18 +92,25 @@ pub async fn create_session(app: &Router) -> String {
         .to_string()
 }
 
-fn standalone_config(path: String, gateway_base_url: String) -> Config {
+fn standalone_config(
+    path: String,
+    gateway_base_url: String,
+    execution_root: String,
+    runtime_root: String,
+) -> Config {
     Config {
         mode: Mode::Standalone,
         bind_addr: "127.0.0.1:0".parse().unwrap(),
+        launch_profile: None,
+        provider_api: ProviderApi::Responses,
         openai_api_key: "test-key".to_string(),
         openai_base_url: gateway_base_url,
         openai_model: "gpt-5.4".to_string(),
         database_url: String::new(),
         redis_url: String::new(),
         standalone_sqlite_path: path,
-        execution_root: String::new(),
-        runtime_root: String::new(),
+        execution_root,
+        runtime_root,
         hook_source: None,
     }
 }
@@ -114,6 +128,42 @@ pub async fn start_mock_gateway() -> String {
     }
 
     let app = Router::new().route("/openai/v1/responses", post(responses));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    format!("http://{addr}/openai/v1")
+}
+
+pub async fn start_tool_call_mock_gateway() -> String {
+    async fn responses(request_count: Arc<AtomicUsize>) -> impl IntoResponse {
+        let call_index = request_count.fetch_add(1, Ordering::SeqCst);
+        let body = if call_index == 0 {
+            concat!(
+                "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_tool_1\"}}\n\n",
+                "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"fc_1\",\"type\":\"function_call\",\"call_id\":\"call_test_1\",\"name\":\"bash\",\"arguments\":\"{\\\"command\\\":\\\"printf tool-visible\\\"}\"}}\n\n",
+                "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_tool_1\"}}\n\n",
+                "data: [DONE]\n\n"
+            )
+        } else {
+            concat!(
+                "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_tool_2\"}}\n\n",
+                "data: {\"type\":\"response.output_text.delta\",\"delta\":\"tool activity visible\"}\n\n",
+                "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_tool_2\"}}\n\n",
+                "data: [DONE]\n\n"
+            )
+        };
+
+        ([("content-type", "text/event-stream")], body)
+    }
+
+    let request_count = Arc::new(AtomicUsize::new(0));
+    let app = Router::new().route(
+        "/openai/v1/responses",
+        post(move || responses(request_count.clone())),
+    );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {

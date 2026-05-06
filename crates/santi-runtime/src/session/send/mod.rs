@@ -20,7 +20,10 @@ use tokio::sync::mpsc;
 
 use crate::{
     hooks::{compile_hook_specs, HookEvaluator},
-    runtime::tools::{ToolExecutor, ToolExecutorConfig},
+    runtime::{
+        context::RuntimeSelfFacts,
+        tools::{ToolExecutor, ToolExecutorConfig},
+    },
     session::{
         compact::SessionCompactService,
         effect::SessionEffectService,
@@ -37,7 +40,7 @@ use crate::{
 mod assembly;
 mod turn;
 
-use self::turn::{run_turn_startup, run_turn_worker};
+use self::turn::{run_turn_startup, run_turn_worker, TurnRunDeps};
 
 #[derive(Clone)]
 pub struct SessionSendService {
@@ -47,9 +50,27 @@ pub struct SessionSendService {
     session_ledger: Arc<dyn SessionLedgerPort>,
     soul_runtime: Arc<dyn SoulRuntimePort>,
     provider: Arc<dyn Provider>,
+    runtime_facts: RuntimeSelfFacts,
     tools: Arc<ToolExecutor>,
     hooks: Arc<HookRuntime>,
     watch: Arc<SessionWatchHub>,
+}
+
+pub struct SessionSendServiceDeps {
+    pub model: String,
+    pub default_soul_id: String,
+    pub lock: Arc<dyn Lock>,
+    pub session_ledger: Arc<dyn SessionLedgerPort>,
+    pub soul_runtime: Arc<dyn SoulRuntimePort>,
+    pub compact_runtime: Arc<dyn CompactRuntimePort>,
+    pub effect_ledger: Arc<dyn EffectLedgerPort>,
+    pub fork_service: Arc<SessionForkService>,
+    pub provider: Arc<dyn Provider>,
+    pub runtime_facts: RuntimeSelfFacts,
+    pub session_memory: SessionMemoryService,
+    pub tool_config: ToolExecutorConfig,
+    pub ebus: Arc<dyn SubscriberSetPort<Arc<dyn HookEvaluator>>>,
+    pub watch: Arc<SessionWatchHub>,
 }
 
 #[derive(Clone)]
@@ -60,6 +81,7 @@ pub struct SessionTurnService {
     session_ledger: Arc<dyn SessionLedgerPort>,
     soul_runtime: Arc<dyn SoulRuntimePort>,
     provider: Arc<dyn Provider>,
+    runtime_facts: RuntimeSelfFacts,
     tools: Arc<ToolExecutor>,
     watch: Arc<SessionWatchHub>,
 }
@@ -105,56 +127,44 @@ pub struct TurnExecutionRequest {
 }
 
 impl SessionSendService {
-    pub fn new(
-        model: String,
-        default_soul_id: String,
-        lock: Arc<dyn Lock>,
-        session_ledger: Arc<dyn SessionLedgerPort>,
-        soul_runtime: Arc<dyn SoulRuntimePort>,
-        compact_runtime: Arc<dyn CompactRuntimePort>,
-        effect_ledger: Arc<dyn EffectLedgerPort>,
-        fork_service: Arc<SessionForkService>,
-        provider: Arc<dyn Provider>,
-        session_memory: SessionMemoryService,
-        tool_config: ToolExecutorConfig,
-        ebus: Arc<dyn SubscriberSetPort<Arc<dyn HookEvaluator>>>,
-        watch: Arc<SessionWatchHub>,
-    ) -> Self {
-        let tools = Arc::new(ToolExecutor::new(session_memory, tool_config));
+    pub fn new(deps: SessionSendServiceDeps) -> Self {
+        let tools = Arc::new(ToolExecutor::new(deps.session_memory, deps.tool_config));
         let compact_service = Arc::new(SessionCompactService::new(
-            lock.clone(),
-            session_ledger.clone(),
-            soul_runtime.clone(),
-            compact_runtime,
-            default_soul_id.clone(),
-            watch.clone(),
+            deps.lock.clone(),
+            deps.session_ledger.clone(),
+            deps.soul_runtime.clone(),
+            deps.compact_runtime,
+            deps.default_soul_id.clone(),
+            deps.watch.clone(),
         ));
         let turn_service = Arc::new(SessionTurnService {
-            model: model.clone(),
-            default_soul_id: default_soul_id.clone(),
-            lock: lock.clone(),
-            session_ledger: session_ledger.clone(),
-            soul_runtime: soul_runtime.clone(),
-            provider: provider.clone(),
+            model: deps.model.clone(),
+            default_soul_id: deps.default_soul_id.clone(),
+            lock: deps.lock.clone(),
+            session_ledger: deps.session_ledger.clone(),
+            soul_runtime: deps.soul_runtime.clone(),
+            provider: deps.provider.clone(),
+            runtime_facts: deps.runtime_facts.clone(),
             tools: tools.clone(),
-            watch: watch.clone(),
+            watch: deps.watch.clone(),
         });
         let effect_service = Arc::new(SessionEffectService::new(
-            effect_ledger,
-            fork_service,
+            deps.effect_ledger,
+            deps.fork_service,
             turn_service.clone(),
-            watch.clone(),
+            deps.watch.clone(),
         ));
         Self {
-            model,
-            default_soul_id,
-            lock,
-            session_ledger,
-            soul_runtime,
-            provider,
+            model: deps.model,
+            default_soul_id: deps.default_soul_id,
+            lock: deps.lock,
+            session_ledger: deps.session_ledger,
+            soul_runtime: deps.soul_runtime,
+            provider: deps.provider,
+            runtime_facts: deps.runtime_facts,
             tools,
-            hooks: Arc::new(HookRuntime::new(ebus, compact_service, effect_service)),
-            watch,
+            hooks: Arc::new(HookRuntime::new(deps.ebus, compact_service, effect_service)),
+            watch: deps.watch,
         }
     }
 
@@ -215,6 +225,7 @@ impl SessionSendService {
             session_ledger: self.session_ledger.clone(),
             soul_runtime: self.soul_runtime.clone(),
             provider: self.provider.clone(),
+            runtime_facts: self.runtime_facts.clone(),
             tools: self.tools.clone(),
             watch: self.watch.clone(),
         };
@@ -288,6 +299,7 @@ impl SessionTurnService {
             self.session_ledger.clone(),
             self.soul_runtime.clone(),
             self.tools.clone(),
+            self.runtime_facts.clone(),
         )
         .await
         {
@@ -298,14 +310,16 @@ impl SessionTurnService {
         turn::publish_turn_started(&self.watch, &request.session_id);
 
         run_turn_worker(
-            self.default_soul_id.clone(),
+            TurnRunDeps {
+                default_soul_id: self.default_soul_id.clone(),
+                model: self.model.clone(),
+                provider: self.provider.clone(),
+                session_ledger: self.session_ledger.clone(),
+                soul_runtime: self.soul_runtime.clone(),
+                tools: self.tools.clone(),
+                watch: self.watch.clone(),
+            },
             request,
-            self.model.clone(),
-            self.provider.clone(),
-            self.session_ledger.clone(),
-            self.soul_runtime.clone(),
-            self.tools.clone(),
-            self.watch.clone(),
             hooks,
             startup,
             tx,
@@ -325,7 +339,9 @@ fn render_send_error(err: &SendSessionError) -> String {
 
 fn map_core_error(err: Error) -> SendSessionError {
     match err {
-        Error::NotFound { resource } if resource == "session" => SendSessionError::NotFound,
+        Error::NotFound {
+            resource: "session",
+        } => SendSessionError::NotFound,
         Error::Busy { .. } => SendSessionError::Busy,
         Error::NotFound { resource } => SendSessionError::Internal(format!("{resource} not found")),
         Error::InvalidInput { message }

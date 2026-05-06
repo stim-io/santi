@@ -86,6 +86,36 @@ pub(super) async fn create_pool(path: &Path) -> Result<SqlitePool> {
     })?;
 
     sqlx::query(
+        r#"CREATE TABLE IF NOT EXISTS standalone_tool_calls (
+            id TEXT PRIMARY KEY,
+            turn_id TEXT NOT NULL,
+            tool_name TEXT NOT NULL,
+            arguments TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )"#,
+    )
+    .execute(&pool)
+    .await
+    .map_err(|err| Error::Internal {
+        message: format!("migrate sqlite standalone_tool_calls failed: {err}"),
+    })?;
+
+    sqlx::query(
+        r#"CREATE TABLE IF NOT EXISTS standalone_tool_results (
+            id TEXT PRIMARY KEY,
+            tool_call_id TEXT NOT NULL UNIQUE,
+            output TEXT NULL,
+            error_text TEXT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )"#,
+    )
+    .execute(&pool)
+    .await
+    .map_err(|err| Error::Internal {
+        message: format!("migrate sqlite standalone_tool_results failed: {err}"),
+    })?;
+
+    sqlx::query(
         r#"CREATE TABLE IF NOT EXISTS sessions (
             id TEXT PRIMARY KEY,
             parent_session_id TEXT NULL,

@@ -1,6 +1,7 @@
 pub mod app;
 pub mod bootstrap;
 pub mod bootstrap_standalone;
+pub mod chat_client;
 pub mod config;
 pub mod handler;
 pub mod link_client;

@@ -5,7 +5,7 @@ use tower::ServiceExt;
 
 use crate::common::{
     bootstrap_test_app, create_session, request_json, request_text, start_delayed_mock_gateway,
-    start_mock_gateway,
+    start_mock_gateway, start_tool_call_mock_gateway,
 };
 
 #[tokio::test]
@@ -102,6 +102,74 @@ async fn standalone_http_fork_and_compact_flows_work() {
 }
 
 #[tokio::test]
+async fn standalone_http_exposes_session_tool_activity_summaries() {
+    let (_dir, app) = bootstrap_test_app(start_tool_call_mock_gateway().await).await;
+    let session_id = create_session(&app).await;
+
+    let (status, _) = request_text(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri(format!("/api/v1/sessions/{session_id}/send"))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"content":[{"type":"text","text":"please use a tool"}]}"#,
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, tool_activities) = request_json(
+        &app,
+        Request::builder()
+            .method("GET")
+            .uri(format!("/api/v1/sessions/{session_id}/tool-activities"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let items = tool_activities
+        .get("tool_activities")
+        .and_then(Value::as_array)
+        .unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0].get("tool_name").and_then(Value::as_str),
+        Some("bash")
+    );
+
+    assert_bash_tool_activity_summary(&items[0]);
+}
+
+#[cfg(not(windows))]
+fn assert_bash_tool_activity_summary(item: &Value) {
+    assert_eq!(
+        item.get("result_state").and_then(Value::as_str),
+        Some("completed")
+    );
+    assert_eq!(item.get("exit_code").and_then(Value::as_i64), Some(0));
+    assert_eq!(
+        item.get("output_summary").and_then(Value::as_str),
+        Some("bash exit 0; stdout 12 chars; stderr 0 chars")
+    );
+}
+
+#[cfg(windows)]
+fn assert_bash_tool_activity_summary(item: &Value) {
+    assert_eq!(
+        item.get("result_state").and_then(Value::as_str),
+        Some("tool-error")
+    );
+    assert_eq!(item.get("exit_code").and_then(Value::as_i64), None);
+    assert_eq!(
+        item.get("output_summary").and_then(Value::as_str),
+        Some("ok false")
+    );
+}
+
+#[tokio::test]
 async fn standalone_http_missing_session_routes_return_not_found() {
     let (_dir, app) = bootstrap_test_app(start_mock_gateway().await).await;
 
@@ -110,6 +178,17 @@ async fn standalone_http_missing_session_routes_return_not_found() {
         Request::builder()
             .method("GET")
             .uri("/api/v1/sessions/missing-session/messages")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (status, _) = request_json(
+        &app,
+        Request::builder()
+            .method("GET")
+            .uri("/api/v1/sessions/missing-session/tool-activities")
             .body(Body::empty())
             .unwrap(),
     )

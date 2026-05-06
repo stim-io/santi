@@ -27,7 +27,9 @@ use uuid::Uuid;
 use crate::{
     hooks::TurnCompletedHookInput,
     runtime::{
-        context::ToolRuntimeContext, prompt::render_runtime_instructions, tools::ToolExecutor,
+        context::{RuntimeSelfFacts, ToolRuntimeContext},
+        prompt::render_runtime_instructions,
+        tools::ToolExecutor,
     },
     session::{
         hook_runtime::HookRuntime,
@@ -64,12 +66,24 @@ pub(super) struct StartupContext {
     pub(super) runtime_context: ToolRuntimeContext,
 }
 
+#[derive(Clone)]
+pub(super) struct TurnRunDeps {
+    pub(super) default_soul_id: String,
+    pub(super) model: String,
+    pub(super) provider: Arc<dyn Provider>,
+    pub(super) session_ledger: Arc<dyn SessionLedgerPort>,
+    pub(super) soul_runtime: Arc<dyn SoulRuntimePort>,
+    pub(super) tools: Arc<ToolExecutor>,
+    pub(super) watch: Arc<SessionWatchHub>,
+}
+
 pub(super) async fn run_turn_startup(
     default_soul_id: &str,
     request: &TurnExecutionRequest,
     session_ledger: Arc<dyn SessionLedgerPort>,
     soul_runtime: Arc<dyn SoulRuntimePort>,
     tools: Arc<ToolExecutor>,
+    runtime_facts: RuntimeSelfFacts,
 ) -> Result<StartupContext, SendSessionError> {
     let soul_session = soul_runtime
         .acquire_soul_session(AcquireSoulSession {
@@ -148,7 +162,8 @@ pub(super) async fn run_turn_startup(
         session_memory: Some(soul_session.session_memory.clone()),
         request_instructions: None,
     });
-    let instructions = render_runtime_instructions(&core_prompt, &runtime_context, &tools);
+    let instructions =
+        render_runtime_instructions(&core_prompt, &runtime_context, &runtime_facts, &tools);
 
     Ok(StartupContext {
         session,
@@ -187,23 +202,17 @@ async fn append_trigger_message(
         .map_err(map_core_error)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) async fn run_turn_worker(
-    default_soul_id: String,
+    deps: TurnRunDeps,
     request: TurnExecutionRequest,
-    model: String,
-    provider: Arc<dyn Provider>,
-    session_ledger: Arc<dyn SessionLedgerPort>,
-    soul_runtime: Arc<dyn SoulRuntimePort>,
-    tools: Arc<ToolExecutor>,
-    watch: Arc<SessionWatchHub>,
     hooks: Option<Arc<HookRuntime>>,
     startup: StartupContext,
     tx: Option<mpsc::UnboundedSender<Result<super::SendSessionEvent, SendSessionError>>>,
     guard: Box<dyn LockGuard + Send>,
 ) -> Result<Turn, SendSessionError> {
     let turn_id = format!("turn_{}", Uuid::new_v4().simple());
-    let started_turn = soul_runtime
+    let started_turn = deps
+        .soul_runtime
         .start_turn(StartTurn {
             turn_id: turn_id.clone(),
             soul_session_id: startup.soul_session_id.clone(),
@@ -215,25 +224,26 @@ pub(super) async fn run_turn_worker(
         .map_err(map_core_error)?;
 
     let run_result = run_turn_body(
-        default_soul_id,
+        deps.clone(),
         request.clone(),
-        model,
-        provider,
-        session_ledger.clone(),
-        soul_runtime.clone(),
-        tools,
         startup,
         started_turn,
         tx.clone(),
-        watch,
     )
     .await;
 
-    fail_turn_on_error(&soul_runtime, &turn_id, &run_result).await;
+    fail_turn_on_error(&deps.soul_runtime, &turn_id, &run_result).await;
 
     let output = finish_turn_run(run_result, guard).await?;
 
-    run_turn_completed_hooks(&request, hooks, &output, session_ledger, soul_runtime).await?;
+    run_turn_completed_hooks(
+        &request,
+        hooks,
+        &output,
+        deps.session_ledger.clone(),
+        deps.soul_runtime.clone(),
+    )
+    .await?;
 
     emit_turn_completed_event(&request, tx.as_ref());
 
@@ -289,13 +299,12 @@ async fn finish_turn_run(
     guard: Box<dyn LockGuard + Send>,
 ) -> Result<TurnRunOutput, SendSessionError> {
     let release_result = guard.release().await.map_err(map_lock_error);
-    let output = match run_result {
-        Ok(output) => output,
-        Err(err) => return Err(err),
-    };
-
-    release_result?;
-    Ok(output)
+    match (run_result, release_result) {
+        (Ok(output), Ok(())) => Ok(output),
+        (Ok(_), Err(release_err)) => Err(release_err),
+        (Err(err), Ok(())) => Err(err),
+        (Err(_), Err(release_err)) => Err(release_err),
+    }
 }
 
 async fn run_turn_completed_hooks(
@@ -351,17 +360,11 @@ fn emit_turn_completed_event(
 }
 
 async fn run_turn_body(
-    default_soul_id: String,
+    deps: TurnRunDeps,
     request: TurnExecutionRequest,
-    model: String,
-    provider: Arc<dyn Provider>,
-    session_ledger: Arc<dyn SessionLedgerPort>,
-    soul_runtime: Arc<dyn SoulRuntimePort>,
-    tools: Arc<ToolExecutor>,
     startup: StartupContext,
     turn: Turn,
     tx: Option<mpsc::UnboundedSender<Result<SendSessionEvent, SendSessionError>>>,
-    watch: Arc<SessionWatchHub>,
 ) -> Result<TurnRunOutput, SendSessionError> {
     let mut assistant_text = String::new();
     let mut previous_response_id: Option<String> = None;
@@ -369,19 +372,19 @@ async fn run_turn_body(
 
     loop {
         let request = ProviderRequest {
-            model: model.clone(),
+            model: deps.model.clone(),
             instructions: startup.instructions.clone(),
             input: if previous_response_id.is_some() {
                 Vec::new()
             } else {
                 startup.provider_input.clone()
             },
-            tools: Some(tools.provider_tools()),
+            tools: Some(deps.tools.provider_tools()),
             previous_response_id: previous_response_id.clone(),
             function_call_outputs: function_call_outputs.take(),
         };
 
-        let stream = provider.stream(request);
+        let stream = deps.provider.stream(request);
         futures::pin_mut!(stream);
 
         let mut calls = Vec::new();
@@ -418,8 +421,14 @@ async fn run_turn_body(
         let mut outputs = Vec::new();
         for call in calls {
             outputs.push(
-                handle_tool_call(&turn, &startup.runtime_context, &soul_runtime, &tools, call)
-                    .await?,
+                handle_tool_call(
+                    &turn,
+                    &startup.runtime_context,
+                    &deps.soul_runtime,
+                    &deps.tools,
+                    call,
+                )
+                .await?,
             );
         }
 
@@ -432,19 +441,20 @@ async fn run_turn_body(
         ));
     }
 
-    let assistant_message = session_ledger
+    let assistant_message = deps
+        .session_ledger
         .append_message(AppendSessionMessage {
             session_id: request.session_id.clone(),
             message_id: format!("msg_{}", Uuid::new_v4().simple()),
             actor_type: ActorType::Soul,
-            actor_id: default_soul_id,
+            actor_id: deps.default_soul_id,
             content: text_content(&assistant_text),
             state: MessageState::Fixed,
         })
         .await
         .map_err(map_core_error)?;
 
-    watch.publish(
+    deps.watch.publish(
         &request.session_id,
         SessionWatchEvent::MessageChanged(SessionWatchMessageChanged {
             session_id: request.session_id.clone(),
@@ -455,7 +465,8 @@ async fn run_turn_body(
         }),
     );
 
-    let assistant_entry = soul_runtime
+    let assistant_entry = deps
+        .soul_runtime
         .append_message_ref(AppendMessageRef {
             soul_session_id: startup.soul_session_id.clone(),
             message_id: assistant_message.message.id.clone(),
@@ -463,7 +474,8 @@ async fn run_turn_body(
         .await
         .map_err(map_core_error)?;
 
-    soul_runtime
+    let completed_turn = deps
+        .soul_runtime
         .complete_turn(CompleteTurn {
             turn_id: turn.id.clone(),
             last_seen_session_seq: assistant_message.relation.session_seq,
@@ -481,7 +493,7 @@ async fn run_turn_body(
         .await
         .map_err(map_core_error)?;
 
-    watch.publish(
+    deps.watch.publish(
         &request.session_id,
         SessionWatchEvent::ActivityChanged(SessionWatchActivityChanged {
             session_id: request.session_id.clone(),
@@ -490,7 +502,7 @@ async fn run_turn_body(
             label: None,
         }),
     );
-    watch.publish(
+    deps.watch.publish(
         &request.session_id,
         SessionWatchEvent::StateChanged(SessionWatchStateChanged {
             session_id: request.session_id.clone(),
@@ -499,7 +511,7 @@ async fn run_turn_body(
     );
 
     Ok(TurnRunOutput {
-        turn,
+        turn: completed_turn,
         session: startup.session,
         soul_session_id: startup.soul_session_id,
         assistant_message,

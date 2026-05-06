@@ -73,6 +73,14 @@ pub struct ToolResult {
 }
 
 #[derive(Clone, Debug)]
+pub struct ToolActivity {
+    pub tool_call: ToolCall,
+    pub tool_call_seq: i64,
+    pub tool_result: Option<ToolResult>,
+    pub tool_result_seq: Option<i64>,
+}
+
+#[derive(Clone, Debug)]
 pub struct Compact {
     pub id: String,
     pub turn_id: String,

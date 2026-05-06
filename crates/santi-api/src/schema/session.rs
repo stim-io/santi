@@ -4,7 +4,7 @@ use utoipa::ToSchema;
 use crate::model::{
     effect::SessionEffect,
     message::MessagePart,
-    runtime::{Compact, SoulSession},
+    runtime::{Compact, SoulSession, ToolActivity},
     session::{Session, SessionMessage},
     soul::Soul,
 };
@@ -136,6 +136,28 @@ pub struct SessionCompactResponse {
 #[derive(Clone, Debug, Serialize, ToSchema)]
 pub struct SessionCompactsResponse {
     pub compacts: Vec<SessionCompactResponse>,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub struct SessionToolActivitiesResponse {
+    pub tool_activities: Vec<SessionToolActivityResponse>,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub struct SessionToolActivityResponse {
+    pub tool_call_id: String,
+    pub tool_name: String,
+    pub tool_call_seq: i64,
+    pub tool_call_created_at: String,
+    pub tool_result_id: Option<String>,
+    pub tool_result_seq: Option<i64>,
+    pub tool_result_created_at: Option<String>,
+    pub result_state: String,
+    pub exit_code: Option<i64>,
+    pub duration_ms: Option<u64>,
+    pub stdout_chars: Option<u64>,
+    pub stderr_chars: Option<u64>,
+    pub output_summary: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, ToSchema)]
@@ -316,6 +338,99 @@ impl SessionCompactsResponse {
         Self {
             compacts: compacts.into_iter().map(Into::into).collect(),
         }
+    }
+}
+
+impl SessionToolActivitiesResponse {
+    pub fn from_tool_activities(tool_activities: Vec<ToolActivity>) -> Self {
+        Self {
+            tool_activities: tool_activities
+                .into_iter()
+                .map(SessionToolActivityResponse::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<ToolActivity> for SessionToolActivityResponse {
+    fn from(value: ToolActivity) -> Self {
+        let result = value.tool_result;
+        let output = result.as_ref().and_then(|result| result.output.as_ref());
+
+        Self {
+            tool_call_id: value.tool_call.id,
+            tool_name: value.tool_call.tool_name,
+            tool_call_seq: value.tool_call_seq,
+            tool_call_created_at: value.tool_call.created_at,
+            tool_result_id: result.as_ref().map(|result| result.id.clone()),
+            tool_result_seq: value.tool_result_seq,
+            tool_result_created_at: result.as_ref().map(|result| result.created_at.clone()),
+            result_state: result_state(result.as_ref(), output),
+            exit_code: bash_exit_code(output),
+            duration_ms: output
+                .and_then(|output| output.get("duration_ms"))
+                .and_then(serde_json::Value::as_u64),
+            stdout_chars: bash_stream_chars(output, "stdout"),
+            stderr_chars: bash_stream_chars(output, "stderr"),
+            output_summary: output.map(output_summary),
+        }
+    }
+}
+
+fn result_state(
+    result: Option<&santi_core::model::runtime::ToolResult>,
+    output: Option<&serde_json::Value>,
+) -> String {
+    if result.is_none() {
+        return "pending".to_string();
+    }
+    if result
+        .and_then(|result| result.error_text.as_ref())
+        .is_some()
+        || output
+            .and_then(|output| output.get("ok"))
+            .and_then(serde_json::Value::as_bool)
+            == Some(false)
+    {
+        return "tool-error".to_string();
+    }
+
+    "completed".to_string()
+}
+
+fn bash_exit_code(output: Option<&serde_json::Value>) -> Option<i64> {
+    output
+        .and_then(|output| output.pointer("/bash_result/exit_code"))
+        .and_then(serde_json::Value::as_i64)
+}
+
+fn bash_stream_chars(output: Option<&serde_json::Value>, stream: &str) -> Option<u64> {
+    output
+        .and_then(|output| output.pointer(&format!("/bash_result/{stream}")))
+        .and_then(serde_json::Value::as_str)
+        .map(|value| value.chars().count() as u64)
+}
+
+fn output_summary(output: &serde_json::Value) -> String {
+    if let Some(exit_code) = bash_exit_code(Some(output)) {
+        return format!(
+            "bash exit {exit_code}; stdout {} chars; stderr {} chars",
+            bash_stream_chars(Some(output), "stdout").unwrap_or(0),
+            bash_stream_chars(Some(output), "stderr").unwrap_or(0)
+        );
+    }
+
+    if let Some(ok) = output.get("ok").and_then(serde_json::Value::as_bool) {
+        return format!("ok {ok}");
+    }
+
+    match output {
+        serde_json::Value::Object(map) => {
+            let keys = map.keys().take(4).cloned().collect::<Vec<_>>().join(",");
+            format!("json object keys: {keys}")
+        }
+        serde_json::Value::Array(items) => format!("json array items: {}", items.len()),
+        _ => "json scalar".to_string(),
     }
 }
 

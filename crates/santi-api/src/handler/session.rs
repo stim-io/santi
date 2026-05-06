@@ -15,8 +15,8 @@ use crate::{
             ForkRequest, ForkResponse, SessionCompactRequest, SessionCompactResponse,
             SessionCompactsResponse, SessionEffectsResponse, SessionMemoryRequest,
             SessionMemoryResponse, SessionMessagesResponse, SessionResponse,
-            SessionSendContentPart, SessionSendRequest, SessionWatchSnapshotResponse,
-            SoulMemoryRequest, SoulMemoryResponse, SoulResponse,
+            SessionSendContentPart, SessionSendRequest, SessionToolActivitiesResponse,
+            SessionWatchSnapshotResponse, SoulMemoryRequest, SoulMemoryResponse, SoulResponse,
         },
         session_events::SessionStreamEvent,
     },
@@ -158,6 +158,34 @@ pub async fn list_session_compacts(
         Ok(compacts) => (
             StatusCode::OK,
             Json(SessionCompactsResponse::from_compacts(compacts)),
+        )
+            .into_response(),
+        Err(err) => err.into_error_response().into_response(),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/sessions/{id}/tool-activities",
+    tag = "session",
+    params(
+        ("id" = String, Path, description = "Session id")
+    ),
+    responses(
+        (status = 200, description = "Session runtime tool activities", body = SessionToolActivitiesResponse),
+        (status = 404, description = "Session not found", body = ErrorResponse)
+    )
+)]
+pub async fn list_session_tool_activities(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match state.session_api().list_session_tool_activities(&id).await {
+        Ok(tool_activities) => (
+            StatusCode::OK,
+            Json(SessionToolActivitiesResponse::from_tool_activities(
+                tool_activities,
+            )),
         )
             .into_response(),
         Err(err) => err.into_error_response().into_response(),

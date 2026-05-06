@@ -36,6 +36,8 @@ Detailed system thinking belongs in `docs/`, not here.
 - Do not collapse IM ledger facts, LLM/provider snapshots, and runtime artifacts into one universal messages table. Use explicit relation rows, references, correlation ids, and causation ids when crossing ledger views.
 - HTTP capabilities are currently open; `scope` / `tenant` comes later.
 - `soul_dir` and `session_dir` are normal directories used as unified agent resource spaces.
+- Treat the `soul + session + compact` triad as the primary context-growth strategy. Do not solve context pressure first with hidden active trimming, runtime-owned rewrites, or over-defensive context suppression; guide the model through visible context plus explicit engineering trigger points so the triad can prove whether it works.
+- Pair the triad with living documentation-level soft tests: grounded self-assessment prompts, manual checklists, and real `stim -> santi` loop observations are the admission path for models before behavior is stable enough to encode as automated tests.
 - Testing should start from executable smoke and integration checks on the main path, add focused `crates/santi-api/tests` only where those checks reveal weak spots, and keep tracing strong enough to diagnose known classes of failure.
 - Tests must target non-real model API call scenarios only; any verification that depends on real API calls belongs in docs or runbooks, not automated test logic or scripts.
 - Non-real-provider tests and deterministic checks are required for fast automated confidence, but they must not redefine the real product behavior expected by the end-to-end `stim -> santi` chain.

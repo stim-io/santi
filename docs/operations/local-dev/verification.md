@@ -25,8 +25,9 @@ Do not duplicate setup here. Assume the local baseline in `docs/operations/local
 In particular:
 
 - use the repo-root `docker compose.yml`
-- prefer the installed `santi-cli`
-- prefer direct CLI-to-HTTP usage against the default standalone stack
+- prefer local foreground `santi` for integrated `stim -> santi` iteration
+- prefer the installed `santi-cli` for direct `santi` checks
+- prefer direct CLI-to-HTTP usage against the standalone HTTP service
 
 ## Main-path verification goal
 
@@ -41,7 +42,18 @@ If this path is broken, stop and fix the runtime before doing deeper checks.
 ### 1. Stack health
 
 ```bash
-docker compose up -d --build
+docker compose up -d --build stim-server santi-link
+```
+
+Keep local foreground `santi` running in another repo-root shell:
+
+```bash
+scripts/santi local
+```
+
+Then verify from `modules/santi`:
+
+```bash
 ./scripts/cli/setup.sh
 santi-cli health
 ```
@@ -111,6 +123,8 @@ This step validates:
 ## Common follow-up verification operations
 
 These are not required to declare the stack minimally healthy, but they are the normal next checks during feature work.
+
+For grounded runtime self-assessment through the product loop, use `docs/operations/local-dev/self-assessment.md` as the living checklist instead of adding an automated use case too early.
 
 ### 5. Manual compact
 

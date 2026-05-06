@@ -20,6 +20,7 @@ Preferred sub-structure:
 - `contracts/http/`: HTTP surface and envelope contracts
 - `contracts/runtime/`: runtime-facing behavioral contracts and boundaries
 - `operations/local-dev/`: setup, verification, troubleshooting
+- `operations/local-dev/self-assessment.md`: living acceptance checklist for grounded `stim -> santi` runtime self-assessment
 - `operations/testing.md`: automated test construction standard and layer-selection guidance
 
 Documentation governance:

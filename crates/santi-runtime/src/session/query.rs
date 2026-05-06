@@ -2,7 +2,12 @@ use std::sync::Arc;
 
 use santi_core::{
     error::Error,
-    model::{runtime::Compact, session::Session, session::SessionMessage, soul::Soul},
+    model::{
+        runtime::{Compact, ToolActivity},
+        session::Session,
+        session::SessionMessage,
+        soul::Soul,
+    },
     port::{
         compact_ledger::CompactLedgerPort, session_ledger::SessionLedgerPort, soul::SoulPort,
         soul_session_query::SoulSessionQueryPort,
@@ -81,6 +86,25 @@ impl SessionQueryService {
             .map_err(render_error)
     }
 
+    pub async fn list_session_tool_activities(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<ToolActivity>, String> {
+        let Some(soul_session) = self
+            .soul_session_query
+            .get_soul_session_by_session_id(session_id)
+            .await
+            .map_err(render_error)?
+        else {
+            return Ok(vec![]);
+        };
+
+        self.soul_session_query
+            .list_tool_activities(&soul_session.id)
+            .await
+            .map_err(render_error)
+    }
+
     pub async fn get_default_soul(&self) -> Result<Option<Soul>, String> {
         self.soul_port
             .get_soul(&self.default_soul_id)
@@ -106,7 +130,7 @@ mod tests {
     use santi_core::{
         error::Result,
         model::{
-            runtime::{AssemblyItem, Compact, ProviderState, SoulSession, Turn},
+            runtime::{AssemblyItem, Compact, ProviderState, SoulSession, ToolActivity, Turn},
             session::{Session, SessionMessage},
             soul::Soul,
         },
@@ -210,6 +234,10 @@ mod tests {
             _session_id: &str,
         ) -> Result<Option<SoulSession>> {
             Ok(self.soul_session.clone())
+        }
+
+        async fn list_tool_activities(&self, _soul_session_id: &str) -> Result<Vec<ToolActivity>> {
+            Ok(vec![])
         }
     }
 

@@ -35,6 +35,14 @@ Assembly/projection rules for this boundary:
 - tool calls and tool results are runtime artifacts, not direct provider input items
 - hook execution remains post-turn work rather than part of provider-stream assembly
 
+Provider instruction rules for this boundary:
+
+- provider instructions may include stable self-assessment guidance plus a runtime-facts block for the current process
+- the runtime-facts block is part of `santi`'s LLM/runtime projection, not a public product-ledger fact
+- non-secret runtime facts may include service name, assembly mode, launch profile, bind address, provider API/model, provider gateway base URL, memory directories, and fallback working directory
+- self-assessment guidance must tell the model to ground answers in visible facts, separate unknowns from connected capabilities, and avoid inventing service health, permissions, product-ledger state, or external process state
+- automated tests should protect only the stable rendering/contract pieces; real provider self-assessment quality belongs in the local verification runbook until the behavior is stable enough to codify
+
 ## `session::watch` boundary
 
 `session::watch` owns the runtime-local observation surface for one session.

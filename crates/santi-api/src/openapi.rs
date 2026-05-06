@@ -9,7 +9,8 @@ use crate::schema::{
     session::{
         SessionCompactRequest, SessionCompactResponse, SessionEffectsResponse,
         SessionMemoryRequest, SessionMemoryResponse, SessionMessagesResponse, SessionResponse,
-        SessionSendRequest, SessionWatchEffectSummaryResponse, SessionWatchMessageSummaryResponse,
+        SessionSendRequest, SessionToolActivitiesResponse, SessionToolActivityResponse,
+        SessionWatchEffectSummaryResponse, SessionWatchMessageSummaryResponse,
         SessionWatchSnapshotResponse, SoulMemoryRequest, SoulMemoryResponse, SoulResponse,
     },
     soul::{
@@ -41,6 +42,7 @@ use crate::schema::{
         session::get_session_watch_snapshot,
         session::list_session_effects,
         session::list_session_compacts,
+        session::list_session_tool_activities,
     ),
     components(schemas(
         HealthResponse,
@@ -62,6 +64,8 @@ use crate::schema::{
         SessionCompactResponse,
         SessionMessagesResponse,
         SessionEffectsResponse,
+        SessionToolActivitiesResponse,
+        SessionToolActivityResponse,
         SessionWatchMessageSummaryResponse,
         SessionWatchEffectSummaryResponse,
         SessionWatchSnapshotResponse,

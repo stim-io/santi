@@ -299,13 +299,12 @@ async fn finish_turn_run(
     guard: Box<dyn LockGuard + Send>,
 ) -> Result<TurnRunOutput, SendSessionError> {
     let release_result = guard.release().await.map_err(map_lock_error);
-    let output = match run_result {
-        Ok(output) => output,
-        Err(err) => return Err(err),
-    };
-
-    release_result?;
-    Ok(output)
+    match (run_result, release_result) {
+        (Ok(output), Ok(())) => Ok(output),
+        (Ok(_), Err(release_err)) => Err(release_err),
+        (Err(err), Ok(())) => Err(err),
+        (Err(_), Err(release_err)) => Err(release_err),
+    }
 }
 
 async fn run_turn_completed_hooks(
@@ -475,7 +474,8 @@ async fn run_turn_body(
         .await
         .map_err(map_core_error)?;
 
-    deps.soul_runtime
+    let completed_turn = deps
+        .soul_runtime
         .complete_turn(CompleteTurn {
             turn_id: turn.id.clone(),
             last_seen_session_seq: assistant_message.relation.session_seq,
@@ -511,7 +511,7 @@ async fn run_turn_body(
     );
 
     Ok(TurnRunOutput {
-        turn,
+        turn: completed_turn,
         session: startup.session,
         soul_session_id: startup.soul_session_id,
         assistant_message,

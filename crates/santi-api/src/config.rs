@@ -77,18 +77,8 @@ impl Config {
             .filter(|raw| !raw.trim().is_empty())
             .map(|raw| parse_hook_source_json(&raw))
             .transpose()?
-            .or_else(|| {
-                env::var("HOOK_SPECS_FILE")
-                    .ok()
-                    .filter(|raw| !raw.trim().is_empty())
-                    .map(|path| HookSpecSource::Path { path })
-            })
-            .or_else(|| {
-                env::var("HOOK_SPECS_URL")
-                    .ok()
-                    .filter(|raw| !raw.trim().is_empty())
-                    .map(|url| HookSpecSource::Url { url })
-            });
+            .or_else(|| optional_env("HOOK_SPECS_FILE").map(|path| HookSpecSource::Path { path }))
+            .or_else(|| optional_env("HOOK_SPECS_URL").map(|url| HookSpecSource::Url { url }));
 
         Ok(Self {
             mode,

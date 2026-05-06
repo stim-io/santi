@@ -139,14 +139,33 @@ async fn standalone_http_exposes_session_tool_activity_summaries() {
         items[0].get("tool_name").and_then(Value::as_str),
         Some("bash")
     );
+
+    assert_bash_tool_activity_summary(&items[0]);
+}
+
+#[cfg(not(windows))]
+fn assert_bash_tool_activity_summary(item: &Value) {
     assert_eq!(
-        items[0].get("result_state").and_then(Value::as_str),
+        item.get("result_state").and_then(Value::as_str),
         Some("completed")
     );
-    assert_eq!(items[0].get("exit_code").and_then(Value::as_i64), Some(0));
+    assert_eq!(item.get("exit_code").and_then(Value::as_i64), Some(0));
     assert_eq!(
-        items[0].get("output_summary").and_then(Value::as_str),
+        item.get("output_summary").and_then(Value::as_str),
         Some("bash exit 0; stdout 12 chars; stderr 0 chars")
+    );
+}
+
+#[cfg(windows)]
+fn assert_bash_tool_activity_summary(item: &Value) {
+    assert_eq!(
+        item.get("result_state").and_then(Value::as_str),
+        Some("tool-error")
+    );
+    assert_eq!(item.get("exit_code").and_then(Value::as_i64), None);
+    assert_eq!(
+        item.get("output_summary").and_then(Value::as_str),
+        Some("ok false")
     );
 }
 

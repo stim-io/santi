@@ -18,6 +18,13 @@ This layer is public inside `santi`: it is the actor-authored conversation view 
 
 When this layer receives product/protocol facts, keep external product ids as explicit references or metadata. Do not rely on coincidental shared `conversation_id` or `message_id` values as the durable cross-ledger ownership model.
 
+When this layer participates in shared protocol or product-ledger correlation,
+map public message facts to `stim-proto` message fact semantics with explicit
+`ledger_id`, `fact_id`, `message_id`, `content_id`, `revision_id`,
+`correlation_id`, and `causation_id` references. This mapping is a protocol
+projection; it does not make `santi`'s IM-facing tables the `stim-server`
+product ledger.
+
 ### `sessions`
 
 Fields:
@@ -70,6 +77,11 @@ Rules:
   - `{"type":"text","text":"..."}`
   - `{"type":"image","mime_type":"image/png","data_base64":"..."}`
 - the current API/CLI send surface may stay text-first even though the model supports structured parts
+
+Shared `stim-proto` content references may point at this layer's typed content
+or object storage in the future. The public message row should remain the
+IM-facing ledger fact, while large or typed payloads should be referenced rather
+than forced inline.
 
 ### `r_session_messages`
 
@@ -210,6 +222,9 @@ Rules:
 - `turn` is one execution attempt for one `soul_session`
 - failure belongs on `turn`, not on public messages
 - runtime artifacts created during execution belong to that `turn`
+- runtime artifacts may project to shared `stim-proto` message kinds such as
+  `tool_call`, `tool_result`, `thinking`, and `compact` when they need
+  cross-ledger observability
 - keep lifecycle split as `start_turn` / `complete_turn` / `fail_turn`
 - do not introduce a unified `mark_turn` abstraction
 - `load_turn_context` is not a stable contract surface; runtime should assemble it from smaller reads
@@ -242,6 +257,14 @@ Rules:
 - success sets `output`
 - tool-level failure sets `error_text`
 - if execution stops before any `tool_result` exists, the failure belongs on `turn`
+- bash tool output is tool-layer governed before it enters `output`: stdout
+  and stderr are captured to runtime artifact files, normal projection output is
+  truncated above the configured soft limit, and timeout or hard output-limit
+  fallback is represented in the tool result feedback/error shape
+- when stored bash output is truncated, the model-facing function-call output
+  may use a shorter preview plus original character counts and artifact paths;
+  this is a provider-continuation projection, not a replacement for the stored
+  tool result
 
 Constraints:
 

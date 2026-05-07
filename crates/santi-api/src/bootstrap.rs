@@ -27,7 +27,7 @@ use crate::{
     chat_client::ChatCompletionsClient,
     config::{Config, Mode, ProviderApi},
     link_client::OpenAiResponsesClient,
-    state::AppState,
+    state::{AppMetaState, AppState},
     surface::{
         default_capabilities, DistributedAdminApi, DistributedSessionApi, DistributedSoulApi,
     },
@@ -134,14 +134,28 @@ async fn distributed_bootstrap(
         tool_config: ToolExecutorConfig {
             runtime_root: config.runtime_root.clone(),
             execution_root: config.execution_root.clone(),
+            bash_timeout_secs: config.bash_timeout_secs,
+            bash_output_truncate_chars: config.bash_output_truncate_chars,
+            bash_output_hard_bytes: config.bash_output_hard_bytes,
         },
         ebus,
         watch: watch_hub,
     }));
 
     Ok(AppState::new(
-        config.mode.clone(),
-        default_capabilities(&config.mode),
+        AppMetaState {
+            mode: config.mode.clone(),
+            launch_profile: config.launch_profile.clone(),
+            bind_addr: config.bind_addr.to_string(),
+            provider: config.meta_provider(),
+            provider_probe_url: config.provider_probe_url(),
+            provider_probe_display_url: config.provider_probe_display_url(),
+            runtime: config.meta_runtime(),
+            capabilities: default_capabilities(&config.mode),
+            config_version: 1,
+            config_source: "startup".to_string(),
+            last_config_event_id: "config.startup".to_string(),
+        },
         Arc::new(DistributedSessionApi {
             query: session_query.clone(),
             watch: session_watch,

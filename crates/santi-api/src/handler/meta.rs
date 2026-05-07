@@ -15,6 +15,7 @@ pub async fn meta(
 ) -> impl IntoResponse {
     let version = env!("CARGO_PKG_VERSION");
     let compatible_cli_xy = version.split('.').take(2).collect::<Vec<_>>().join(".");
+    let capabilities = state.capabilities();
 
     (
         StatusCode::OK,
@@ -23,16 +24,17 @@ pub async fn meta(
             service_name: env!("CARGO_PKG_NAME").to_string(),
             service_version: version.to_string(),
             compatible_cli_xy,
-            mode: match state.mode() {
-                crate::config::Mode::Distributed => "distributed".to_string(),
-                crate::config::Mode::Standalone => "standalone".to_string(),
-            },
+            mode: state.mode().as_str().to_string(),
+            launch_profile: state.launch_profile(),
+            bind_addr: Some(state.bind_addr()),
+            provider: state.provider(),
+            runtime: state.runtime(),
             capabilities: MetaCapabilities {
-                health: state.capabilities().health,
-                sessions: state.capabilities().sessions,
-                soul: state.capabilities().soul,
-                admin_hooks: state.capabilities().admin_hooks,
-                streaming: state.capabilities().streaming,
+                health: capabilities.health,
+                sessions: capabilities.sessions,
+                soul: capabilities.soul,
+                admin_hooks: capabilities.admin_hooks,
+                streaming: capabilities.streaming,
             },
         }),
     )

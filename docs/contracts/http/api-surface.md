@@ -10,7 +10,7 @@ It keeps the current resource shape and only normalizes how the surface is named
 
 - All API routes use the `/api/v1` prefix.
 - No new top-level resources are introduced here.
-- Existing resources remain the source of truth: `health`, `meta`, `soul`, `sessions`, `messages`, `effects`, `compacts`, `tool-activities`, `memory`, and admin hooks.
+- Existing resources remain the source of truth: `health`, `meta`, `soul`, `sessions`, `messages`, `effects`, `compacts`, `tool-activities`, `memory`, and admin actions.
 - `stim` protocol participation may add a narrow `stim`-scoped entrypoint when the shared `stim-proto` envelope/ack contract needs a real HTTP landing surface.
 
 ## Resource map
@@ -20,9 +20,10 @@ It keeps the current resource shape and only normalizes how the surface is named
   - cheap readiness-style check for routing and service availability
 - `GET /api/v1/meta`
   - stable service metadata
-  - version, build, and capability information
+  - version, build, runtime profile, non-secret provider/runtime facts, and capability information
   - not a health probe
-  - minimal required fields should include `api_version`, `service_name`, `service_version`, `compatible_cli_xy` or an equivalent compatibility field, and `capabilities`
+  - minimal required fields should include `api_version`, `service_name`, `service_version`, `compatible_cli_xy` or an equivalent compatibility field, `mode`, non-secret `provider` / `runtime` facts, and `capabilities`
+  - must not expose secrets such as API keys, credential-bearing URLs, or raw environment values
 - `GET /api/v1/soul`
   - soul-scoped lifecycle and resource operations
 - `PUT /api/v1/soul/memory`
@@ -50,8 +51,25 @@ It keeps the current resource shape and only normalizes how the surface is named
 - `GET /api/v1/sessions/{id}/tool-activities`
   - runtime-owned tool call/result activity summaries for the session's active soul-session view
   - exposes inspection-safe summaries, not full tool stdout/stderr or raw arguments
+  - bash summaries report original stdout/stderr character counts and whether
+    truncation or tool fallback occurred; full raw tool output remains a
+    runtime artifact, not an inline HTTP response field
 - `PUT /api/v1/admin/hooks`
   - operational hooks used by trusted standalone/admin flows
+- `GET /api/v1/admin/config`
+  - current effective runtime configuration projection for trusted admin/operator inspection
+  - returns version/source facts and non-secret provider/runtime projection
+  - must not expose API keys or raw credential-bearing environment values
+- `POST /api/v1/admin/config/apply`
+  - typed hot-apply entrypoint for trusted runtime configuration changes
+  - current supported scope is provider config plus launch profile facts for subsequent turns
+  - returns event-shaped apply facts, config version, and non-secret provider/runtime projection
+  - must not expose API keys or raw credential-bearing environment values
+  - running turns keep their start-time provider snapshot; new turns use the applied provider config
+- `POST /api/v1/admin/provider/probe`
+  - live probe of the configured provider/gateway health endpoint from inside `santi`
+  - derives the checked URL from runtime provider configuration and returns only a redacted checked URL, HTTP status if present, state, and detail
+  - not a model completion call, provider profile switch, or arbitrary user-supplied URL fetcher
 - `POST /api/v1/stim/envelopes`
   - narrow `stim-proto` protocol participation surface
   - accepts a shared `MessageEnvelope`

@@ -3,6 +3,8 @@ use utoipa::ToSchema;
 
 use santi_core::hook::{HookKind, HookPoint, HookSpec, HookSpecSource};
 
+use super::meta::{MetaProvider, MetaRuntime};
+
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 pub struct HookReloadRequest {
     #[serde(flatten)]
@@ -13,6 +15,65 @@ pub struct HookReloadRequest {
 #[derive(Clone, Debug, Serialize, ToSchema)]
 pub struct HookReloadResponse {
     pub hook_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub struct ProviderProbeResponse {
+    pub state: ProviderProbeState,
+    pub checked_url: String,
+    pub http_status: Option<u16>,
+    pub detail: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+pub struct ConfigApplyRequest {
+    pub launch_profile: Option<String>,
+    pub provider: Option<ProviderConfigApplyRequest>,
+}
+
+#[derive(Clone, Debug, Deserialize, ToSchema)]
+pub struct ProviderConfigApplyRequest {
+    pub api: String,
+    pub model: String,
+    pub gateway_base_url: String,
+    #[schema(value_type = String, format = Password)]
+    pub api_key: String,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub struct ConfigApplyResponse {
+    pub event_id: String,
+    pub config_version: u64,
+    pub source: String,
+    pub status: ConfigApplyStatus,
+    pub launch_profile: Option<String>,
+    pub provider: MetaProvider,
+    pub runtime: MetaRuntime,
+    pub detail: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub struct ConfigCurrentResponse {
+    pub config_version: u64,
+    pub last_event_id: String,
+    pub source: String,
+    pub launch_profile: Option<String>,
+    pub provider: MetaProvider,
+    pub runtime: MetaRuntime,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConfigApplyStatus {
+    Applied,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProviderProbeState {
+    Ready,
+    Degraded,
+    Unreachable,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]

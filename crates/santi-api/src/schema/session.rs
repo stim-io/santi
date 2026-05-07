@@ -391,6 +391,10 @@ fn result_state(
             .and_then(|output| output.get("ok"))
             .and_then(serde_json::Value::as_bool)
             == Some(false)
+        || output
+            .and_then(|output| output.pointer("/feedback_msg"))
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|feedback| feedback != "normal tool call")
     {
         return "tool-error".to_string();
     }
@@ -406,18 +410,48 @@ fn bash_exit_code(output: Option<&serde_json::Value>) -> Option<i64> {
 
 fn bash_stream_chars(output: Option<&serde_json::Value>, stream: &str) -> Option<u64> {
     output
-        .and_then(|output| output.pointer(&format!("/bash_result/{stream}")))
+        .and_then(|output| output.pointer(&format!("/bash_result/{stream}_chars")))
+        .and_then(serde_json::Value::as_u64)
+        .or_else(|| {
+            output
+                .and_then(|output| output.pointer(&format!("/bash_result/{stream}")))
+                .and_then(serde_json::Value::as_str)
+                .map(|value| value.chars().count() as u64)
+        })
+}
+
+fn bash_stream_truncated(output: Option<&serde_json::Value>, stream: &str) -> bool {
+    output
+        .and_then(|output| output.pointer(&format!("/bash_result/{stream}_truncated")))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn bash_feedback_msg(output: Option<&serde_json::Value>) -> Option<&str> {
+    output
+        .and_then(|output| output.pointer("/feedback_msg"))
         .and_then(serde_json::Value::as_str)
-        .map(|value| value.chars().count() as u64)
 }
 
 fn output_summary(output: &serde_json::Value) -> String {
     if let Some(exit_code) = bash_exit_code(Some(output)) {
-        return format!(
+        let mut summary = format!(
             "bash exit {exit_code}; stdout {} chars; stderr {} chars",
             bash_stream_chars(Some(output), "stdout").unwrap_or(0),
             bash_stream_chars(Some(output), "stderr").unwrap_or(0)
         );
+        if bash_stream_truncated(Some(output), "stdout")
+            || bash_stream_truncated(Some(output), "stderr")
+        {
+            summary.push_str("; output truncated");
+        }
+        if let Some(feedback_msg) = bash_feedback_msg(Some(output)) {
+            if feedback_msg != "normal tool call" {
+                summary.push_str("; ");
+                summary.push_str(feedback_msg);
+            }
+        }
+        return summary;
     }
 
     if let Some(ok) = output.get("ok").and_then(serde_json::Value::as_bool) {

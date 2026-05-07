@@ -2,6 +2,11 @@ use std::{env, net::SocketAddr};
 
 use santi_core::hook::HookSpecSource;
 
+use crate::schema::meta::{MetaProvider, MetaRuntime};
+use santi_runtime::runtime::tools::{
+    DEFAULT_BASH_OUTPUT_HARD_BYTES, DEFAULT_BASH_OUTPUT_TRUNCATE_CHARS, DEFAULT_BASH_TIMEOUT_SECS,
+};
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub mode: Mode,
@@ -16,6 +21,9 @@ pub struct Config {
     pub standalone_sqlite_path: String,
     pub execution_root: String,
     pub runtime_root: String,
+    pub bash_timeout_secs: u64,
+    pub bash_output_truncate_chars: usize,
+    pub bash_output_hard_bytes: usize,
     pub hook_source: Option<HookSpecSource>,
 }
 
@@ -54,6 +62,16 @@ impl Config {
 
         let runtime_root =
             env::var("RUNTIME_ROOT").unwrap_or_else(|_| "/tmp/santi-runtime".to_string());
+        let bash_timeout_secs =
+            parse_env_u64("SANTI_BASH_TIMEOUT_SECS", DEFAULT_BASH_TIMEOUT_SECS)?;
+        let bash_output_truncate_chars = parse_env_usize(
+            "SANTI_BASH_OUTPUT_TRUNCATE_CHARS",
+            DEFAULT_BASH_OUTPUT_TRUNCATE_CHARS,
+        )?;
+        let bash_output_hard_bytes = parse_env_usize(
+            "SANTI_BASH_OUTPUT_HARD_BYTES",
+            DEFAULT_BASH_OUTPUT_HARD_BYTES,
+        )?;
 
         let openai_api_key =
             env::var("OPENAI_API_KEY").map_err(|_| "missing OPENAI_API_KEY".to_string())?;
@@ -93,6 +111,9 @@ impl Config {
             standalone_sqlite_path,
             execution_root,
             runtime_root,
+            bash_timeout_secs,
+            bash_output_truncate_chars,
+            bash_output_hard_bytes,
             hook_source,
         })
     }
@@ -108,10 +129,37 @@ impl Config {
             provider_gateway_base_url: Some(redact_url_for_runtime_fact(&self.openai_base_url)),
         }
     }
+
+    pub fn meta_provider(&self) -> MetaProvider {
+        MetaProvider {
+            api: self.provider_api.as_str().to_string(),
+            model: self.openai_model.clone(),
+            gateway_base_url: Some(redact_url_for_runtime_fact(&self.openai_base_url)),
+        }
+    }
+
+    pub fn meta_runtime(&self) -> MetaRuntime {
+        MetaRuntime {
+            execution_root: self.execution_root.clone(),
+            runtime_root: self.runtime_root.clone(),
+            standalone_sqlite_path: match self.mode {
+                Mode::Standalone => Some(self.standalone_sqlite_path.clone()),
+                Mode::Distributed => None,
+            },
+        }
+    }
+
+    pub fn provider_probe_url(&self) -> String {
+        provider_health_url(&self.openai_base_url)
+    }
+
+    pub fn provider_probe_display_url(&self) -> String {
+        redact_url_for_runtime_fact(&self.provider_probe_url())
+    }
 }
 
 impl Mode {
-    fn as_str(&self) -> &'static str {
+    pub fn as_str(&self) -> &'static str {
         match self {
             Mode::Distributed => "distributed",
             Mode::Standalone => "standalone",
@@ -120,7 +168,7 @@ impl Mode {
 }
 
 impl ProviderApi {
-    fn from_env_value(value: String) -> Result<Self, String> {
+    pub fn from_env_value(value: String) -> Result<Self, String> {
         match value.trim().to_lowercase().as_str() {
             "responses" | "openai-responses" | "openai_responses" => Ok(Self::Responses),
             "chat-completions" | "chat_completions" | "openai-chat" | "deepseek" => {
@@ -145,12 +193,42 @@ fn optional_env(key: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn redact_url_for_runtime_fact(value: &str) -> String {
-    let without_fragment = value.split_once('#').map(|(base, _)| base).unwrap_or(value);
-    let without_query = without_fragment
-        .split_once('?')
-        .map(|(base, _)| base)
-        .unwrap_or(without_fragment);
+fn parse_env_u64(key: &str, default: u64) -> Result<u64, String> {
+    optional_env(key)
+        .map(|value| {
+            value
+                .parse::<u64>()
+                .map_err(|err| format!("invalid {key}: {err}"))
+                .and_then(|value| {
+                    if value == 0 {
+                        Err(format!("{key} must be greater than zero"))
+                    } else {
+                        Ok(value)
+                    }
+                })
+        })
+        .unwrap_or(Ok(default))
+}
+
+fn parse_env_usize(key: &str, default: usize) -> Result<usize, String> {
+    optional_env(key)
+        .map(|value| {
+            value
+                .parse::<usize>()
+                .map_err(|err| format!("invalid {key}: {err}"))
+                .and_then(|value| {
+                    if value == 0 {
+                        Err(format!("{key} must be greater than zero"))
+                    } else {
+                        Ok(value)
+                    }
+                })
+        })
+        .unwrap_or(Ok(default))
+}
+
+pub(crate) fn redact_url_for_runtime_fact(value: &str) -> String {
+    let without_query = strip_query_and_fragment(value);
 
     let Some(scheme_end) = without_query.find("://") else {
         return without_query.to_string();
@@ -173,13 +251,28 @@ fn redact_url_for_runtime_fact(value: &str) -> String {
     )
 }
 
+pub(crate) fn provider_health_url(base_url: &str) -> String {
+    format!(
+        "{}/health",
+        strip_query_and_fragment(base_url).trim_end_matches('/')
+    )
+}
+
+fn strip_query_and_fragment(value: &str) -> &str {
+    let without_fragment = value.split_once('#').map(|(base, _)| base).unwrap_or(value);
+    without_fragment
+        .split_once('?')
+        .map(|(base, _)| base)
+        .unwrap_or(without_fragment)
+}
+
 fn parse_hook_source_json(raw: &str) -> Result<HookSpecSource, String> {
     HookSpecSource::from_json_str(raw).map_err(|err| format!("parse HOOK_SPECS_JSON failed: {err}"))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{redact_url_for_runtime_fact, ProviderApi};
+    use super::{provider_health_url, redact_url_for_runtime_fact, ProviderApi};
 
     #[test]
     fn runtime_fact_url_redaction_removes_credentials_query_and_fragment() {
@@ -208,6 +301,18 @@ mod tests {
         assert_eq!(
             ProviderApi::from_env_value("responses".to_string()).unwrap(),
             ProviderApi::Responses
+        );
+    }
+
+    #[test]
+    fn provider_health_url_derives_from_configured_base_url() {
+        assert_eq!(
+            provider_health_url("http://127.0.0.1:18082/openai/v1/"),
+            "http://127.0.0.1:18082/openai/v1/health"
+        );
+        assert_eq!(
+            provider_health_url("https://example.test/v1?token=abc#frag"),
+            "https://example.test/v1/health"
         );
     }
 }

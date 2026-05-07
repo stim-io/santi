@@ -12,6 +12,15 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/v1/health", get(handler::health::health))
         .route("/api/v1/meta", get(handler::meta::meta))
         .route("/api/v1/admin/hooks", put(handler::admin::reload_hooks))
+        .route("/api/v1/admin/config", get(handler::admin::get_config))
+        .route(
+            "/api/v1/admin/config/apply",
+            post(handler::admin::apply_config),
+        )
+        .route(
+            "/api/v1/admin/provider/probe",
+            post(handler::admin::probe_provider),
+        )
         .route("/api/v1/soul", get(handler::session::get_default_soul))
         .route(
             "/api/v1/soul/memory",

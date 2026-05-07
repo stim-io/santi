@@ -19,6 +19,30 @@ async fn standalone_http_meta_admin_and_soul_routes_work() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(meta.get("mode").and_then(Value::as_str), Some("standalone"));
     assert_eq!(
+        meta.pointer("/provider/api").and_then(Value::as_str),
+        Some("responses")
+    );
+    assert_eq!(
+        meta.pointer("/provider/model").and_then(Value::as_str),
+        Some("gpt-5.4")
+    );
+    assert!(meta
+        .pointer("/provider/gateway_base_url")
+        .and_then(Value::as_str)
+        .is_some());
+    assert!(meta
+        .pointer("/runtime/execution_root")
+        .and_then(Value::as_str)
+        .is_some());
+    assert!(meta
+        .pointer("/runtime/runtime_root")
+        .and_then(Value::as_str)
+        .is_some());
+    assert!(meta
+        .pointer("/runtime/standalone_sqlite_path")
+        .and_then(Value::as_str)
+        .is_some());
+    assert_eq!(
         meta.pointer("/capabilities/health")
             .and_then(Value::as_bool),
         Some(true)

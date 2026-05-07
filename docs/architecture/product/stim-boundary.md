@@ -10,6 +10,11 @@ This file records the durable product boundary between `stim`, `stim-server`, `s
 
 `stim-proto` owns the shared protocol semantics that need to survive across runtime differences. It should absorb durable cross-repo message, discovery, acknowledgement, and reply contracts, but it should not force identical internal table structure across repos.
 
+For shared message-ledger semantics, `stim-proto` provides message fact,
+content-reference, and relation contracts. `santi` may project its IM-facing and
+runtime facts into those contracts for correlation, but projection does not move
+product-ledger ownership into `santi`.
+
 ## Santi ledger views
 
 `santi` keeps at least two distinct message-ledger views:
@@ -25,6 +30,12 @@ This file records the durable product boundary between `stim`, `stim-server`, `s
    - may reference IM-facing messages as input material, but should not store provider snapshots as public IM truth
 
 These views must not collapse into one universal `messages` table. Keep relation rows, ids, references, correlation ids, and causation ids explicit whenever facts cross from the product ledger into `santi`'s IM-facing view or from that view into the LLM/runtime view.
+
+Shared `stim-proto` message kinds such as `thinking`, `tool_call`,
+`tool_result`, and `compact` are runtime-capable kind markers. They do not by
+themselves decide whether a fact is user-visible, context-included, writable, or
+read-only; those decisions belong to `santi` runtime assembly and projection
+policy.
 
 ## Protocol boundary
 

@@ -1,4 +1,7 @@
-use std::{pin::Pin, sync::Arc};
+use std::{
+    pin::Pin,
+    sync::{Arc, RwLock},
+};
 
 use async_stream::try_stream;
 use futures::Stream;
@@ -44,13 +47,11 @@ use self::turn::{run_turn_startup, run_turn_worker, TurnRunDeps};
 
 #[derive(Clone)]
 pub struct SessionSendService {
-    model: String,
     default_soul_id: String,
     lock: Arc<dyn Lock>,
     session_ledger: Arc<dyn SessionLedgerPort>,
     soul_runtime: Arc<dyn SoulRuntimePort>,
-    provider: Arc<dyn Provider>,
-    runtime_facts: RuntimeSelfFacts,
+    provider_config: Arc<RwLock<SessionProviderConfig>>,
     tools: Arc<ToolExecutor>,
     hooks: Arc<HookRuntime>,
     watch: Arc<SessionWatchHub>,
@@ -71,6 +72,13 @@ pub struct SessionSendServiceDeps {
     pub tool_config: ToolExecutorConfig,
     pub ebus: Arc<dyn SubscriberSetPort<Arc<dyn HookEvaluator>>>,
     pub watch: Arc<SessionWatchHub>,
+}
+
+#[derive(Clone)]
+pub struct SessionProviderConfig {
+    pub model: String,
+    pub provider: Arc<dyn Provider>,
+    pub runtime_facts: RuntimeSelfFacts,
 }
 
 #[derive(Clone)]
@@ -129,6 +137,11 @@ pub struct TurnExecutionRequest {
 impl SessionSendService {
     pub fn new(deps: SessionSendServiceDeps) -> Self {
         let tools = Arc::new(ToolExecutor::new(deps.session_memory, deps.tool_config));
+        let provider_config = Arc::new(RwLock::new(SessionProviderConfig {
+            model: deps.model.clone(),
+            provider: deps.provider.clone(),
+            runtime_facts: deps.runtime_facts.clone(),
+        }));
         let compact_service = Arc::new(SessionCompactService::new(
             deps.lock.clone(),
             deps.session_ledger.clone(),
@@ -155,13 +168,11 @@ impl SessionSendService {
             deps.watch.clone(),
         ));
         Self {
-            model: deps.model,
             default_soul_id: deps.default_soul_id,
             lock: deps.lock,
             session_ledger: deps.session_ledger,
             soul_runtime: deps.soul_runtime,
-            provider: deps.provider,
-            runtime_facts: deps.runtime_facts,
+            provider_config,
             tools,
             hooks: Arc::new(HookRuntime::new(deps.ebus, compact_service, effect_service)),
             watch: deps.watch,
@@ -173,6 +184,13 @@ impl SessionSendService {
         let count = subscribers.len();
         self.hooks.replace_subscribers(subscribers);
         count
+    }
+
+    pub fn replace_provider_config(&self, config: SessionProviderConfig) {
+        *self
+            .provider_config
+            .write()
+            .expect("session provider config lock poisoned") = config;
     }
 
     pub async fn start(
@@ -218,14 +236,19 @@ impl SessionSendService {
         let (tx, mut rx) = mpsc::unbounded_channel::<Result<SendSessionEvent, SendSessionError>>();
         let error_tx = tx.clone();
 
+        let provider_config = self
+            .provider_config
+            .read()
+            .expect("session provider config lock poisoned")
+            .clone();
         let turn_service = SessionTurnService {
-            model: self.model.clone(),
+            model: provider_config.model,
             default_soul_id: self.default_soul_id.clone(),
             lock: self.lock.clone(),
             session_ledger: self.session_ledger.clone(),
             soul_runtime: self.soul_runtime.clone(),
-            provider: self.provider.clone(),
-            runtime_facts: self.runtime_facts.clone(),
+            provider: provider_config.provider,
+            runtime_facts: provider_config.runtime_facts,
             tools: self.tools.clone(),
             watch: self.watch.clone(),
         };

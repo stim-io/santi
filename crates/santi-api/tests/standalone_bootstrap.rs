@@ -8,6 +8,9 @@ use santi_db::adapter::standalone::{
     soul_runtime::StandaloneSoulRuntime, soul_store::StandaloneSoul,
 };
 use santi_lock::adapter::standalone::InProcessLock;
+use santi_runtime::runtime::tools::{
+    DEFAULT_BASH_OUTPUT_HARD_BYTES, DEFAULT_BASH_OUTPUT_TRUNCATE_CHARS, DEFAULT_BASH_TIMEOUT_SECS,
+};
 use santi_runtime::session::query::SessionQueryService;
 use std::sync::Arc;
 
@@ -27,6 +30,9 @@ async fn standalone_bootstrap_injects_session_store() {
         standalone_sqlite_path: dir.path().join("standalone.sqlite").display().to_string(),
         execution_root: String::new(),
         runtime_root: String::new(),
+        bash_timeout_secs: DEFAULT_BASH_TIMEOUT_SECS,
+        bash_output_truncate_chars: DEFAULT_BASH_OUTPUT_TRUNCATE_CHARS,
+        bash_output_hard_bytes: DEFAULT_BASH_OUTPUT_HARD_BYTES,
         hook_source: None,
     };
 
@@ -52,6 +58,9 @@ async fn standalone_bootstrap_fails_when_lock_is_held() {
         standalone_sqlite_path: dir.path().join("standalone.sqlite").display().to_string(),
         execution_root: String::new(),
         runtime_root: String::new(),
+        bash_timeout_secs: DEFAULT_BASH_TIMEOUT_SECS,
+        bash_output_truncate_chars: DEFAULT_BASH_OUTPUT_TRUNCATE_CHARS,
+        bash_output_hard_bytes: DEFAULT_BASH_OUTPUT_HARD_BYTES,
         hook_source: None,
     };
 

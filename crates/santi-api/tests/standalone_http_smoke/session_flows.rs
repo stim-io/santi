@@ -4,8 +4,9 @@ use tokio::time::{sleep, Duration};
 use tower::ServiceExt;
 
 use crate::common::{
-    bootstrap_test_app, create_session, request_json, request_text, start_delayed_mock_gateway,
-    start_mock_gateway, start_tool_call_mock_gateway,
+    bootstrap_test_app, bootstrap_test_app_with_bash_limits, create_session, request_json,
+    request_text, start_delayed_mock_gateway, start_mock_gateway, start_tool_call_mock_gateway,
+    start_tool_call_mock_gateway_with_command,
 };
 
 #[tokio::test]
@@ -141,6 +142,57 @@ async fn standalone_http_exposes_session_tool_activity_summaries() {
     );
 
     assert_bash_tool_activity_summary(&items[0]);
+}
+
+#[tokio::test]
+async fn standalone_http_tool_activity_reports_truncated_bash_output() {
+    let (_dir, app) = bootstrap_test_app_with_bash_limits(
+        start_tool_call_mock_gateway_with_command("printf abcdef").await,
+        3,
+        1024,
+    )
+    .await;
+    let session_id = create_session(&app).await;
+
+    let (status, _) = request_text(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri(format!("/api/v1/sessions/{session_id}/send"))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"content":[{"type":"text","text":"please use a tool"}]}"#,
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, tool_activities) = request_json(
+        &app,
+        Request::builder()
+            .method("GET")
+            .uri(format!("/api/v1/sessions/{session_id}/tool-activities"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let item = tool_activities
+        .get("tool_activities")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .unwrap();
+
+    assert_eq!(
+        item.get("result_state").and_then(Value::as_str),
+        Some("completed")
+    );
+    assert_eq!(item.get("stdout_chars").and_then(Value::as_u64), Some(6));
+    assert_eq!(
+        item.get("output_summary").and_then(Value::as_str),
+        Some("bash exit 0; stdout 6 chars; stderr 0 chars; output truncated")
+    );
 }
 
 #[cfg(not(windows))]

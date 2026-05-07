@@ -20,7 +20,7 @@ use crate::{
     chat_client::ChatCompletionsClient,
     config::{Config, ProviderApi},
     link_client::OpenAiResponsesClient,
-    state::AppState,
+    state::{AppMetaState, AppState},
     surface::{default_capabilities, StandaloneAdminApi, StandaloneSessionApi, StandaloneSoulApi},
 };
 
@@ -98,14 +98,28 @@ pub async fn bootstrap_standalone(config: &Config) -> santi_core::error::Result<
         tool_config: santi_runtime::runtime::tools::ToolExecutorConfig {
             runtime_root: config.runtime_root.clone(),
             execution_root: config.execution_root.clone(),
+            bash_timeout_secs: config.bash_timeout_secs,
+            bash_output_truncate_chars: config.bash_output_truncate_chars,
+            bash_output_hard_bytes: config.bash_output_hard_bytes,
         },
         ebus: ebus.clone(),
         watch: watch_hub,
     }));
 
     Ok(AppState::new(
-        config.mode.clone(),
-        default_capabilities(&config.mode),
+        AppMetaState {
+            mode: config.mode.clone(),
+            launch_profile: config.launch_profile.clone(),
+            bind_addr: config.bind_addr.to_string(),
+            provider: config.meta_provider(),
+            provider_probe_url: config.provider_probe_url(),
+            provider_probe_display_url: config.provider_probe_display_url(),
+            runtime: config.meta_runtime(),
+            capabilities: default_capabilities(&config.mode),
+            config_version: 1,
+            config_source: "startup".to_string(),
+            last_config_event_id: "config.startup".to_string(),
+        },
         Arc::new(StandaloneSessionApi {
             query: query.clone(),
             watch,
@@ -113,14 +127,14 @@ pub async fn bootstrap_standalone(config: &Config) -> santi_core::error::Result<
             fork,
             compact,
             effect_ledger,
-            send,
+            send: send.clone(),
         }),
         store.clone(),
         Arc::new(StandaloneSoulApi {
             session_query: query,
             memory,
         }),
-        Arc::new(StandaloneAdminApi { ebus }),
+        Arc::new(StandaloneAdminApi { ebus, send }),
         Some(lock),
     ))
 }

@@ -144,6 +144,7 @@ async fn standalone_http_exposes_session_tool_activity_summaries() {
     assert_bash_tool_activity_summary(&items[0]);
 }
 
+#[cfg(not(windows))]
 #[tokio::test]
 async fn standalone_http_tool_activity_reports_truncated_bash_output() {
     let (_dir, app) = bootstrap_test_app_with_bash_limits(

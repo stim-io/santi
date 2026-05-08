@@ -40,7 +40,7 @@ use crate::{
     },
 };
 
-mod assembly;
+pub mod assembly;
 mod turn;
 
 use self::turn::{run_turn_startup, run_turn_worker, TurnRunDeps};

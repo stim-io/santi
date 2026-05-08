@@ -35,7 +35,7 @@ pub async fn bootstrap_test_app(gateway_base_url: String) -> (tempfile::TempDir,
     (dir, build_router(state))
 }
 
-pub async fn bootstrap_test_app_with_bash_limits(
+pub async fn bootstrap_bash_test_app(
     gateway_base_url: String,
     truncate_chars: usize,
     hard_bytes: usize,
@@ -174,11 +174,11 @@ pub async fn start_text_mock_gateway(text: &'static str) -> String {
     format!("http://{addr}/openai/v1")
 }
 
-pub async fn start_tool_call_mock_gateway() -> String {
-    start_tool_call_mock_gateway_with_command("printf tool-visible").await
+pub async fn start_tool_gateway() -> String {
+    start_tool_gateway_command("printf tool-visible").await
 }
 
-pub async fn start_tool_call_mock_gateway_with_command(command: &'static str) -> String {
+pub async fn start_tool_gateway_command(command: &'static str) -> String {
     async fn responses(
         request_count: Arc<AtomicUsize>,
         command: &'static str,

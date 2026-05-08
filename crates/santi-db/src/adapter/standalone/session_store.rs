@@ -3,11 +3,10 @@ use std::path::Path;
 use sqlx::{Row, SqlitePool};
 
 mod mapping;
-mod message_events;
 mod schema;
 
+use crate::message_events::apply_message_event;
 use mapping::{actor_type_db, content_to_json, content_to_text, map_session_message_row, state_db};
-use message_events::apply_message_event_to_message;
 use schema::setup_sqlite_pool;
 
 use santi_core::{
@@ -268,7 +267,7 @@ impl SessionLedgerPort for StandaloneSessionLedger {
             });
         }
 
-        let updated_message = apply_message_event_to_message(
+        let updated_message = apply_message_event(
             current.message,
             &input.actor_type,
             &input.actor_id,

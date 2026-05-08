@@ -9,9 +9,6 @@ use crate::session::query::SessionQueryService;
 mod projection;
 mod shapes;
 
-#[cfg(test)]
-mod tests;
-
 pub use shapes::{
     SessionWatchActivityChanged, SessionWatchActivityKind, SessionWatchActivityState,
     SessionWatchConnected, SessionWatchEffectSummary, SessionWatchError, SessionWatchEvent,

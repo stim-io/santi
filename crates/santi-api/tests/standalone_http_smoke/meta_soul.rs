@@ -4,7 +4,7 @@ use serde_json::Value;
 use crate::common::{bootstrap_test_app, request_json, start_mock_gateway};
 
 #[tokio::test]
-async fn standalone_http_meta_admin_and_soul_routes_work() {
+async fn meta_soul_routes_work() {
     let (_dir, app) = bootstrap_test_app(start_mock_gateway().await).await;
 
     let (status, meta) = request_json(

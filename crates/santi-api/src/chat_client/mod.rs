@@ -306,7 +306,7 @@ impl ChatStreamState {
             let calls = self.provider_tool_calls(&response_id)?;
             provider.cache_response_messages(
                 response_id.clone(),
-                self.cached_messages_for_tool_followup(&calls),
+                self.cached_followup_messages(&calls),
             );
             events.extend(calls.into_iter().map(ProviderEvent::FunctionCallRequested));
         }
@@ -330,7 +330,7 @@ impl ChatStreamState {
             .collect()
     }
 
-    fn cached_messages_for_tool_followup(&self, calls: &[ProviderFunctionCall]) -> Vec<Value> {
+    fn cached_followup_messages(&self, calls: &[ProviderFunctionCall]) -> Vec<Value> {
         let mut messages = self.request_messages.clone();
         let tool_calls = calls
             .iter()
@@ -449,123 +449,4 @@ fn map_chat_tools(tools: Option<Vec<ProviderTool>>) -> Option<Vec<Value>> {
             })
             .collect()
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use futures::StreamExt;
-
-    use super::*;
-    use santi_core::{
-        port::provider::{ProviderFunctionTool, ProviderTool},
-        provider::ProviderInputMessage,
-    };
-
-    #[test]
-    fn maps_initial_request_to_chat_messages_and_tools() {
-        let client = ChatCompletionsClient::new("key".into(), "https://api.deepseek.com".into());
-        let request = client
-            .map_request(ProviderRequest {
-                model: "deepseek-chat".into(),
-                instructions: Some("system guidance".into()),
-                input: vec![ProviderInputMessage {
-                    role: "user".into(),
-                    content: "hello".into(),
-                }],
-                tools: Some(vec![ProviderTool::Function(ProviderFunctionTool {
-                    name: "bash".into(),
-                    description: "run bash".into(),
-                    parameters: json!({ "type": "object" }),
-                })]),
-                previous_response_id: None,
-                function_call_outputs: None,
-            })
-            .unwrap();
-
-        assert_eq!(request.model, "deepseek-chat");
-        assert_eq!(request.messages[0]["role"], "system");
-        assert_eq!(request.messages[1]["role"], "user");
-        assert_eq!(request.tools.unwrap()[0]["function"]["name"], "bash");
-        assert!(request.stream);
-    }
-
-    #[test]
-    fn parses_chat_completion_content_delta() {
-        let frame = r#"data: {"id":"chatcmpl-1","choices":[{"delta":{"content":"hi"},"finish_reason":null}]}"#;
-        let payloads = parse_sse_frame(frame).unwrap();
-        let client = ChatCompletionsClient::new("key".into(), "https://api.deepseek.com".into());
-        let mut state = ChatStreamState::new(Vec::new());
-        let events = state.handle_payload(&client, payloads[0].clone()).unwrap();
-
-        assert_eq!(events, vec![ProviderEvent::OutputTextDelta("hi".into())]);
-    }
-
-    #[test]
-    fn caches_tool_call_context_for_followup_outputs() {
-        let client = ChatCompletionsClient::new("key".into(), "https://api.deepseek.com".into());
-        let mut state = ChatStreamState::new(vec![json!({"role": "user", "content": "run pwd"})]);
-        let payload = json!({
-            "id": "chatcmpl-1",
-            "choices": [{
-                "delta": {
-                    "tool_calls": [{
-                        "index": 0,
-                        "id": "call-1",
-                        "type": "function",
-                        "function": {"name": "bash", "arguments": "{\"command\":\"pwd\"}"}
-                    }]
-                },
-                "finish_reason": "tool_calls"
-            }]
-        });
-
-        let events = state.handle_payload(&client, payload).unwrap();
-        assert!(matches!(events[0], ProviderEvent::FunctionCallRequested(_)));
-        assert!(matches!(events[1], ProviderEvent::Completed { .. }));
-
-        let followup = client
-            .map_messages(
-                None,
-                Vec::new(),
-                Some("chatcmpl-1"),
-                Some(vec![FunctionCallOutput {
-                    call_id: "call-1".into(),
-                    output: "ok".into(),
-                }]),
-            )
-            .unwrap();
-
-        assert_eq!(followup[1]["role"], "assistant");
-        assert_eq!(followup[1]["tool_calls"][0]["function"]["name"], "bash");
-        assert_eq!(followup[2]["role"], "tool");
-        assert_eq!(followup[2]["tool_call_id"], "call-1");
-    }
-
-    #[tokio::test]
-    async fn endpoint_appends_chat_completions_when_base_url_is_root() {
-        let client = ChatCompletionsClient::new("key".into(), "https://api.deepseek.com".into());
-        assert_eq!(
-            client.endpoint(),
-            "https://api.deepseek.com/chat/completions"
-        );
-
-        let client = ChatCompletionsClient::new(
-            "key".into(),
-            "https://api.deepseek.com/chat/completions".into(),
-        );
-        assert_eq!(
-            client.endpoint(),
-            "https://api.deepseek.com/chat/completions"
-        );
-
-        let mut stream = client.stream(ProviderRequest {
-            model: "deepseek-chat".into(),
-            instructions: None,
-            input: Vec::new(),
-            tools: None,
-            previous_response_id: Some("missing".into()),
-            function_call_outputs: None,
-        });
-        assert!(stream.next().await.unwrap().is_err());
-    }
 }

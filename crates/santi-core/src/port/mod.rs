@@ -1,4 +1,5 @@
 pub mod compact_ledger;
+#[path = "runtime/compact_runtime.rs"]
 pub mod compact_runtime;
 pub mod ebus;
 pub mod effect_ledger;
@@ -6,6 +7,9 @@ pub mod lock;
 pub mod provider;
 pub mod session_ledger;
 pub mod soul;
+#[path = "runtime/soul_runtime.rs"]
 pub mod soul_runtime;
+#[path = "runtime/soul_session_fork.rs"]
 pub mod soul_session_fork;
+#[path = "runtime/soul_session_query.rs"]
 pub mod soul_session_query;

@@ -4,7 +4,7 @@ use santi_db::adapter::standalone::{
 };
 
 #[tokio::test]
-async fn standalone_session_create_and_get_round_trip() {
+async fn session_create_round_trip() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("standalone.sqlite");
     let store = std::sync::Arc::new(StandaloneSessionLedger::new(&path).await.unwrap());
@@ -16,7 +16,7 @@ async fn standalone_session_create_and_get_round_trip() {
 }
 
 #[tokio::test]
-async fn standalone_response_mapping_keeps_session_id() {
+async fn response_keeps_session_id() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("standalone.sqlite");
     let store = StandaloneSessionLedger::new(&path).await.unwrap();
@@ -26,7 +26,7 @@ async fn standalone_response_mapping_keeps_session_id() {
 }
 
 #[tokio::test]
-async fn standalone_session_message_round_trip() {
+async fn session_message_round_trip() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("standalone.sqlite");
     let store = StandaloneSessionLedger::new(&path).await.unwrap();
@@ -45,7 +45,7 @@ async fn standalone_session_message_round_trip() {
 }
 
 #[tokio::test]
-async fn standalone_default_soul_is_persisted_on_first_read() {
+async fn default_soul_persisted() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("standalone.sqlite");
     let store = StandaloneSoul::new(&path).await.unwrap();

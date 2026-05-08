@@ -5,7 +5,7 @@ use santi_runtime::{runtime::context::RuntimeSelfFacts, session::send::SessionPr
 
 use crate::{
     chat_client::ChatCompletionsClient,
-    config::{provider_health_url, redact_url_for_runtime_fact, Mode, ProviderApi},
+    config::{provider_health_url, redact_runtime_url, Mode, ProviderApi},
     link_client::OpenAiResponsesClient,
     protocol_reply::ProtocolReplyStore,
     schema::admin::{
@@ -179,7 +179,7 @@ impl AppState {
         let meta_provider = MetaProvider {
             api: provider_api.as_str().to_string(),
             model: provider.model.clone(),
-            gateway_base_url: Some(redact_url_for_runtime_fact(&provider.gateway_base_url)),
+            gateway_base_url: Some(redact_runtime_url(&provider.gateway_base_url)),
         };
         let runtime = self.runtime();
         let session_provider_config = SessionProviderConfig {
@@ -205,7 +205,7 @@ impl AppState {
             .await?;
 
         let probe_url = provider_health_url(&provider.gateway_base_url);
-        let probe_display_url = redact_url_for_runtime_fact(&probe_url);
+        let probe_display_url = redact_runtime_url(&probe_url);
         let event_id = config_event_id("config.applied");
         let config_version;
         {

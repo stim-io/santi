@@ -189,7 +189,7 @@ impl StandaloneSoulRuntime {
         Ok(())
     }
 
-    pub(super) async fn fetch_soul_session_by_id(
+    pub(super) async fn fetch_soul_session(
         &self,
         soul_session_id: &str,
     ) -> Result<Option<SoulSession>> {
@@ -211,10 +211,7 @@ impl StandaloneSoulRuntime {
         row.map(map_soul_session_row).transpose()
     }
 
-    pub(super) async fn fetch_soul_session_by_session_id(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<SoulSession>> {
+    pub(super) async fn fetch_session_soul(&self, session_id: &str) -> Result<Option<SoulSession>> {
         let row = sqlx::query(
             r#"SELECT id, soul_id, session_id, session_memory, provider_state, next_seq,
                       last_seen_session_seq, parent_soul_session_id, fork_point,

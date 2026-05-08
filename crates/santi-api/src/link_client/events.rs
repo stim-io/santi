@@ -94,7 +94,7 @@ pub(super) fn handle_verbose_gateway_event(
             output_index,
             content_index,
             text,
-        } => maybe_emit_output_text_done(output_index, content_index, text, streamed_text_parts),
+        } => maybe_emit_text_done(output_index, content_index, text, streamed_text_parts),
         VerboseGatewayEvent::OutputItemDone {
             output_index,
             item_id,
@@ -116,7 +116,7 @@ pub(super) fn handle_verbose_gateway_event(
     }
 }
 
-fn maybe_emit_output_text_done(
+fn maybe_emit_text_done(
     output_index: Option<usize>,
     content_index: Option<usize>,
     text: String,
@@ -251,7 +251,7 @@ fn parse_verbose_gateway_event(
             .map(|response_id| VerboseGatewayEvent::ResponseCreated { response_id }),
         "response.in_progress" => response_id_from_payload(&payload)
             .map(|response_id| VerboseGatewayEvent::ResponseInProgress { response_id }),
-        "response.output_item.added" => Some(build_output_item_added_event(&payload)),
+        "response.output_item.added" => Some(build_item_added_event(&payload)),
         "response.content_part.added" => Some(VerboseGatewayEvent::ContentPartAdded {
             output_index: payload_usize(&payload, "output_index"),
             content_index: payload_usize(&payload, "content_index"),
@@ -273,7 +273,7 @@ fn parse_verbose_gateway_event(
                 .unwrap_or_default()
                 .to_string(),
         }),
-        "response.output_item.done" => Some(build_output_item_done_event(&payload)),
+        "response.output_item.done" => Some(build_item_done_event(&payload)),
         "response.completed" => Some(VerboseGatewayEvent::Completed {
             response_id: response_id_from_payload(&payload),
         }),
@@ -294,7 +294,7 @@ fn response_id_from_payload(payload: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
-fn build_output_item_added_event(payload: &Value) -> VerboseGatewayEvent {
+fn build_item_added_event(payload: &Value) -> VerboseGatewayEvent {
     VerboseGatewayEvent::OutputItemAdded {
         output_index: payload_usize(payload, "output_index"),
         item_id: nested_string(payload, "item", "id"),
@@ -303,7 +303,7 @@ fn build_output_item_added_event(payload: &Value) -> VerboseGatewayEvent {
     }
 }
 
-fn build_output_item_done_event(payload: &Value) -> VerboseGatewayEvent {
+fn build_item_done_event(payload: &Value) -> VerboseGatewayEvent {
     VerboseGatewayEvent::OutputItemDone {
         output_index: payload_usize(payload, "output_index"),
         item_id: nested_string(payload, "item", "id"),

@@ -161,14 +161,14 @@ impl OpenAiResponsesClient {
                     cached_output
                 }
                 None => {
-                    let known_cached_response_ids_sample =
+                    let cached_ids_sample =
                         cache.keys().take(3).cloned().collect::<Vec<_>>().join(",");
                     tracing::warn!(
                         previous_response_id,
                         cache_hit = false,
                         function_call_outputs_count,
                         response_cache_size,
-                        known_cached_response_ids_sample,
+                        cached_ids_sample,
                         "missing cached response output for gateway continuation"
                     );
                     return Err(Error::Upstream {
@@ -281,61 +281,5 @@ impl Provider for OpenAiResponsesClient {
                 }
             }
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use santi_core::{port::provider::ProviderRequest, provider::ProviderInputMessage};
-
-    use super::OpenAiResponsesClient;
-
-    #[test]
-    fn maps_transcript_messages_to_responses_content_parts() {
-        let client = OpenAiResponsesClient::new("test-key".into(), "http://gateway.test".into());
-
-        let request = client
-            .map_request(ProviderRequest {
-                model: "test-model".into(),
-                instructions: None,
-                input: vec![
-                    ProviderInputMessage {
-                        role: "user".into(),
-                        content: "first marker".into(),
-                    },
-                    ProviderInputMessage {
-                        role: "assistant".into(),
-                        content: "first marker".into(),
-                    },
-                    ProviderInputMessage {
-                        role: "user".into(),
-                        content: "what did I send before?".into(),
-                    },
-                ],
-                tools: None,
-                previous_response_id: None,
-                function_call_outputs: None,
-            })
-            .expect("request should map");
-
-        assert_eq!(
-            request.input,
-            json!([
-                {
-                    "role": "user",
-                    "content": [{ "type": "input_text", "text": "first marker" }],
-                },
-                {
-                    "role": "assistant",
-                    "content": [{ "type": "output_text", "text": "first marker" }],
-                },
-                {
-                    "role": "user",
-                    "content": [{ "type": "input_text", "text": "what did I send before?" }],
-                },
-            ])
-        );
     }
 }

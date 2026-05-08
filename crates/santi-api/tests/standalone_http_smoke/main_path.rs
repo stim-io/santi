@@ -6,7 +6,7 @@ use crate::common::{
 };
 
 #[tokio::test]
-async fn standalone_http_main_path_smoke() {
+async fn main_path_smoke() {
     let (_dir, app) = bootstrap_test_app(start_mock_gateway().await).await;
     let session_id = create_session(&app).await;
 

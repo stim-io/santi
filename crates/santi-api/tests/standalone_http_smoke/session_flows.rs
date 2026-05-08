@@ -4,13 +4,12 @@ use tokio::time::{sleep, Duration};
 use tower::ServiceExt;
 
 use crate::common::{
-    bootstrap_test_app, bootstrap_test_app_with_bash_limits, create_session, request_json,
-    request_text, start_delayed_mock_gateway, start_mock_gateway, start_tool_call_mock_gateway,
-    start_tool_call_mock_gateway_with_command,
+    bootstrap_bash_test_app, bootstrap_test_app, create_session, request_json, request_text,
+    start_delayed_mock_gateway, start_mock_gateway, start_tool_gateway, start_tool_gateway_command,
 };
 
 #[tokio::test]
-async fn standalone_http_fork_and_compact_flows_work() {
+async fn fork_and_compact_work() {
     let (_dir, app) = bootstrap_test_app(start_mock_gateway().await).await;
     let session_id = create_session(&app).await;
 
@@ -103,8 +102,8 @@ async fn standalone_http_fork_and_compact_flows_work() {
 }
 
 #[tokio::test]
-async fn standalone_http_exposes_session_tool_activity_summaries() {
-    let (_dir, app) = bootstrap_test_app(start_tool_call_mock_gateway().await).await;
+async fn exposes_tool_activity() {
+    let (_dir, app) = bootstrap_test_app(start_tool_gateway().await).await;
     let session_id = create_session(&app).await;
 
     let (status, _) = request_text(
@@ -141,18 +140,14 @@ async fn standalone_http_exposes_session_tool_activity_summaries() {
         Some("bash")
     );
 
-    assert_bash_tool_activity_summary(&items[0]);
+    assert_bash_activity(&items[0]);
 }
 
 #[cfg(not(windows))]
 #[tokio::test]
-async fn standalone_http_tool_activity_reports_truncated_bash_output() {
-    let (_dir, app) = bootstrap_test_app_with_bash_limits(
-        start_tool_call_mock_gateway_with_command("printf abcdef").await,
-        3,
-        1024,
-    )
-    .await;
+async fn reports_truncated_bash() {
+    let (_dir, app) =
+        bootstrap_bash_test_app(start_tool_gateway_command("printf abcdef").await, 3, 1024).await;
     let session_id = create_session(&app).await;
 
     let (status, _) = request_text(
@@ -197,7 +192,7 @@ async fn standalone_http_tool_activity_reports_truncated_bash_output() {
 }
 
 #[cfg(not(windows))]
-fn assert_bash_tool_activity_summary(item: &Value) {
+fn assert_bash_activity(item: &Value) {
     assert_eq!(
         item.get("result_state").and_then(Value::as_str),
         Some("completed")
@@ -210,7 +205,7 @@ fn assert_bash_tool_activity_summary(item: &Value) {
 }
 
 #[cfg(windows)]
-fn assert_bash_tool_activity_summary(item: &Value) {
+fn assert_bash_activity(item: &Value) {
     assert_eq!(
         item.get("result_state").and_then(Value::as_str),
         Some("tool-error")
@@ -223,7 +218,7 @@ fn assert_bash_tool_activity_summary(item: &Value) {
 }
 
 #[tokio::test]
-async fn standalone_http_missing_session_routes_return_not_found() {
+async fn missing_session_routes_404() {
     let (_dir, app) = bootstrap_test_app(start_mock_gateway().await).await;
 
     let (status, _) = request_json(
@@ -323,7 +318,7 @@ async fn standalone_http_missing_session_routes_return_not_found() {
 }
 
 #[tokio::test]
-async fn standalone_http_concurrent_send_returns_conflict() {
+async fn concurrent_send_conflicts() {
     let (_dir, app) = bootstrap_test_app(start_delayed_mock_gateway(200).await).await;
     let session_id = create_session(&app).await;
 

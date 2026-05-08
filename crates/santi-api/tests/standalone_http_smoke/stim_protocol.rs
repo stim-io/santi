@@ -10,7 +10,7 @@ use crate::common::{
 };
 
 #[tokio::test]
-async fn standalone_http_accepts_stim_protocol_envelope() {
+async fn accepts_stim_envelope() {
     let (_dir, app) = bootstrap_test_app(start_mock_gateway().await).await;
     let create_envelope = MessageEnvelope {
         protocol_version: stim_proto::CURRENT_PROTOCOL_VERSION.into(),

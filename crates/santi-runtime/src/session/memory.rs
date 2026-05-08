@@ -56,7 +56,7 @@ impl SessionMemoryService {
         session_id: &str,
     ) -> Result<Option<SoulSession>, String> {
         self.soul_session_query
-            .get_soul_session_by_session_id(session_id)
+            .get_session_soul(session_id)
             .await
             .map_err(render_error)
     }

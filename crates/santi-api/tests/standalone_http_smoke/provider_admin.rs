@@ -7,7 +7,7 @@ use crate::common::{
 };
 
 #[tokio::test]
-async fn standalone_http_provider_probe_reports_gateway_health() {
+async fn provider_probe_reports_health() {
     let gateway = start_mock_gateway().await;
     let (_dir, app) = bootstrap_test_app(gateway.clone()).await;
 
@@ -32,7 +32,7 @@ async fn standalone_http_provider_probe_reports_gateway_health() {
 }
 
 #[tokio::test]
-async fn standalone_http_config_apply_reloads_provider_for_future_turns() {
+async fn config_apply_reloads_provider() {
     let first_gateway = start_text_mock_gateway("before reload").await;
     let second_gateway = start_text_mock_gateway("after reload").await;
     let (_dir, app) = bootstrap_test_app(first_gateway).await;

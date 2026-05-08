@@ -22,8 +22,7 @@ use santi_core::{
         soul_session_query::SoulSessionQueryPort,
     },
 };
-
-use crate::session::{
+use santi_runtime::session::{
     query::SessionQueryService,
     watch::{
         SessionWatchConnected, SessionWatchEvent, SessionWatchHub, SessionWatchService,
@@ -91,9 +90,11 @@ impl SoulRuntimePort for FakeSoulRuntime {
     async fn acquire_soul_session(&self, _input: AcquireSoulSession) -> Result<SoulSession> {
         unreachable!()
     }
+
     async fn get_soul_session(&self, _soul_session_id: &str) -> Result<Option<SoulSession>> {
         unreachable!()
     }
+
     async fn write_session_memory(
         &self,
         _soul_session_id: &str,
@@ -101,21 +102,27 @@ impl SoulRuntimePort for FakeSoulRuntime {
     ) -> Result<Option<SoulSession>> {
         unreachable!()
     }
+
     async fn start_turn(&self, _input: StartTurn) -> Result<Turn> {
         unreachable!()
     }
+
     async fn append_message_ref(&self, _input: AppendMessageRef) -> Result<AssemblyItem> {
         unreachable!()
     }
+
     async fn append_tool_call(&self, _input: AppendToolCall) -> Result<AssemblyItem> {
         unreachable!()
     }
+
     async fn append_tool_result(&self, _input: AppendToolResult) -> Result<AssemblyItem> {
         unreachable!()
     }
+
     async fn complete_turn(&self, _input: CompleteTurn) -> Result<Turn> {
         unreachable!()
     }
+
     async fn fail_turn(&self, _input: FailTurn) -> Result<Turn> {
         unreachable!()
     }
@@ -123,10 +130,7 @@ impl SoulRuntimePort for FakeSoulRuntime {
 
 #[async_trait::async_trait]
 impl SoulSessionQueryPort for FakeSoulRuntime {
-    async fn get_soul_session_by_session_id(
-        &self,
-        _session_id: &str,
-    ) -> Result<Option<SoulSession>> {
+    async fn get_session_soul(&self, _session_id: &str) -> Result<Option<SoulSession>> {
         Ok(None)
     }
 
@@ -182,7 +186,7 @@ impl EffectLedgerPort for FakeEffectLedger {
 }
 
 #[tokio::test]
-async fn returns_snapshot_with_messages_effects_and_latest_seq() {
+async fn returns_session_snapshot() {
     let session = Session {
         id: "sess_123".to_string(),
         parent_session_id: None,
@@ -290,7 +294,7 @@ async fn returns_snapshot_with_messages_effects_and_latest_seq() {
 }
 
 #[tokio::test]
-async fn returns_none_when_session_missing() {
+async fn missing_session_returns_none() {
     let query = Arc::new(SessionQueryService::new(
         Arc::new(FakeSessionLedger {
             session: None,
@@ -317,7 +321,7 @@ async fn returns_none_when_session_missing() {
 }
 
 #[tokio::test]
-async fn watch_session_emits_connected_then_runtime_events() {
+async fn watch_emits_runtime_events() {
     let session = Session {
         id: "sess_watch".to_string(),
         parent_session_id: None,

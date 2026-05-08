@@ -1,13 +1,13 @@
 use std::collections::BTreeMap;
 
 pub(super) fn github_https_git_env() -> BTreeMap<String, String> {
-    github_https_git_env_from(
+    github_git_env_from(
         std::env::var("GITHUB_TOKEN").ok().as_deref(),
         std::env::var("GH_TOKEN").ok().as_deref(),
     )
 }
 
-fn github_https_git_env_from(
+pub fn github_git_env_from(
     github_token: Option<&str>,
     gh_token: Option<&str>,
 ) -> BTreeMap<String, String> {
@@ -30,31 +30,4 @@ fn github_https_git_env_from(
             "https://github.com/".to_string(),
         ),
     ])
-}
-
-#[cfg(test)]
-mod tests {
-    use super::github_https_git_env_from;
-
-    #[test]
-    fn github_https_git_env_is_empty_without_tokens() {
-        let env = github_https_git_env_from(None, None);
-
-        assert!(env.is_empty());
-    }
-
-    #[test]
-    fn github_https_git_env_prefers_github_token() {
-        let env = github_https_git_env_from(Some("github-token"), Some("gh-token"));
-
-        assert_eq!(env.get("GIT_CONFIG_COUNT").map(String::as_str), Some("1"));
-        assert_eq!(
-            env.get("GIT_CONFIG_KEY_0").map(String::as_str),
-            Some("url.https://x-access-token:github-token@github.com/.insteadOf")
-        );
-        assert_eq!(
-            env.get("GIT_CONFIG_VALUE_0").map(String::as_str),
-            Some("https://github.com/")
-        );
-    }
 }

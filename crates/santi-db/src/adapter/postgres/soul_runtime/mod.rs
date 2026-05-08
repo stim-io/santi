@@ -3,6 +3,7 @@ use sqlx::PgPool;
 mod compact;
 mod fork;
 mod helpers;
+mod query_port;
 mod runtime_port;
 
 #[derive(Clone)]

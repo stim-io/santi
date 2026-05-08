@@ -7,12 +7,11 @@ use santi_core::{
 };
 
 mod mapping;
-mod mutation;
 
+use crate::message_events::apply_message_event;
 use mapping::{
     actor_type_str, map_message_row, map_session_message_row, message_state_str, payload_action_str,
 };
-use mutation::apply_message_event_to_message;
 
 #[derive(Clone)]
 pub struct DbSessionLedger {
@@ -310,7 +309,7 @@ impl SessionLedgerPort for DbSessionLedger {
             input.payload,
             santi_core::model::message::MessageEventPayload::Delete { .. }
         );
-        let updated_message = apply_message_event_to_message(
+        let updated_message = apply_message_event(
             session_message.message,
             &input.actor_type,
             &input.actor_id,

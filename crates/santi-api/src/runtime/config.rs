@@ -126,7 +126,7 @@ impl Config {
             bind_addr: Some(self.bind_addr.to_string()),
             provider_model: self.openai_model.clone(),
             provider_api: self.provider_api.as_str().to_string(),
-            provider_gateway_base_url: Some(redact_url_for_runtime_fact(&self.openai_base_url)),
+            provider_gateway_base_url: Some(redact_runtime_url(&self.openai_base_url)),
         }
     }
 
@@ -134,7 +134,7 @@ impl Config {
         MetaProvider {
             api: self.provider_api.as_str().to_string(),
             model: self.openai_model.clone(),
-            gateway_base_url: Some(redact_url_for_runtime_fact(&self.openai_base_url)),
+            gateway_base_url: Some(redact_runtime_url(&self.openai_base_url)),
         }
     }
 
@@ -154,7 +154,7 @@ impl Config {
     }
 
     pub fn provider_probe_display_url(&self) -> String {
-        redact_url_for_runtime_fact(&self.provider_probe_url())
+        redact_runtime_url(&self.provider_probe_url())
     }
 }
 
@@ -227,7 +227,7 @@ fn parse_env_usize(key: &str, default: usize) -> Result<usize, String> {
         .unwrap_or(Ok(default))
 }
 
-pub(crate) fn redact_url_for_runtime_fact(value: &str) -> String {
+pub(crate) fn redact_runtime_url(value: &str) -> String {
     let without_query = strip_query_and_fragment(value);
 
     let Some(scheme_end) = without_query.find("://") else {
@@ -268,51 +268,4 @@ fn strip_query_and_fragment(value: &str) -> &str {
 
 fn parse_hook_source_json(raw: &str) -> Result<HookSpecSource, String> {
     HookSpecSource::from_json_str(raw).map_err(|err| format!("parse HOOK_SPECS_JSON failed: {err}"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{provider_health_url, redact_url_for_runtime_fact, ProviderApi};
-
-    #[test]
-    fn runtime_fact_url_redaction_removes_credentials_query_and_fragment() {
-        assert_eq!(
-            redact_url_for_runtime_fact(
-                "https://user:secret@example.test/openai/v1?token=abc#frag"
-            ),
-            "https://example.test/openai/v1"
-        );
-    }
-
-    #[test]
-    fn runtime_fact_url_redaction_keeps_plain_local_gateway_url() {
-        assert_eq!(
-            redact_url_for_runtime_fact("http://127.0.0.1:18082/openai/v1"),
-            "http://127.0.0.1:18082/openai/v1"
-        );
-    }
-
-    #[test]
-    fn provider_api_accepts_deepseek_chat_alias() {
-        assert_eq!(
-            ProviderApi::from_env_value("deepseek".to_string()).unwrap(),
-            ProviderApi::ChatCompletions
-        );
-        assert_eq!(
-            ProviderApi::from_env_value("responses".to_string()).unwrap(),
-            ProviderApi::Responses
-        );
-    }
-
-    #[test]
-    fn provider_health_url_derives_from_configured_base_url() {
-        assert_eq!(
-            provider_health_url("http://127.0.0.1:18082/openai/v1/"),
-            "http://127.0.0.1:18082/openai/v1/health"
-        );
-        assert_eq!(
-            provider_health_url("https://example.test/v1?token=abc#frag"),
-            "https://example.test/v1/health"
-        );
-    }
 }

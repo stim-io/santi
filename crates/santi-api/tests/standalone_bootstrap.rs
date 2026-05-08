@@ -15,7 +15,7 @@ use santi_runtime::session::query::SessionQueryService;
 use std::sync::Arc;
 
 #[tokio::test]
-async fn standalone_bootstrap_injects_session_store() {
+async fn bootstrap_injects_session_store() {
     let dir = tempfile::tempdir().unwrap();
     let config = Config {
         mode: Mode::Standalone,
@@ -43,7 +43,7 @@ async fn standalone_bootstrap_injects_session_store() {
 }
 
 #[tokio::test]
-async fn standalone_bootstrap_fails_when_lock_is_held() {
+async fn bootstrap_lock_conflict() {
     let dir = tempfile::tempdir().unwrap();
     let config = Config {
         mode: Mode::Standalone,
@@ -80,7 +80,7 @@ async fn standalone_bootstrap_fails_when_lock_is_held() {
 }
 
 #[tokio::test]
-async fn standalone_query_service_lists_compacts_via_fork_compact_store() {
+async fn query_lists_compacts() {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("standalone.sqlite");
 

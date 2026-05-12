@@ -23,9 +23,8 @@ Ports:
 Note:
 
 - the preferred current loop starts support services with `docker compose up -d --build stim-server santi-link`
-- start local foreground `santi` from the repo root with `scripts/santi local`
-- local foreground `santi` runs standalone, uses sqlite under `.tmp/local-santi`, binds `127.0.0.1:18081`, and uses the normal provider path through `santi-link`
-- for a DeepSeek foreground run, start `santi` from the repo root with `scripts/santi deepseek`; the helper reads provider values from the process environment first, then the ignored repo-root `.env`, then the macOS launch environment. For the required `DEEPSEEK_API_KEY`, it also falls back to the user's shell environment, does not print the secret, sets `SANTI_PROVIDER_API=chat-completions`, and defaults to `deepseek-chat` against `https://api.deepseek.com`
+- start local foreground `santi` directly with `cargo run -p santi-api` from `modules/santi/`; it defaults to standalone mode, binds `127.0.0.1:18081`, writes runtime state under `./.tmp/santi-runtime`, uses sqlite at `./.tmp/santi-standalone.sqlite`, and uses the normal provider path through `santi-link` with the `local-foreground` launch profile baked in
+- to switch the running instance between provider profiles (local responses gateway vs. DeepSeek chat-completions), call the admin endpoint through `santi-cli config apply --profile local` or `santi-cli config apply --profile deepseek`; the CLI resolves `DEEPSEEK_API_KEY` through process env → repo-root `.env` → `launchctl getenv` → login shell `printenv`, and never prints the secret
 - containerized `santi` remains available through the explicit `container-santi` compose profile
 
 Probe examples:
@@ -34,16 +33,16 @@ Probe examples:
 docker compose up -d --build stim-server santi-link
 ```
 
-In another repo-root shell:
+In another `modules/santi/` shell:
 
 ```bash
-scripts/santi local
+cargo run -p santi-api
 ```
 
-DeepSeek foreground variant:
+DeepSeek foreground variant: leave the same `cargo run -p santi-api` instance up, then apply the profile from any shell:
 
 ```bash
-scripts/santi deepseek
+santi-cli config apply --profile deepseek
 ```
 
 Then probe from any shell:
@@ -62,7 +61,7 @@ docker compose --profile container-santi up -d --build santi
 Reset local foreground state when old sqlite/runtime contents are getting in the way:
 
 ```bash
-rm -rf .tmp/local-santi
+rm -rf .tmp/santi-runtime .tmp/santi-standalone.sqlite*
 ```
 
 Reset container state when old compose volumes are getting in the way:
@@ -99,10 +98,10 @@ Start support services:
 docker compose up -d --build stim-server santi-link
 ```
 
-Keep local foreground `santi` running in another repo-root shell:
+Keep local foreground `santi` running in another `modules/santi/` shell:
 
 ```bash
-scripts/santi local
+cargo run -p santi-api
 ```
 
 Run CLI checks from `modules/santi`:

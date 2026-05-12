@@ -14,10 +14,10 @@ This is a high-frequency documentation-level acceptance loop. Keep it easy to re
 docker compose up -d --build stim-server santi-link
 ```
 
-- Keep local foreground `santi` running in another repo-root shell:
+- Keep local foreground `santi` running in another `modules/santi/` shell:
 
 ```bash
-scripts/santi local
+cargo run -p santi-api
 ```
 
 - From `modules/stim`, confirm the local loop sees all required targets:

@@ -23,7 +23,7 @@ scripts/santi local
 - From `modules/stim`, confirm the local loop sees all required targets:
 
 ```bash
-cargo run -p stim-dev -- detect
+sidecar status --config sidecar.toml --format json
 ```
 
 Expected target posture:

@@ -45,10 +45,10 @@ If this path is broken, stop and fix the runtime before doing deeper checks.
 docker compose up -d --build stim-server santi-link
 ```
 
-Keep local foreground `santi` running in another repo-root shell:
+Keep local foreground `santi` running in another `modules/santi/` shell:
 
 ```bash
-scripts/santi local
+cargo run -p santi-api
 ```
 
 Then verify from `modules/santi`:

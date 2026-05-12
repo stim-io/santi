@@ -41,7 +41,7 @@ pub enum ProviderApi {
 
 impl Config {
     pub fn from_env() -> Result<Self, String> {
-        let mode_raw = env::var("MODE").unwrap_or_else(|_| "distributed".to_string());
+        let mode_raw = env::var("MODE").unwrap_or_else(|_| "standalone".to_string());
         let mode = match mode_raw.to_lowercase().as_str() {
             "distributed" => Mode::Distributed,
             "standalone" => Mode::Standalone,
@@ -49,19 +49,20 @@ impl Config {
         };
 
         let bind_addr = env::var("BIND_ADDR")
-            .unwrap_or_else(|_| "127.0.0.1:8080".to_string())
+            .unwrap_or_else(|_| "127.0.0.1:18081".to_string())
             .parse()
             .map_err(|err| format!("invalid BIND_ADDR: {err}"))?;
 
-        let launch_profile = optional_env("SANTI_LAUNCH_PROFILE");
+        let launch_profile =
+            optional_env("SANTI_LAUNCH_PROFILE").or_else(|| Some("local-foreground".to_string()));
         let provider_api = ProviderApi::from_env_value(
             env::var("SANTI_PROVIDER_API").unwrap_or_else(|_| "responses".to_string()),
         )?;
 
-        let execution_root = env::var("EXECUTION_ROOT").unwrap_or_else(|_| "/app".to_string());
+        let execution_root = env::var("EXECUTION_ROOT").unwrap_or_else(|_| ".".to_string());
 
         let runtime_root =
-            env::var("RUNTIME_ROOT").unwrap_or_else(|_| "/tmp/santi-runtime".to_string());
+            env::var("RUNTIME_ROOT").unwrap_or_else(|_| "./.tmp/santi-runtime".to_string());
         let bash_timeout_secs =
             parse_env_u64("SANTI_BASH_TIMEOUT_SECS", DEFAULT_BASH_TIMEOUT_SECS)?;
         let bash_output_truncate_chars = parse_env_usize(
@@ -74,9 +75,9 @@ impl Config {
         )?;
 
         let openai_api_key =
-            env::var("OPENAI_API_KEY").map_err(|_| "missing OPENAI_API_KEY".to_string())?;
-        let openai_base_url =
-            env::var("OPENAI_BASE_URL").map_err(|_| "missing OPENAI_BASE_URL".to_string())?;
+            env::var("OPENAI_API_KEY").unwrap_or_else(|_| "codex-local-dev".to_string());
+        let openai_base_url = env::var("OPENAI_BASE_URL")
+            .unwrap_or_else(|_| "http://127.0.0.1:18082/openai/v1".to_string());
         let openai_model = env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-5.4".to_string());
         let (database_url, redis_url) = match mode {
             Mode::Distributed => (
@@ -88,7 +89,7 @@ impl Config {
             Mode::Standalone => (String::new(), String::new()),
         };
         let standalone_sqlite_path = env::var("STANDALONE_SQLITE_PATH")
-            .unwrap_or_else(|_| "./santi-standalone.sqlite".to_string());
+            .unwrap_or_else(|_| "./.tmp/santi-standalone.sqlite".to_string());
 
         let hook_source = env::var("HOOK_SPECS_JSON")
             .ok()
